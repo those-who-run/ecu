@@ -1,0 +1,15 @@
+# Written by copier from those-who-run/chassis: what `copier update` needs to bring
+# the template's later changes in. Change it only through copier.
+_commit: v1.0.1
+_src_path: https://github.com/those-who-run/chassis.git
+description: 'Ingest, race state and the built-in rules for Those Who Run v2: it owns
+
+    the session and publishes frames, events and callouts on NATS.
+
+    Every other component subscribes to what it publishes, and `ecu` knows
+
+    nothing about who listens ([ADR 0001](https://github.com/those-who-run/paddock/blob/main/docs/adr/0001-v2-architecture.md)
+    in paddock).'
+image: true
+name: ecu
+title: ECU
