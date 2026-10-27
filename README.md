@@ -65,7 +65,7 @@ and ends a session exactly where v1 did, with v1's rules ported from its
 | `twr.v1.<src>.evt.<sid>.lap.completed` | a lap ended | `EVENTS` |
 | `twr.v1.<src>.evt.<sid>.session.ended` | a session ended | `EVENTS` |
 
-- **Messages.** Each is a core publish of the `contracts` message in protobuf
+- **Messages.** Each is the `contracts` message in protobuf
   JSON, with every CloudEvents header from `contracts`' `ce` package:
   `ce-specversion`, `ce-id`, `ce-type`, `ce-source` (`/twr/ecu/gt7`), `ce-time`
   (when ecu received the packet) and `ce-datacontenttype`, and `Nats-Msg-Id`
@@ -73,11 +73,23 @@ and ends a session exactly where v1 did, with v1's rules ported from its
   `<src>:<sid>:session:started`, `<src>:<sid>:lap:<n>:completed` or
   `<src>:<sid>:session:ended`, so two replays under different sources are not
   deduplicated against each other. `session.started`'s `source` is the `<src>`.
-- **Nothing waits on the network.** A publish goes into the client's buffer.
-  While the connection is down, frames are dropped and counted, and events wait
-  in a queue of 1,024, sent in order when it is back, after the events of the
-  10 s before it went, which `EVENTS` deduplicates. At the end ecu waits up to
-  5 s to send what is queued.
+- **Nothing waits on the network.** The step loop encodes its outputs and
+  hands them to one goroutine, which owns the connection, without waiting. A
+  frame that finds the hand-over full (1,024 frames, about 17 s) is dropped and
+  counted, as is every frame while the connection is down. Only that goroutine
+  waits on a server that stops reading (up to 2 s a write, then the client
+  drops the connection and tries again).
+- **Events, in order and acknowledged.** Frames are core publishes; events are
+  published through JetStream, one at a time: the next goes only once
+  `EVENTS` has acknowledged the one before, and one that is not acknowledged
+  within 5 s, or could not be sent, is sent again after `ReconnectWait`. So
+  events reach `EVENTS` in the order they happened, and none is lost while ecu
+  runs. Up to 1,024 wait; beyond that an event is dropped, counted and logged
+  as an error. A copy sent again that `EVENTS` already stored is dropped there
+  within its 2 min duplicate window; only when an acknowledgement is lost and
+  the connection stays down longer than that can a copy be stored twice, so a
+  consumer treats `ce-id` as the event's identity (logbook's writes are
+  upserts). At the end ecu waits up to 5 s for the queue.
 - **Configuration.** `--nats` or `TWR_NATS_URL` (`nats://127.0.0.1:4222`), and
   `--src` or `TWR_SRC` (`live`): `live`, `parity` or `replay-<run>`, the run of
   letters, digits, `_` and `-`. Anything else, such as a `.`, `*`, `>` or white

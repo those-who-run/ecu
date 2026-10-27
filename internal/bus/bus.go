@@ -1,15 +1,16 @@
 // Package bus is ecu's NATS adapter (paddock#34): it puts the race state's
 // outputs on the bus. Each frame is a core publish on twr.v1.<src>.frame.gt7, which
 // the TELEMETRY stream captures, and at most 20 a second of frame time go on
-// twr.v1.<src>.frame.gt7.lo too; session.started, lap.completed and session.ended
-// are core publishes on twr.v1.<src>.evt.<sid>.<area>.<what>, which the EVENTS
-// stream captures and deduplicates on Nats-Msg-Id. Every message carries the full
-// set of CloudEvents headers, from contracts' ce package. It is the only package
-// that imports nats.go.
+// twr.v1.<src>.frame.gt7.lo too. session.started, lap.completed and session.ended
+// go on twr.v1.<src>.evt.<sid>.<area>.<what>, which the EVENTS stream captures and
+// deduplicates on Nats-Msg-Id; each is published through JetStream and sent again
+// until EVENTS acknowledges it. Every message carries the full set of CloudEvents
+// headers, from contracts' ce package. It is the only package that imports nats.go.
 //
-// Nothing on the frame path waits on the network: a publish goes into the client's
-// buffer and returns. While the connection is down, frames are dropped and counted,
-// and events wait in a bounded queue, sent in order once it is back.
+// Nothing on the frame path waits on the network: Publish encodes the outputs and
+// hands them to one goroutine, which owns the connection, without waiting. That
+// goroutine may wait on the network (a server that stops reading holds a write for
+// up to its timeout); the step loop never does.
 package bus
 
 import (
@@ -17,11 +18,11 @@ import (
 	"errors"
 	"log/slog"
 	"strconv"
-	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/those-who-run/contracts/ce"
 	"github.com/those-who-run/ecu/internal/race"
@@ -29,11 +30,15 @@ import (
 
 // Options are the publisher's limits. The zero value takes the defaults.
 type Options struct {
-	// QueueSize is how many events wait while the connection is down: 1,024 by
-	// default, a few hours of laps. An event beyond it is dropped and counted.
+	// QueueSize is how many events wait to be sent and acknowledged: 1,024 by
+	// default, hours of laps. Events beyond it are dropped, counted and logged as
+	// errors, never silently.
 	QueueSize int
-	// ReconnectWait is the pause between attempts to reach the server again: 1 s
-	// by default.
+	// FrameBuffer is how many frames wait for the publishing goroutine: 1,024 by
+	// default, about 17 s at 60 Hz. A frame beyond it is dropped and counted.
+	FrameBuffer int
+	// ReconnectWait is the pause between attempts to reach the server again, and
+	// before an event that was not acknowledged is sent again: 1 s by default.
 	ReconnectWait time.Duration
 }
 
@@ -41,51 +46,59 @@ type Options struct {
 // 20 Hz at most (R2).
 const loGap = 0.05
 
-// resendWindow is how far before a lost connection the events already published
-// are sent again once it is back. A publish only reaches the client's buffer, so the
-// events of the last moments before the client saw the connection go may never
-// have reached the server; EVENTS drops the copies that did, by Nats-Msg-Id, within
-// its 2 min duplicate window.
-const resendWindow = 10 * time.Second
+// The client's timeouts. writeTimeout bounds how long the publishing goroutine
+// waits on a server that stops reading before the client drops the connection and
+// tries again; ackTimeout how long an event waits for EVENTS' acknowledgement
+// before it is sent again.
+const (
+	writeTimeout = 2 * time.Second
+	ackTimeout   = 5 * time.Second
+)
 
-// Stats is what was published and dropped.
+// Stats is what was published and dropped. Events counts the acknowledgements
+// from EVENTS, a duplicate's included.
 type Stats struct {
 	Frames, LoFrames, Events                      uint64
 	DroppedFrames, DroppedLoFrames, DroppedEvents uint64
 }
 
+// frameMsg is a frame for the publishing goroutine, with whether it goes on .lo
+// too.
+type frameMsg struct {
+	msg *nats.Msg
+	lo  bool
+}
+
 // Publisher publishes the race state's outputs under one <src>. Publish is called
-// from one goroutine, the step loop's.
+// from one goroutine, the step loop's; everything that touches the connection
+// runs on the publisher's own goroutine.
 type Publisher struct {
 	nc     *nats.Conn
+	js     jetstream.JetStream
 	src    string
 	logger *slog.Logger
 	limit  int
+	wait   time.Duration
+
+	frames chan frameMsg
+	events chan *nats.Msg
+	stop   chan context.Context // Close's request, with its deadline
+	done   chan struct{}
 
 	// The step loop's own: the frame time of the last frame put on .lo.
-	lastLo  float64
-	sentLo  bool
-	reached chan struct{} // a (re)connect happened
+	lastLo float64
+	sentLo bool
 
-	mu       sync.Mutex
-	queue    []*nats.Msg // events waiting for the connection, oldest first
-	recent   []sent      // events published lately, for resendWindow
-	downAt   time.Time   // when the connection went, zero while it is up
-	closed   bool
 	counters struct {
 		frames, lo, events                      atomic.Uint64
 		droppedFrames, droppedLo, droppedEvents atomic.Uint64
 	}
 }
 
-type sent struct {
-	msg *nats.Msg
-	at  time.Time
-}
-
 // Connect is a publisher on the server cfg names, under cfg.Src, which Validate
-// must have passed. It doesn't wait for the server: until the first connection,
-// and after any loss of it, it keeps trying, every ReconnectWait.
+// must pass. Its first attempt to reach the server can take the client's connect
+// timeout (2 s); after that, and after any loss of the connection, the client
+// keeps trying in the background, every ReconnectWait.
 func Connect(cfg Config, logger *slog.Logger, opts Options) (*Publisher, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
@@ -93,69 +106,57 @@ func Connect(cfg Config, logger *slog.Logger, opts Options) (*Publisher, error) 
 	if opts.QueueSize <= 0 {
 		opts.QueueSize = 1024
 	}
+	if opts.FrameBuffer <= 0 {
+		opts.FrameBuffer = 1024
+	}
 	if opts.ReconnectWait <= 0 {
 		opts.ReconnectWait = time.Second
 	}
-	p := &Publisher{src: cfg.Src, logger: logger, limit: opts.QueueSize, reached: make(chan struct{}, 1)}
 	nc, err := nats.Connect(cfg.URL,
 		nats.Name("ecu"),
 		nats.RetryOnFailedConnect(true),
 		nats.MaxReconnects(-1),
 		nats.ReconnectWait(opts.ReconnectWait),
-		// No buffer of the client's while it reconnects: a publish then fails at
-		// once, so a frame is counted as dropped and an event queued here, in order.
+		// No buffer of the client's while it reconnects: a frame published then is
+		// dropped at once, and an event waits in the publisher's queue.
 		nats.ReconnectBufSize(-1),
-		nats.ConnectHandler(p.connected),
-		nats.ReconnectHandler(p.connected),
-		nats.DisconnectErrHandler(p.disconnected),
+		nats.FlusherTimeout(writeTimeout),
+		nats.ReconnectHandler(func(nc *nats.Conn) {
+			logger.Info("NATS connected again", "server", nc.ConnectedUrlRedacted())
+		}),
+		nats.DisconnectErrHandler(func(_ *nats.Conn, err error) {
+			if err != nil {
+				logger.Warn("NATS connection lost", "err", err)
+			}
+		}),
 	)
 	if err != nil {
 		return nil, err
 	}
-	p.nc = nc
+	// One event in flight at a time keeps EVENTS in the order the events happened.
+	js, err := jetstream.New(nc, jetstream.WithPublishAsyncTimeout(ackTimeout), jetstream.WithPublishAsyncMaxPending(1))
+	if err != nil {
+		nc.Close()
+		return nil, err
+	}
+	p := &Publisher{
+		nc: nc, js: js, src: cfg.Src, logger: logger, limit: opts.QueueSize, wait: opts.ReconnectWait,
+		frames: make(chan frameMsg, opts.FrameBuffer),
+		events: make(chan *nats.Msg, opts.QueueSize),
+		stop:   make(chan context.Context),
+		done:   make(chan struct{}),
+	}
+	go p.run()
 	logger.Info("publishing", "nats", redacted(cfg.URL), "src", cfg.Src)
 	return p, nil
-}
-
-func (p *Publisher) disconnected(_ *nats.Conn, err error) {
-	p.mu.Lock()
-	if p.downAt.IsZero() {
-		p.downAt = time.Now()
-	}
-	closed := p.closed
-	p.mu.Unlock()
-	if !closed {
-		p.logger.Warn("NATS connection lost", "err", err)
-	}
-}
-
-// connected sends the queued events, after those published just before the
-// connection went, which may not have reached the server.
-func (p *Publisher) connected(nc *nats.Conn) {
-	p.mu.Lock()
-	if !p.downAt.IsZero() {
-		var again []*nats.Msg
-		for _, s := range p.recent {
-			if !s.at.Before(p.downAt.Add(-resendWindow)) {
-				again = append(again, s.msg)
-			}
-		}
-		p.queue = append(again, p.queue...)
-		p.recent, p.downAt = nil, time.Time{}
-	}
-	p.flushQueue(nc)
-	p.mu.Unlock()
-	p.logger.Info("NATS connected", "server", nc.ConnectedUrlRedacted())
-	select {
-	case p.reached <- struct{}{}:
-	default:
-	}
 }
 
 // Publish publishes a step's outputs: each frame on the frame subject, and on .lo
 // when it is 50 ms of frame time or more after the last one there, and each event
 // on its own subject. SessionStarted's source is set to the publisher's <src>
-// here, as only the publisher knows it. It never waits on the network.
+// here, as only the publisher knows it. It encodes the outputs and hands them on
+// without waiting: a frame that finds the hand-over full is dropped and counted,
+// and so is an event that finds the queue full, with an error logged.
 func (p *Publisher) Publish(outs []race.Output) {
 	for _, o := range outs {
 		if o.Frame != nil {
@@ -177,26 +178,22 @@ func (p *Publisher) frame(o race.Output) {
 	h, data, err := ce.Encode(o.Frame, o.Event)
 	if err != nil {
 		p.logger.Error("frame not encoded", "seq", o.Frame.GetSeq(), "err", err)
-		p.counters.droppedFrames.Add(1)
+		p.dropFrame(lo)
 		return
 	}
-	subject := "twr.v1." + p.src + ".frame.gt7"
-	if !p.nc.IsConnected() || p.nc.PublishMsg(&nats.Msg{Subject: subject, Header: nats.Header(h), Data: data}) != nil {
-		p.counters.droppedFrames.Add(1)
-		if lo {
-			p.counters.droppedLo.Add(1)
-		}
-		return
+	msg := &nats.Msg{Subject: "twr.v1." + p.src + ".frame.gt7", Header: nats.Header(h), Data: data}
+	select {
+	case p.frames <- frameMsg{msg, lo}:
+	default:
+		p.dropFrame(lo)
 	}
-	p.counters.frames.Add(1)
-	if !lo {
-		return
-	}
-	if p.nc.PublishMsg(&nats.Msg{Subject: subject + ".lo", Header: nats.Header(h), Data: data}) != nil {
+}
+
+func (p *Publisher) dropFrame(lo bool) {
+	p.counters.droppedFrames.Add(1)
+	if lo {
 		p.counters.droppedLo.Add(1)
-		return
 	}
-	p.counters.lo.Add(1)
 }
 
 // The event ids (R4): <src> is part of each, so two replays of one recording
@@ -223,46 +220,117 @@ func (p *Publisher) event(o race.Output) {
 		return
 	}
 	msg := &nats.Msg{Subject: "twr.v1." + p.src + ".evt." + o.Session + "." + what, Header: nats.Header(h), Data: data}
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if len(p.queue) >= p.limit {
+	select {
+	case p.events <- msg:
+	default:
 		p.counters.droppedEvents.Add(1)
-		p.logger.Warn("event dropped: the queue is full", "id", e.ID, "queue", p.limit)
-		return
+		p.logger.Error("event dropped: the queue is full", "id", e.ID, "queue", p.limit)
 	}
-	p.queue = append(p.queue, msg)
-	p.flushQueue(p.nc)
 }
 
-// flushQueue publishes the queued events in order while the connection takes them.
-// The caller holds mu.
-func (p *Publisher) flushQueue(nc *nats.Conn) {
-	for len(p.queue) > 0 && nc.IsConnected() {
-		if nc.PublishMsg(p.queue[0]) != nil {
+// run is the publishing goroutine: it owns the connection. Frames go out as they
+// come, or are dropped while the connection is down. Events go out one at a time,
+// in order: the next is sent only once EVENTS has acknowledged the one before, and
+// one that is not acknowledged (the connection went, or the ack timed out) is sent
+// again after ReconnectWait. A copy that EVENTS did store is dropped there as a
+// duplicate within its 2 min window.
+func (p *Publisher) run() {
+	defer close(p.done)
+	var (
+		queue    []*nats.Msg // events taken, oldest first; queue[0] is in flight or next
+		inflight jetstream.PubAckFuture
+		retry    *time.Timer
+		retryC   <-chan time.Time
+		closing  context.Context
+		lastErr  string
+	)
+	for {
+		if inflight == nil && retryC == nil && len(queue) > 0 {
+			f, err := p.js.PublishMsgAsync(queue[0])
+			if err == nil {
+				inflight = f
+			} else {
+				lastErr = p.notSent(queue[0], err, lastErr)
+				retry = time.NewTimer(p.wait)
+				retryC = retry.C
+			}
+		}
+		if closing != nil && len(queue) == 0 && len(p.events) == 0 && len(p.frames) == 0 {
 			return
 		}
-		now := time.Now()
-		p.recent = append(p.recent, sent{p.queue[0], now})
-		p.queue[0] = nil
-		p.queue = p.queue[1:]
-		p.counters.events.Add(1)
-		for len(p.recent) > 0 && now.Sub(p.recent[0].at) > resendWindow {
-			p.recent = p.recent[1:]
+		if closing != nil && closing.Err() != nil {
+			// Out of time: what is left is dropped, before any more waits on the
+			// network.
+			for range len(p.frames) {
+				p.dropFrame((<-p.frames).lo)
+			}
+			p.counters.droppedEvents.Add(uint64(len(queue) + len(p.events)))
+			return
+		}
+		var ok <-chan *jetstream.PubAck
+		var failed <-chan error
+		if inflight != nil {
+			ok, failed = inflight.Ok(), inflight.Err()
+		}
+		events := p.events
+		if len(queue) >= p.limit {
+			events = nil // the queue is full: the hand-over fills, then the step drops
+		}
+		var deadline <-chan struct{}
+		if closing != nil {
+			deadline = closing.Done()
+		}
+		select {
+		case f := <-p.frames:
+			p.sendFrame(f)
+		case m := <-events:
+			queue = append(queue, m)
+		case <-ok:
+			p.counters.events.Add(1)
+			queue[0] = nil
+			queue, inflight, lastErr = queue[1:], nil, ""
+		case err := <-failed:
+			lastErr = p.notSent(queue[0], err, lastErr)
+			inflight = nil
+			retry = time.NewTimer(p.wait)
+			retryC = retry.C
+		case <-retryC:
+			retryC = nil
+		case ctx := <-p.stop:
+			closing = ctx
+		case <-deadline:
+			// The check at the top drops what is left.
 		}
 	}
 }
 
-// sendQueued sends the queued events the connection takes, and is how many are
-// left.
-func (p *Publisher) sendQueued() int {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.flushQueue(p.nc)
-	return len(p.queue)
+// notSent logs an event that was not sent or acknowledged, once for each new
+// reason, and returns the reason.
+func (p *Publisher) notSent(m *nats.Msg, err error, last string) string {
+	if err.Error() != last {
+		p.logger.Warn("event not acknowledged, sending it again", "id", m.Header.Get(ce.IDHeader), "err", err)
+	}
+	return err.Error()
 }
 
-// Stats is what has been published and dropped so far. An event sent again after
-// a lost connection counts again.
+func (p *Publisher) sendFrame(f frameMsg) {
+	if !p.nc.IsConnected() || p.nc.PublishMsg(f.msg) != nil {
+		p.dropFrame(f.lo)
+		return
+	}
+	p.counters.frames.Add(1)
+	if !f.lo {
+		return
+	}
+	lo := &nats.Msg{Subject: f.msg.Subject + ".lo", Header: f.msg.Header, Data: f.msg.Data}
+	if p.nc.PublishMsg(lo) != nil {
+		p.counters.droppedLo.Add(1)
+		return
+	}
+	p.counters.lo.Add(1)
+}
+
+// Stats is what has been published and dropped so far.
 func (p *Publisher) Stats() Stats {
 	c := &p.counters
 	return Stats{
@@ -271,34 +339,27 @@ func (p *Publisher) Stats() Stats {
 	}
 }
 
-// Close sends the events still queued, waiting for the connection until ctx is
-// done, then flushes what the client holds and closes the connection. The events
-// it could not send are counted as dropped. It logs and returns the totals (R10).
+// Close publishes what Publish has handed over and waits for EVENTS to acknowledge
+// every event, until ctx is done; the events still waiting then are counted as
+// dropped. It then flushes the frames the client holds and closes the connection,
+// and logs and returns the totals (R10). Publish must not be called after it.
 func (p *Publisher) Close(ctx context.Context) Stats {
-wait:
-	for p.sendQueued() > 0 {
-		select {
-		case <-p.reached:
-		case <-ctx.Done():
-			break wait
-		}
+	select {
+	case p.stop <- ctx:
+		<-p.done
+	case <-p.done:
 	}
 	var err error
 	if p.nc.IsConnected() {
 		err = p.nc.FlushWithContext(ctx)
 	}
-	p.mu.Lock()
-	p.closed = true
-	p.counters.droppedEvents.Add(uint64(len(p.queue)))
-	p.queue = nil
-	p.mu.Unlock()
 	p.nc.Close()
 	s := p.Stats()
 	p.logger.InfoContext(ctx, "published",
 		"frames", s.Frames, "lo_frames", s.LoFrames, "events", s.Events,
 		"dropped_frames", s.DroppedFrames, "dropped_lo_frames", s.DroppedLoFrames, "dropped_events", s.DroppedEvents)
 	if err != nil && !errors.Is(err, context.Canceled) {
-		p.logger.WarnContext(ctx, "the last messages may not have reached the server", "err", err)
+		p.logger.WarnContext(ctx, "the last frames may not have reached the server", "err", err)
 	}
 	return s
 }

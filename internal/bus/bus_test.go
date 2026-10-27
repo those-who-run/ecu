@@ -338,6 +338,7 @@ func TestAServerStoppedMidReplay(t *testing.T) {
 		out = append(out, step(m, r.pub, all[at:at+1])...)
 		at++
 	}
+	handled(t, r.pub, len(out)-len(sessionEvents(out)))
 	r.nc.Close()
 	r.srv.stop()
 	waitFor(t, "lost connection", func() bool { return !r.pub.nc.IsConnected() })
@@ -358,6 +359,7 @@ func TestAServerStoppedMidReplay(t *testing.T) {
 			events++
 		}
 	}
+	handled(t, r.pub, len(out)-len(sessionEvents(out))+frames)
 	if s := r.pub.Stats(); s.DroppedFrames-before.DroppedFrames != uint64(frames) || s.Events != before.Events { //nolint:gosec // a count
 		t.Errorf("down for %d frames and %d events: stats %+v, before %+v", frames, events, s, before)
 	}
@@ -369,8 +371,9 @@ func TestAServerStoppedMidReplay(t *testing.T) {
 	r.srv.start()
 	waitFor(t, "the connection again", r.pub.nc.IsConnected)
 	out = append(out, step(m, r.pub, all[at:])...)
-	out = append(out, m.EndOfInput()...)
-	r.pub.Publish(out[len(out)-1:])
+	end := m.EndOfInput()
+	r.pub.Publish(end)
+	out = append(out, end...)
 	r.close(t)
 
 	nc, err := nats.Connect(r.srv.URL())
@@ -401,6 +404,15 @@ func TestAServerStoppedMidReplay(t *testing.T) {
 			t.Errorf("event %d is %s, want %s: out of order", i+1, h, id)
 		}
 	}
+}
+
+// handled waits until the publisher's goroutine has sent or dropped n frames.
+func handled(t *testing.T, p *Publisher, n int) {
+	t.Helper()
+	waitFor(t, strconv.Itoa(n)+" frames handled", func() bool {
+		s := p.Stats()
+		return s.Frames+s.DroppedFrames == uint64(n) //nolint:gosec // a count
+	})
 }
 
 // sessionEvents is the outputs without the frames.
