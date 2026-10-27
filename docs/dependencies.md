@@ -27,5 +27,7 @@ the test reads.
 
 | Module | Why |
 | --- | --- |
-
-The module has no direct dependencies yet: the table is empty.
+| `github.com/oklog/ulid/v2` | Session and run ids are ULIDs (paddock#33); the race state mints them with it. |
+| `github.com/those-who-run/contracts` | The frame and event messages ecu publishes, and `ce`, their CloudEvents headers. |
+| `github.com/those-who-run/salsa` | The GT7 packets the race state reads, and v1's recordings, which its tests replay. |
+| `google.golang.org/protobuf` | The contracts messages are protobuf: the session start's time is a `timestamppb.Timestamp`. |

@@ -11,6 +11,33 @@ names its paddock issue: `Closes those-who-run/paddock#N.` when it meets every
 acceptance criterion, `Part of those-who-run/paddock#N` otherwise
 ([`AGENTS.md`](AGENTS.md)).
 
+## Race state
+
+[`internal/race`](internal/race) is the race state: a pure state machine
+that takes `salsa` packets one at a time and gives, for each, its frame and the
+events it gives rise to, `session.started`, `lap.completed` and
+`session.ended`, as the `contracts` messages. It opens a session, closes a lap
+and ends a session exactly where v1 did, with v1's rules ported from its
+`state.py`, `engine.py` and `store.py` at v1.0.0 (paddock#33).
+
+- **No clock, no NATS, no files.** Each packet comes with the time ecu received
+  it, which becomes its frame's `ce-time`; a session's `started_at` is its
+  first frame's. The caller gives the ULID generator: `race.New(ulid.Make)`
+  in production, a fixed clock and seeded entropy in tests and replays, so the
+  same packets give the same outputs, ids included. depguard in
+  [`.golangci.yml`](.golangci.yml) fails the lint on an import of NATS, the
+  network or the file system in the package.
+- **Ids.** The machine mints a run id when it is made; frames are
+  `<run>:frame:<seq>`, with `seq` from 1. Each session gets a ULID when it
+  starts, and its events' ids follow `contracts`' `subjects.yaml`.
+- **Tests.** The tests replay v1's recordings from `salsa`'s `testdata/v1/` and
+  compare the sessions and laps with what v1 1.0.0 stored for each, in
+  [`internal/race/testdata/golden/`](internal/race/testdata/golden), which
+  `make_golden.py` there says how to make.
+- **Benchmark.** `go test -run '^$' -bench Replay ./internal/race` replays
+  every recording and reports the p50, p99 and max time of a step, per frame
+  and per session start, lap close and session end.
+
 ## Checks
 
 `make check` runs what CI runs; [`AGENTS.md`](AGENTS.md) says what that is and
