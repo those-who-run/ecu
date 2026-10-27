@@ -252,6 +252,15 @@ func (p *Publisher) flushQueue(nc *nats.Conn) {
 	}
 }
 
+// sendQueued sends the queued events the connection takes, and is how many are
+// left.
+func (p *Publisher) sendQueued() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.flushQueue(p.nc)
+	return len(p.queue)
+}
+
 // Stats is what has been published and dropped so far. An event sent again after
 // a lost connection counts again.
 func (p *Publisher) Stats() Stats {
@@ -266,20 +275,13 @@ func (p *Publisher) Stats() Stats {
 // done, then flushes what the client holds and closes the connection. The events
 // it could not send are counted as dropped. It logs and returns the totals (R10).
 func (p *Publisher) Close(ctx context.Context) Stats {
-	for {
-		p.mu.Lock()
-		p.flushQueue(p.nc)
-		left := len(p.queue)
-		p.mu.Unlock()
-		if left == 0 {
-			break
-		}
+wait:
+	for p.sendQueued() > 0 {
 		select {
 		case <-p.reached:
-			continue
 		case <-ctx.Done():
+			break wait
 		}
-		break
 	}
 	var err error
 	if p.nc.IsConnected() {
