@@ -7,14 +7,40 @@ linters:
   # gosec for the security checks, revive for the style the Go team documents
   # (exported names carry a comment), errorlint so wrapped errors are compared with
   # errors.Is and errors.As, and sloglint so every log call uses log/slog's
-  # key-value pairs the same way (README.md, "Conventions").
+  # key-value pairs the same way (README.md, "Conventions"), and depguard for the
+  # imports a package may not have.
   default: standard
   enable:
+    - depguard
     - errorlint
     - gosec
     - revive
     - sloglint
   settings:
+    depguard:
+      rules:
+        # The race state is a pure library, tested with no NATS at all (paddock#33,
+        # R11; ADR 0001, point 7): no NATS, no network, no file system. Its tests
+        # may read files; internal/race/imports_test.go checks the same list.
+        race:
+          files:
+            - "**/internal/race/*.go"
+            - "!$test"
+          deny:
+            - pkg: github.com/nats-io
+              desc: the race state is pure; publishing is the caller's (paddock#33)
+            - pkg: net
+              desc: the race state is pure; no network (paddock#33)
+            - pkg: os
+              desc: the race state is pure; no file system (paddock#33)
+            - pkg: io/fs
+              desc: the race state is pure; no file system (paddock#33)
+            - pkg: io/ioutil
+              desc: the race state is pure; no file system (paddock#33)
+            - pkg: path/filepath
+              desc: the race state is pure; no file system (paddock#33)
+            - pkg: syscall
+              desc: the race state is pure; no system calls (paddock#33)
     sloglint:
       kv-only: true
       no-global: all

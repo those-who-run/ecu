@@ -1,0 +1,9 @@
+{"event": "session.started", "session": 1, "type": "race", "car_code": 2160, "total_laps": 0, "fuel_at_start": 99.85987854003906, "joined_on_lap": null}
+{"event": "lap.completed", "session": 1, "lap": 1, "lap_time_ms": 506429, "complete": true, "fuel_start": 99.85987854003906, "fuel_end": 74.94341278076172, "fuel_used": 24.916, "position": 1, "frames": 257}
+{"event": "lap.completed", "session": 1, "lap": 2, "lap_time_ms": null, "complete": false, "fuel_start": 74.94341278076172, "fuel_end": 74.71894073486328, "fuel_used": 0.224, "position": 1, "frames": 4}
+{"event": "session.ended", "session": 1, "laps_completed": 1, "fuel_used": 25.14, "final_position": 1, "finished": false}
+{"event": "session.started", "session": 2, "type": "race", "car_code": 2160, "total_laps": 0, "fuel_at_start": 100.0, "joined_on_lap": null}
+{"event": "lap.completed", "session": 2, "lap": 1, "lap_time_ms": 500361, "complete": true, "fuel_start": 100.0, "fuel_end": 100.0, "fuel_used": 0.0, "position": 1, "frames": 231}
+{"event": "lap.completed", "session": 2, "lap": 2, "lap_time_ms": 500204, "complete": true, "fuel_start": 100.0, "fuel_end": 100.0, "fuel_used": 0.0, "position": 1, "frames": 213}
+{"event": "lap.completed", "session": 2, "lap": 3, "lap_time_ms": null, "complete": false, "fuel_start": 100.0, "fuel_end": 100.0, "fuel_used": 0.0, "position": null, "frames": 25}
+{"event": "session.ended", "session": 2, "laps_completed": 2, "fuel_used": 0.0, "final_position": 1, "finished": false}
