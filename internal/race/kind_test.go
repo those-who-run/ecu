@@ -169,3 +169,60 @@ func TestNoPositionOutsideAField(t *testing.T) {
 		}
 	}
 }
+
+// A race against one AI car, then the frames GT7 replays around the results with
+// -1 cars: the -1 says nothing, so it stays a lap race (Suzuka East, 2026-10-15). If
+// the -1 counted, the two cars would be forgotten and it would read as solo laps,
+// losing its final position.
+func TestATwoCarRaceStaysOneThroughMinusOneCars(t *testing.T) {
+	var k kinds
+	k.observe(racing(6, 2, 1))
+	k.observe(racing(6, -1, -1))
+	if got := k.kind(); got != eventsv1.SessionType_SESSION_TYPE_LAP_RACE {
+		t.Errorf("after -1 cars: %v, want a lap race", got)
+	}
+
+	d := drive{cars: 2}
+	d.add(0, 0, 50, -1, 1)
+	for lap := int16(1); lap <= 5; lap++ {
+		d.add(lap, 0, 50, 60000, 1)
+	}
+	for range 3 { // the results: -1 cars, no position
+		d.add(5, 0, 50, 60000, -1)
+		d.all[len(d.all)-1].TotalCars = -1
+	}
+	d.add(0, 0, 50, 60000, -1)
+	evs := events(run(d.all))
+	sum := evs[len(evs)-1].Ended.GetSummary()
+	if sum.GetSessionType() != eventsv1.SessionType_SESSION_TYPE_LAP_RACE || sum.GetFinalPosition() != 1 {
+		t.Errorf("end: %v, want a lap race in P1", sum)
+	}
+}
+
+// Each start resets the kind, as v1's Engine does: a time trial after a lap race
+// is solo timed, not a lap race that kept the race's lap total and field.
+func TestEachStartJudgesTheKindAfresh(t *testing.T) {
+	var d drive
+	d.add(0, 0, 50, -1, 5)
+	for lap := int16(1); lap <= 6; lap++ { // a five-lap race to the flag
+		d.add(lap, 0, 50, 60000, 5)
+	}
+	race := len(d.all)
+	d.add(-1, 0, 50, 60000, -1) // the menu
+	d.add(0, 0, 50, 60000, -1)  // the track screen
+	d.add(1, 0, 50, 60000, -1)  // a time trial starts
+	d.add(1, 0, 50, 60000, -1)
+	for i := range d.all[race:] {
+		d.all[race+i].TotalLaps, d.all[race+i].TotalCars = 0, -1
+	}
+	var starts []eventsv1.SessionType
+	for _, o := range events(run(d.all)) {
+		if o.Started != nil {
+			starts = append(starts, o.Started.GetSessionType())
+		}
+	}
+	want := []eventsv1.SessionType{eventsv1.SessionType_SESSION_TYPE_LAP_RACE, eventsv1.SessionType_SESSION_TYPE_SOLO_TIMED}
+	if len(starts) != 2 || starts[0] != want[0] || starts[1] != want[1] {
+		t.Errorf("starts %v, want %v", starts, want)
+	}
+}
