@@ -1,6 +1,11 @@
 // Command ecu runs the template's example service: it reads its configuration
 // from the environment, logs JSON to standard output and serves GET /healthz until
 // it gets SIGINT or SIGTERM. `ecu -version` prints its version and exits.
+//
+// It connects to NATS at start, with the server and the source token from --nats
+// and --src (TWR_NATS_URL and TWR_SRC), and refuses a source that is not one
+// subject token. Nothing feeds the publisher yet: reading recordings is
+// paddock#35, listening to the PS5 paddock#106.
 package main
 
 import (
@@ -12,9 +17,14 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
+	"github.com/those-who-run/ecu/internal/bus"
 	"github.com/those-who-run/ecu/internal/service"
 )
+
+// closeGrace is how long ecu waits at shutdown to send the events still queued.
+const closeGrace = 5 * time.Second
 
 // version is what -version prints and GET /healthz reports: "dev" unless the build
 // sets it with -ldflags "-X main.version=X.Y.Z". The Dockerfile does that from its
@@ -38,6 +48,8 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout,
 	flags := flag.NewFlagSet("ecu", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	showVersion := flags.Bool("version", false, "print the version and exit")
+	var busCfg bus.Config
+	busCfg.Flags(flags, getenv)
 	if err := flags.Parse(args); err != nil {
 		// -h and -help print the usage, which is what was asked for.
 		if errors.Is(err, flag.ErrHelp) {
@@ -50,11 +62,24 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout,
 		return 0
 	}
 	cfg, err := service.ConfigFromEnv(getenv)
+	if err == nil {
+		err = busCfg.Validate()
+	}
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, err)
 		return 2
 	}
 	logger := service.NewLogger(stdout, cfg.LogLevel)
+	pub, err := bus.Connect(busCfg, logger, bus.Options{})
+	if err != nil {
+		logger.ErrorContext(ctx, "stopped", "err", err)
+		return 1
+	}
+	defer func() {
+		grace, cancel := context.WithTimeout(context.WithoutCancel(ctx), closeGrace)
+		defer cancel()
+		pub.Close(grace)
+	}()
 	if err := service.Run(ctx, cfg, logger, version); err != nil {
 		logger.ErrorContext(ctx, "stopped", "err", err)
 		return 1

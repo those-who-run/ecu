@@ -18,15 +18,15 @@ const (
 // state is what the transition helpers read from a frame: v1's RaceState, cut to
 // the fields they and the lap bookkeeping use.
 type state struct {
-	seq         uint32
-	phase       telemetryv1.Phase
-	lap         int32 // GT7's current lap
-	totalLaps   int32
-	lastLapMs   int32
-	fuel        float64
-	position    int32 // GT7's race position, -1 outside a race
-	carsOnTrack bool
-	carCode     int32
+	seq       uint32
+	phase     telemetryv1.Phase
+	lap       int32 // GT7's current lap
+	totalLaps int32
+	lastLapMs int32
+	fuel      float64
+	position  int32 // GT7's race position, -1 outside a race
+	totalCars int32 // GT7's count of cars, -1 in a time trial and around the results
+	carCode   int32
 }
 
 func (s *state) inRace() bool { return s.phase == phaseInRace }
@@ -43,15 +43,15 @@ func (s *state) racePosition() int32 {
 func newState(seq uint32, p *salsa.Packet) state {
 	lap, total := int32(p.CurrentLap), int32(p.TotalLaps)
 	return state{
-		seq:         seq,
-		phase:       derivePhase(lap, total, p.Flags.Paused(), p.Flags.Loading()),
-		lap:         lap,
-		totalLaps:   total,
-		lastLapMs:   p.LastLapMs,
-		fuel:        float64(p.FuelLevel),
-		position:    int32(p.RacePosition),
-		carsOnTrack: p.Flags.CarsOnTrack(),
-		carCode:     p.CarCode,
+		seq:       seq,
+		phase:     derivePhase(lap, total, p.Flags.Paused(), p.Flags.Loading()),
+		lap:       lap,
+		totalLaps: total,
+		lastLapMs: p.LastLapMs,
+		fuel:      float64(p.FuelLevel),
+		position:  int32(p.RacePosition),
+		totalCars: int32(p.TotalCars),
+		carCode:   p.CarCode,
 	}
 }
 

@@ -12,12 +12,24 @@ import (
 	"github.com/those-who-run/salsa"
 )
 
-// drive builds packets by hand, one per call, a second apart.
-type drive struct{ all []Received }
+// drive builds packets by hand, one per call, a second apart: a five-lap race in a
+// field of 20 cars unless timed or cars say otherwise.
+type drive struct {
+	all   []Received
+	timed bool  // no lap total
+	cars  int16 // GT7's car count; 0 for 20
+}
 
 func (d *drive) add(lap int16, flags salsa.Flags, fuel float32, lastLapMs int32, position int16) {
 	var p salsa.Packet
 	p.CurrentLap, p.TotalLaps, p.Flags = lap, 5, flags|salsa.FlagCarsOnTrack
+	if d.timed {
+		p.TotalLaps = 0
+	}
+	p.TotalCars = 20
+	if d.cars != 0 {
+		p.TotalCars = d.cars
+	}
 	p.FuelLevel, p.LastLapMs, p.RacePosition = fuel, lastLapMs, position
 	n := len(d.all)
 	d.all = append(d.all, Received{
@@ -51,9 +63,9 @@ func TestARestartEndsTheSessionAndStartsTheNext(t *testing.T) {
 		t.Fatalf("%d events, want 7: start, lap 1, lap 2, end, then start, lap 1, end", len(evs))
 	}
 	first, lap1, lap2, end, next, stopped := evs[0], evs[1].Lap, evs[2].Lap, evs[3], evs[4], evs[6]
-	if first.Started.GetFirstSeq() != 2 || first.Start.FuelAtStart != 50 ||
-		first.Started.GetSessionType() != eventsv1.SessionType_SESSION_TYPE_RACE || first.Started.GetTotalLaps() != 5 {
-		t.Errorf("start: %v %+v", first.Started, first.Start)
+	if first.Started.GetFirstSeq() != 2 || first.Started.GetFuelAtStart() != 50 ||
+		first.Started.GetSessionType() != eventsv1.SessionType_SESSION_TYPE_LAP_RACE || first.Started.GetTotalLaps() != 5 {
+		t.Errorf("start: %v", first.Started)
 	}
 	if lap1.GetLap() != 1 || !lap1.GetComplete() || lap1.GetLapTimeMs() != 61000 || lap1.GetFirstSeq() != 2 ||
 		lap1.GetLastSeq() != 3 || lap1.GetFuelUsed() != 5 || lap1.GetPosition() != 6 {
@@ -64,17 +76,20 @@ func TestARestartEndsTheSessionAndStartsTheNext(t *testing.T) {
 		lap2.GetLastSeq() != 5 || lap2.GetFuelAtEnd() != 44 || lap2.Position != nil {
 		t.Errorf("lap 2: %v", lap2)
 	}
-	if end.End.Why != WhyRestart || end.Ended.GetReason() != eventsv1.EndReason_END_REASON_UNKNOWN ||
-		end.End.LastSeq != 5 || end.End.FuelUsed != 6 || end.End.FinalPosition != 6 ||
-		end.Ended.GetSummary().GetLapsCompleted() != 1 || end.Ended.GetSummary().FinishingPosition != nil ||
+	summary := end.Ended.GetSummary()
+	if end.Why != WhyRestart || end.Ended.GetReason() != eventsv1.EndReason_END_REASON_RESTARTED ||
+		end.Ended.GetLastSeq() != 5 || summary.GetFuelUsed() != 6 || summary.GetFinalPosition() != 6 ||
+		summary.GetLapsCompleted() != 1 || summary.FinishingPosition != nil ||
+		summary.GetSessionType() != eventsv1.SessionType_SESSION_TYPE_LAP_RACE ||
 		!end.Event.Time.Equal(d.all[4].Time) {
-		t.Errorf("end: %v %+v at %v", end.Ended, end.End, end.Event.Time)
+		t.Errorf("end: %v %v at %v", end.Ended, end.Why, end.Event.Time)
 	}
 	if next.Started.GetFirstSeq() != 6 || next.Session == first.Session {
 		t.Errorf("next start: %v", next.Started)
 	}
-	if stopped.End.Why != WhyStopped || stopped.End.LastSeq != 7 {
-		t.Errorf("stopped: %+v", stopped.End)
+	if stopped.Why != WhyInputEnded || stopped.Ended.GetReason() != eventsv1.EndReason_END_REASON_INPUT_ENDED ||
+		stopped.Ended.GetLastSeq() != 7 {
+		t.Errorf("input ended: %v %v", stopped.Why, stopped.Ended)
 	}
 }
 
@@ -88,8 +103,9 @@ func TestAStartWhileASessionIsOpenEndsIt(t *testing.T) {
 	if len(evs) != 6 {
 		t.Fatalf("%d events, want 6: start, lap 1, end, then start, lap 1, end", len(evs))
 	}
-	if end := evs[2]; end.End.Why != WhyStart || end.End.LastSeq != 3 || end.End.FinalPosition != 3 {
-		t.Errorf("end: %+v", end.End)
+	if end := evs[2]; end.Why != WhyStart || end.Ended.GetReason() != eventsv1.EndReason_END_REASON_NEXT_SESSION_STARTED ||
+		end.Ended.GetLastSeq() != 3 || end.Ended.GetSummary().GetFinalPosition() != 3 {
+		t.Errorf("end: %v %v", end.Why, end.Ended)
 	}
 	// The lap that the start cuts short is numbered by its last frame's lap.
 	if lap := evs[1].Lap; lap.GetLap() != 1 || lap.GetComplete() || lap.GetFirstSeq() != 1 || lap.GetLastSeq() != 1 {
@@ -121,34 +137,20 @@ func TestACrossingWithNoFrameBeforeItStaysInItsLap(t *testing.T) {
 	}
 }
 
-func TestSessionTypes(t *testing.T) {
-	cases := []struct {
-		s    state
-		want eventsv1.SessionType
-	}{
-		{state{carsOnTrack: true, totalLaps: 0}, eventsv1.SessionType_SESSION_TYPE_RACE},
-		{state{carsOnTrack: true, totalLaps: 5}, eventsv1.SessionType_SESSION_TYPE_RACE},
-		{state{totalLaps: 0}, eventsv1.SessionType_SESSION_TYPE_TIME_TRIAL},
-		{state{totalLaps: 3}, eventsv1.SessionType_SESSION_TYPE_PRACTICE},
-	}
-	for _, c := range cases {
-		if got := sessionType(&c.s); got != c.want {
-			t.Errorf("%+v: got %v, want %v", c.s, got, c.want)
-		}
-	}
-}
-
 func TestCloseWithNoSessionGivesNothing(t *testing.T) {
 	m := New(testIDs())
-	if out := m.Close(); out != nil {
+	if out := m.EndOfInput(); out != nil {
 		t.Errorf("a new machine closed with %v", out)
+	}
+	if out := m.Stop(); out != nil {
+		t.Errorf("a new machine stopped with %v", out)
 	}
 	var d drive
 	d.add(-1, 0, 0, -1, -1)
 	if out := m.Step(d.all[0]); len(out) != 1 || out[0].Frame == nil {
 		t.Errorf("a menu frame gave %v", out)
 	}
-	if out := m.Close(); out != nil {
+	if out := m.EndOfInput(); out != nil {
 		t.Errorf("closed in the menus with %v", out)
 	}
 }
@@ -161,8 +163,9 @@ func TestWhy(t *testing.T) {
 	}{
 		{WhyFinished, "finished", eventsv1.EndReason_END_REASON_FINISHED},
 		{WhyQuit, "quit", eventsv1.EndReason_END_REASON_QUIT},
-		{WhyRestart, "restart", eventsv1.EndReason_END_REASON_UNKNOWN},
-		{WhyStart, "start", eventsv1.EndReason_END_REASON_UNKNOWN},
+		{WhyRestart, "restart", eventsv1.EndReason_END_REASON_RESTARTED},
+		{WhyStart, "start", eventsv1.EndReason_END_REASON_NEXT_SESSION_STARTED},
+		{WhyInputEnded, "input ended", eventsv1.EndReason_END_REASON_INPUT_ENDED},
 		{WhyStopped, "stopped", eventsv1.EndReason_END_REASON_ENGINEER_STOPPED},
 		{0, "Why(0)", eventsv1.EndReason_END_REASON_UNKNOWN},
 	}

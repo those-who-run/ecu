@@ -11,10 +11,11 @@
 // The rules are v1's, from those-who-run/those-who-run at v1.0.0: the transition
 // helpers of state.py (state.go here), the session and lap steps of
 // Engine._step in engine.py, and the lap bookkeeping of SessionStore.observe,
-// _flush_lap and end_session in store.py. What else v1's engine reads (replays and
-// demo races held at the start, joining part way and continuing after a restart,
-// the frozen pause, the timed-race finish, pits, track and session kind) is not
-// here yet.
+// _flush_lap and end_session in store.py, and the session's kind from
+// SessionDetector in sessionkind.py (kind.go here). What else v1's engine reads
+// (replays and demo races held at the start, joining part way and continuing after
+// a restart, the frozen pause, the timed-race finish, pits and track) is not here
+// yet.
 package race
 
 import (
@@ -57,9 +58,8 @@ type Received struct {
 	Time time.Time
 }
 
-// Why is why a session ended. The contracts' EndReason has no value for a session
-// ended by a restart or by the next start, so the machine keeps its own (End.Why)
-// beside the one on the wire.
+// Why is why a session ended: one for each of the contracts' EndReason values the
+// machine sends (Why.Reason), kept beside the one on the wire (Output.Why).
 type Why int
 
 // Why a session ended.
@@ -74,13 +74,16 @@ const (
 	WhyRestart
 	// WhyStart is another start while the session was open (v1's race_started).
 	WhyStart
-	// WhyStopped is the input ending, or the machine being closed, with the
-	// session open.
+	// WhyInputEnded is the input coming to its end, as a replayed recording does,
+	// with the session open (Machine.EndOfInput).
+	WhyInputEnded
+	// WhyStopped is ecu stopping with the session open (Machine.Stop).
 	WhyStopped
 )
 
 var whyNames = map[Why]string{
-	WhyFinished: "finished", WhyQuit: "quit", WhyRestart: "restart", WhyStart: "start", WhyStopped: "stopped",
+	WhyFinished: "finished", WhyQuit: "quit", WhyRestart: "restart", WhyStart: "start",
+	WhyInputEnded: "input ended", WhyStopped: "stopped",
 }
 
 func (w Why) String() string {
@@ -90,14 +93,19 @@ func (w Why) String() string {
 	return "Why(" + strconv.Itoa(int(w)) + ")"
 }
 
-// Reason is the contracts' EndReason for w: unknown for a restart or a start, which
-// it has no value for.
+// Reason is the contracts' EndReason for w (contracts v0.1.4).
 func (w Why) Reason() eventsv1.EndReason {
 	switch w {
 	case WhyFinished:
 		return eventsv1.EndReason_END_REASON_FINISHED
 	case WhyQuit:
 		return eventsv1.EndReason_END_REASON_QUIT
+	case WhyRestart:
+		return eventsv1.EndReason_END_REASON_RESTARTED
+	case WhyStart:
+		return eventsv1.EndReason_END_REASON_NEXT_SESSION_STARTED
+	case WhyInputEnded:
+		return eventsv1.EndReason_END_REASON_INPUT_ENDED
 	case WhyStopped:
 		return eventsv1.EndReason_END_REASON_ENGINEER_STOPPED
 	default:
@@ -106,9 +114,9 @@ func (w Why) Reason() eventsv1.EndReason {
 }
 
 // Output is a frame or an event, with its CloudEvents id and time: exactly one of
-// Frame, Started, Lap and Ended is set, each the contracts v0.1 message of that
-// name. Start and End carry what paddock#33 asks of the session events that the
-// v0.1 messages have no field for.
+// Frame, Started, Lap and Ended is set, each the contracts message of that name.
+// SessionStarted's source is left empty: only the publisher knows the <src> it
+// publishes under, and sets it (internal/bus).
 type Output struct {
 	// Event is the ce-id (and Nats-Msg-Id), ce-source and ce-time, the id built
 	// as contracts' subjects.yaml says: <run>:frame:<seq> for a frame, and
@@ -123,31 +131,9 @@ type Output struct {
 	Lap     *eventsv1.LapCompleted
 	Ended   *eventsv1.SessionEnded
 
-	// Start is set with Started.
-	Start *Start
-	// End is set with Ended.
-	End *End
-}
-
-// Start is what a session start carries beyond SessionStarted.
-type Start struct {
-	// FuelAtStart is the fuel in the tank on the session's first frame, in litres.
-	FuelAtStart float64
-}
-
-// End is what a session end carries beyond SessionEnded.
-type End struct {
-	// Why is why it ended; SessionEnded's reason is Why.Reason().
+	// Why is why the session ended, set with Ended; SessionEnded's reason is
+	// Why.Reason().
 	Why Why
-	// LastSeq is the seq of the session's last frame: the frame it ended on.
-	LastSeq uint32
-	// FuelUsed is the fuel its laps used, in litres: the sum of each lap's fuel
-	// used, rounded to 3 decimals, as v1's end_session adds it up.
-	FuelUsed float64
-	// FinalPosition is the position on the last frame, or the last position seen
-	// in the session when that frame has none; 0 when there was none (v1's
-	// final_position).
-	FinalPosition int32
 }
 
 // Message is the contracts message the output carries.
@@ -175,6 +161,7 @@ type Machine struct {
 	prevTime    time.Time
 	lastDriving *state // the last IN_RACE frame of this race (v1's Engine.last_driving)
 	finished    bool   // the open session reached the flag (v1's Engine.finished)
+	kinds       kinds  // the session's kind (v1's Engine.kinds)
 	session     *session
 
 	out []Output
@@ -231,7 +218,8 @@ func (m *Machine) Step(r Received) []Output {
 	// Engine._step, the parts that open, close and end.
 	prev := m.prev
 	restarted := raceRestarted(prev, &s)
-	if raceStarted(prev, &s) || restarted {
+	starting := raceStarted(prev, &s) || restarted
+	if starting {
 		if m.session != nil && prev != nil {
 			why := WhyStart
 			if restarted {
@@ -241,6 +229,13 @@ func (m *Machine) Step(r Received) []Output {
 		}
 		m.lastDriving = nil
 		m.finished = false
+		m.kinds = kinds{}
+	}
+	// v1 feeds the detector every frame, after a start has reset it and before the
+	// lap store reads the frame: the start carries the verdict on its first frame,
+	// and a lap the verdict when it ends.
+	m.kinds.observe(&s)
+	if starting {
 		m.start(&s, r.Time, joinedPartWay(prev, &s))
 	}
 
@@ -281,12 +276,18 @@ func (m *Machine) Step(r Received) []Output {
 	return m.out
 }
 
-// Close ends the open session, if there is one, on the last frame, as stopped: the
-// input has ended (the end of a recording) or ecu is stopping.
-func (m *Machine) Close() []Output {
+// EndOfInput ends the open session, if there is one, on the last frame, because
+// the input came to its end, as a replayed recording does (END_REASON_INPUT_ENDED).
+func (m *Machine) EndOfInput() []Output { return m.close(WhyInputEnded) }
+
+// Stop ends the open session, if there is one, on the last frame, because ecu is
+// stopping (END_REASON_ENGINEER_STOPPED).
+func (m *Machine) Stop() []Output { return m.close(WhyStopped) }
+
+func (m *Machine) close(why Why) []Output {
 	m.out = nil
 	if m.session != nil && m.prev != nil {
-		m.end(m.prev, m.prevTime, WhyStopped)
+		m.end(m.prev, m.prevTime, why)
 	}
 	return m.out
 }
@@ -302,11 +303,12 @@ func (m *Machine) start(s *state, t time.Time, joined bool) {
 	started := &eventsv1.SessionStarted{
 		SessionId:     id,
 		Game:          eventsv1.Game_GAME_GT7,
-		SessionType:   sessionType(s),
+		SessionType:   m.kinds.kind(),
 		CarCode:       s.carCode,
 		JoinedPartWay: joined,
 		FirstSeq:      s.seq,
 		StartedAt:     timestamppb.New(t),
+		FuelAtStart:   s.fuel,
 	}
 	if s.totalLaps > 0 {
 		total := s.totalLaps
@@ -316,24 +318,7 @@ func (m *Machine) start(s *state, t time.Time, joined bool) {
 		Event:   m.event(id+":session.started:1", t),
 		Session: id,
 		Started: started,
-		Start:   &Start{FuelAtStart: s.fuel},
 	})
-}
-
-// sessionType is v1's store.session_type: what v1 stored as the session's type.
-// It reads GT7's cars-on-track flag on the first frame and nothing else, as v1's
-// store did; the flag being off says nothing about a replay here (v1's
-// sessionkind.py: it was only set from 2026-10-16, and one race mode never sets
-// it).
-func sessionType(s *state) eventsv1.SessionType {
-	switch {
-	case s.carsOnTrack:
-		return eventsv1.SessionType_SESSION_TYPE_RACE
-	case s.totalLaps == 0:
-		return eventsv1.SessionType_SESSION_TYPE_TIME_TRIAL
-	default:
-		return eventsv1.SessionType_SESSION_TYPE_PRACTICE
-	}
 }
 
 // observe is v1's SessionStore.observe: a driving frame joins the lap in progress,
@@ -380,7 +365,8 @@ func (m *Machine) closeLap(lap int32, s *state, t time.Time, complete bool) {
 	if complete && s.lastLapMs > 0 {
 		ev.LapTimeMs = s.lastLapMs
 	}
-	if p := s.racePosition(); p != 0 {
+	// Outside a field the position is left out, by the verdict at the lap's end.
+	if p := s.racePosition(); p != 0 && !solo(m.kinds.kind()) {
 		ev.Position = &p
 	}
 	sess.lapStartFuel = s.fuel
@@ -406,19 +392,31 @@ func (m *Machine) end(s *state, t time.Time, why Why) {
 	if s.phase == phaseFinished {
 		why = WhyFinished
 	}
+	// The final verdict decides the positions: none outside a field, and a
+	// finishing position only for a lap race at the flag (contracts v0.1.4).
+	kind := m.kinds.kind()
 	final := s.racePosition()
 	if final == 0 {
 		final = sess.lastPosition
 	}
-	summary := &eventsv1.SessionSummary{LapsCompleted: sess.completed}
-	if why == WhyFinished && final != 0 {
-		summary.FinishingPosition = &final
+	summary := &eventsv1.SessionSummary{
+		LapsCompleted: sess.completed,
+		FuelUsed:      round3(sess.lapsFuelUsed),
+		SessionType:   kind,
+	}
+	if final != 0 && !solo(kind) {
+		summary.FinalPosition = &final
+		if why == WhyFinished && kind == eventsv1.SessionType_SESSION_TYPE_LAP_RACE {
+			summary.FinishingPosition = &final
+		}
 	}
 	m.out = append(m.out, Output{
 		Event:   m.event(sess.id+":session.ended:1", t),
 		Session: sess.id,
-		Ended:   &eventsv1.SessionEnded{SessionId: sess.id, Reason: why.Reason(), Summary: summary},
-		End:     &End{Why: why, LastSeq: s.seq, FuelUsed: round3(sess.lapsFuelUsed), FinalPosition: final},
+		Ended: &eventsv1.SessionEnded{
+			SessionId: sess.id, Reason: why.Reason(), Summary: summary, LastSeq: s.seq,
+		},
+		Why: why,
 	})
 	m.session = nil
 }
