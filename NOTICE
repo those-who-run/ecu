@@ -1,0 +1,15 @@
+ECU, part of Those Who Run
+Licensed under the GNU General Public License, version 3 only (LICENSE).
+
+This repository includes data from other projects:
+
+- The track table, internal/track/tracks.csv: from Those Who Run v1
+  (https://github.com/those-who-run/those-who-run, src/those_who_run/data/tracks.csv
+  at v1.0.0), adapted from gt-telem (https://github.com/RaceCrewAI/gt-telem,
+  GPL-3.0), which adapted it from Bornhall/gt7telemetry
+  (https://github.com/Bornhall/gt7telemetry, GPL-3.0). The rows with ids from
+  100001 were learned from our own laps.
+
+Gran Turismo is a trademark of Sony Interactive Entertainment. Track names are
+those GT7 and the table above use. Those Who Run is not affiliated with or
+endorsed by Sony Interactive Entertainment or Polyphony Digital.

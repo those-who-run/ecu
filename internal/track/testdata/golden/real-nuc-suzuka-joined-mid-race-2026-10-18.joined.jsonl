@@ -1,0 +1,3 @@
+{"frame": 1, "lap": 7, "track_id": null, "name": null, "confidence": "ambiguous", "family": null, "candidates": [790, 846, 442, 795, 1231, 1226, 356, 449], "crossed": [], "evidence": "no finish line within 1000 m of where the car has been and none crossed yet; 50 layouts contain the path", "final": false}
+{"frame": 242, "lap": 8, "track_id": 10, "name": "Suzuka Circuit", "confidence": "probable", "family": null, "candidates": [10], "crossed": [10], "evidence": "finish line crossed in the right direction, no full lap yet", "final": false}
+{"frame": 338, "lap": 8, "track_id": 10, "name": "Suzuka Circuit", "confidence": "probable", "family": null, "candidates": [10], "crossed": [10], "evidence": "finish line crossed in the right direction, no full lap yet", "final": true}
