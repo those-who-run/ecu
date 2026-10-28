@@ -1,0 +1,2 @@
+{"frame": 1, "lap": 2, "track_id": null, "name": null, "confidence": "ambiguous", "family": null, "candidates": [1225, 440, 599, 453, 1250, 843, 838, 152], "crossed": [], "evidence": "49 layouts near the start still fit, line not yet crossed", "final": false}
+{"frame": 317, "lap": -1, "track_id": null, "name": null, "confidence": "ambiguous", "family": null, "candidates": [1250, 41, 119, 1224, 874, 154, 1249, 365], "crossed": [], "evidence": "30 layouts near the start still fit, line not yet crossed", "final": true}

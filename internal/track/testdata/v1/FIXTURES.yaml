@@ -1,0 +1,123 @@
+# The v1 recordings in this directory, which the track detector's tests replay
+# beside salsa's testdata/v1/ (README.md). Each is copied unchanged from v1,
+# those-who-run/those-who-run at tag v1.0.0. fixtures_test.go fails when a file
+# here has no entry, an entry has no file, or a file and its entry disagree.
+#
+#   file    the file in this directory
+#   v1      where it is in v1 at v1.0.0; the same name
+#   sha256  its sha256, which is the v1 file's
+#   frames  its frames, one per line
+#   entry   its entry in v1's tests/fixtures/FIXTURES.yaml at v1.0.0, which says
+#           what was driven and what it pins
+#
+# The format is this subset of YAML, which fixtures_test.go reads: a list under
+# `fixtures:`, one `key: value` per line.
+
+fixtures:
+  - file: real-n24h-race-lap1-positions-2026-10-14.jsonl.gz
+    v1: tests/fixtures/real-n24h-race-lap1-positions-2026-10-14.jsonl.gz
+    sha256: b88718f28f05633fab593417a4f8670d0759efbdbcefda5aec47311803ec6c4a
+    frames: 1424
+    entry: https://github.com/those-who-run/those-who-run/blob/v1.0.0/tests/fixtures/FIXTURES.yaml#L59-L71
+
+  - file: real-nuc-unknown-track-2026-10-15.jsonl.gz
+    v1: tests/fixtures/real-nuc-unknown-track-2026-10-15.jsonl.gz
+    sha256: 29436087be05402ebe41ba024b95b16ad51d7bb43394598fb214d37bea6e99d2
+    frames: 221
+    entry: https://github.com/those-who-run/those-who-run/blob/v1.0.0/tests/fixtures/FIXTURES.yaml#L73-L86
+
+  - file: real-nuc-suzuka-east-2026-10-15.jsonl.gz
+    v1: tests/fixtures/real-nuc-suzuka-east-2026-10-15.jsonl.gz
+    sha256: 053953257ac5ac511e97a7fc07941e22abce743ee983ea9dd6cb1164fd893678
+    frames: 118
+    entry: https://github.com/those-who-run/those-who-run/blob/v1.0.0/tests/fixtures/FIXTURES.yaml#L88-L98
+
+  - file: real-nuc-sugo-timed-2026-10-15.jsonl.gz
+    v1: tests/fixtures/real-nuc-sugo-timed-2026-10-15.jsonl.gz
+    sha256: 1a7efcc38b8d2a31cd5060f002ac6459c9a25e9a9e37a6a121c5b86262498e98
+    frames: 769
+    entry: https://github.com/those-who-run/those-who-run/blob/v1.0.0/tests/fixtures/FIXTURES.yaml#L133-L143
+
+  - file: real-nuc-fuji-timed-2026-10-15.jsonl.gz
+    v1: tests/fixtures/real-nuc-fuji-timed-2026-10-15.jsonl.gz
+    sha256: 326dc39244a449c10798608b130d95e96317822beb61d995970ca7df298c9c10
+    frames: 633
+    entry: https://github.com/those-who-run/those-who-run/blob/v1.0.0/tests/fixtures/FIXTURES.yaml#L145-L159
+
+  - file: real-nuc-tokyo-east-race-2026-10-15.jsonl.gz
+    v1: tests/fixtures/real-nuc-tokyo-east-race-2026-10-15.jsonl.gz
+    sha256: 9135531e6cc0f3831cc5cc9d7185387f5966b34a0ab7340711661538d6472835
+    frames: 430
+    entry: https://github.com/those-who-run/those-who-run/blob/v1.0.0/tests/fixtures/FIXTURES.yaml#L161-L175
+
+  - file: real-nuc-nordschleife-rolling-start-2026-10-15.jsonl.gz
+    v1: tests/fixtures/real-nuc-nordschleife-rolling-start-2026-10-15.jsonl.gz
+    sha256: 704bbed2f6ffd6a5fa51601eebc7b409f958507e05d7bfd8fe9e0d5241245c00
+    frames: 89
+    entry: https://github.com/those-who-run/those-who-run/blob/v1.0.0/tests/fixtures/FIXTURES.yaml#L177-L191
+
+  - file: real-nuc-laguna-seca-race-2026-10-15.jsonl.gz
+    v1: tests/fixtures/real-nuc-laguna-seca-race-2026-10-15.jsonl.gz
+    sha256: 4c5e8f0e524f7475fdac6867b8092da9854f4ac598a0f494fa91f3134ed33ab1
+    frames: 433
+    entry: https://github.com/those-who-run/those-who-run/blob/v1.0.0/tests/fixtures/FIXTURES.yaml#L193-L207
+
+  - file: real-nuc-tsukuba-brz-drift-2026-10-15.jsonl.gz
+    v1: tests/fixtures/real-nuc-tsukuba-brz-drift-2026-10-15.jsonl.gz
+    sha256: fb06a794e8d430ac8be3ddac782fe79c906536934fc1dd19a5bec4cb97b2a0de
+    frames: 382
+    entry: https://github.com/those-who-run/those-who-run/blob/v1.0.0/tests/fixtures/FIXTURES.yaml#L209-L223
+
+  - file: real-nuc-suzuka-timed-race-2026-10-16.jsonl.gz
+    v1: tests/fixtures/real-nuc-suzuka-timed-race-2026-10-16.jsonl.gz
+    sha256: e37fe23399ae8db58f85d6e26935ebd74c89cd1907bc82af591b699cfcecf48a
+    frames: 802
+    entry: https://github.com/those-who-run/those-who-run/blob/v1.0.0/tests/fixtures/FIXTURES.yaml#L225-L237
+
+  - file: real-nuc-gilles-villeneuve-race-2026-10-17.jsonl.gz
+    v1: tests/fixtures/real-nuc-gilles-villeneuve-race-2026-10-17.jsonl.gz
+    sha256: ca8f5c2a95cb50a9e2b8a7717338f6fb927d64b3ac87046f1438cf44c91daa11
+    frames: 484
+    entry: https://github.com/those-who-run/those-who-run/blob/v1.0.0/tests/fixtures/FIXTURES.yaml#L251-L263
+
+  - file: real-nuc-gilles-villeneuve-pit-stop-2026-10-17.jsonl.gz
+    v1: tests/fixtures/real-nuc-gilles-villeneuve-pit-stop-2026-10-17.jsonl.gz
+    sha256: e644f1ff019c149a36ad915922924c943369201ef8e0f5b0996c8e54d12a1242
+    frames: 883
+    entry: https://github.com/those-who-run/those-who-run/blob/v1.0.0/tests/fixtures/FIXTURES.yaml#L265-L279
+
+  - file: real-nuc-sugo-replay-2026-10-18.jsonl.gz
+    v1: tests/fixtures/real-nuc-sugo-replay-2026-10-18.jsonl.gz
+    sha256: 602267f528bce21d56b1bb16a585188b8f3e7283f1996fddccaf69c071231c16
+    frames: 883
+    entry: https://github.com/those-who-run/those-who-run/blob/v1.0.0/tests/fixtures/FIXTURES.yaml#L301-L316
+
+  - file: real-nuc-laguna-seca-demo-2026-10-18.jsonl.gz
+    v1: tests/fixtures/real-nuc-laguna-seca-demo-2026-10-18.jsonl.gz
+    sha256: 78f0c95ca8e060f79f90c8c6aff9f64302fae4e9440c6c8cfaf7c2ccf13826a4
+    frames: 317
+    entry: https://github.com/those-who-run/those-who-run/blob/v1.0.0/tests/fixtures/FIXTURES.yaml#L318-L332
+
+  - file: real-nuc-suzuka-joined-mid-race-2026-10-18.jsonl.gz
+    v1: tests/fixtures/real-nuc-suzuka-joined-mid-race-2026-10-18.jsonl.gz
+    sha256: dd7c7dd4553ddf2549e49ba32e54341f825a2b7900d90fdca0f8e25c364c52cf
+    frames: 338
+    entry: https://github.com/those-who-run/those-who-run/blob/v1.0.0/tests/fixtures/FIXTURES.yaml#L352-L369
+
+  - file: real-nuc-suzuka-before-restart-2026-10-18.jsonl.gz
+    v1: tests/fixtures/real-nuc-suzuka-before-restart-2026-10-18.jsonl.gz
+    sha256: 31926c0eac6ad9aeeb1ff72f4233d57aad58f642085d4329d0a5bef399864267
+    frames: 1498
+    entry: https://github.com/those-who-run/those-who-run/blob/v1.0.0/tests/fixtures/FIXTURES.yaml#L371-L390
+
+  - file: real-nuc-spa-pit-cut-quit-2026-10-18.jsonl.gz
+    v1: tests/fixtures/real-nuc-spa-pit-cut-quit-2026-10-18.jsonl.gz
+    sha256: 514c084c597a45d966888666d3ec86093ff6b43e3b0327dd9408ec492ad60a24
+    frames: 1210
+    entry: https://github.com/those-who-run/those-who-run/blob/v1.0.0/tests/fixtures/FIXTURES.yaml#L392-L409
+
+  - file: real-nuc-spa-time-trial-2026-10-18.jsonl.gz
+    v1: tests/fixtures/real-nuc-spa-time-trial-2026-10-18.jsonl.gz
+    sha256: 3d7d062feeb0402ff9bce78c1bd0771412b460fe1cebac36a686e0fc8cc8d9d5
+    frames: 616
+    entry: https://github.com/those-who-run/those-who-run/blob/v1.0.0/tests/fixtures/FIXTURES.yaml#L411-L426

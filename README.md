@@ -51,6 +51,36 @@ and ends a session exactly where v1 did, with v1's rules ported from its
   every recording and reports the p50, p99 and max time of a step, per frame
   and per session start, lap close and session end.
 
+## Track detection
+
+GT7's telemetry carries no track id. [`internal/track`](internal/track) is the
+track table and v1's track detector, ported rule for rule from its
+`tracks.py` and `trackdetect.py` at v1.0.0 (paddock#80): a pure library that
+nothing calls yet. Publishing the verdict is paddock#81.
+
+- **The table.** v1's `tracks.csv`, unchanged and embedded in the binary: 108
+  layouts, 105 with a finish line, its direction and a lap box, from gt-telem
+  and Bornhall's gt7telemetry ([`NOTICE`](NOTICE)). Rows learned from our own
+  laps have ids from 100001 and a lap length.
+- **The detector.** Fed frames with `Observe` (the contracts frame ecu makes
+  for each packet), it narrows the table with v1's facts: a finish line within
+  1 km of where the car has been, the path inside the box, the line crossed in
+  the right direction (GT7's lap counter first, the path only while racing and
+  until the counter has shown the line), and a whole lap that fits the box and
+  the length. Its verdict is `confirmed`, `probable`, `ambiguous` or `none`,
+  with the candidates, the evidence in words, and the circuit when only that is
+  known (Spa and Spa 24h, Fuji and Fuji Short).
+- **Restarts and joins.** `Reset` on a restart or a new start; `Join` for a
+  session joined part way, which names no track before a line. A menu or a
+  loading screen at lap 0 starts over by itself; a pit cut-scene, which keeps
+  the lap counter, doesn't.
+- **Tests.** Every one of v1's 25 recordings gives v1's verdicts, change by
+  change, with v1's evidence, as `make_golden.py` in
+  [`internal/track/testdata/golden/`](internal/track/testdata/golden) wrote
+  them from v1.0.0. The 18 recordings `salsa` doesn't carry are copied into
+  [`internal/track/testdata/v1/`](internal/track/testdata/v1) with their
+  provenance and checksums.
+
 ## Publishing
 
 [`internal/bus`](internal/bus) puts the race state's outputs on NATS

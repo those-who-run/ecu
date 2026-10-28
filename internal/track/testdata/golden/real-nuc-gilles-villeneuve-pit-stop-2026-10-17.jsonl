@@ -1,0 +1,3 @@
+{"frame": 1, "lap": 5, "track_id": null, "name": null, "confidence": "ambiguous", "family": null, "candidates": [100002, 777, 776, 450, 351, 921, 922, 363], "crossed": [], "evidence": "14 layouts near the start still fit, line not yet crossed", "final": false}
+{"frame": 194, "lap": 6, "track_id": 100002, "name": "Circuit Gilles Villeneuve", "confidence": "confirmed", "family": null, "candidates": [100002], "crossed": [100002], "evidence": "finish line crossed, a full lap fits the layout (0.99)", "final": false}
+{"frame": 883, "lap": 9, "track_id": 100002, "name": "Circuit Gilles Villeneuve", "confidence": "confirmed", "family": null, "candidates": [100002], "crossed": [100002], "evidence": "finish line crossed, a full lap fits the layout (1.00)", "final": true}

@@ -41,6 +41,27 @@ linters:
               desc: the race state is pure; no file system (paddock#33)
             - pkg: syscall
               desc: the race state is pure; no system calls (paddock#33)
+        # The track table and detector are a pure library too (paddock#80, R5): the
+        # same list; internal/track/imports_test.go checks it. The table is embedded.
+        track:
+          files:
+            - "**/internal/track/*.go"
+            - "!$test"
+          deny:
+            - pkg: github.com/nats-io
+              desc: the track detector is pure; publishing is the caller's (paddock#80)
+            - pkg: net
+              desc: the track detector is pure; no network (paddock#80)
+            - pkg: os
+              desc: the track detector is pure; no file system (paddock#80)
+            - pkg: io/fs
+              desc: the track detector is pure; no file system (paddock#80)
+            - pkg: io/ioutil
+              desc: the track detector is pure; no file system (paddock#80)
+            - pkg: path/filepath
+              desc: the track detector is pure; no file system (paddock#80)
+            - pkg: syscall
+              desc: the track detector is pure; no system calls (paddock#80)
         # internal/bus is the only package that talks to NATS (paddock#34).
         nats:
           files:
