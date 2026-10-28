@@ -81,8 +81,10 @@ and ends a session exactly where v1 did, with v1's rules ported from its
   hands them to one goroutine, which owns the connection, without waiting. A
   frame that finds the hand-over full (1,024 frames, about 17 s) is dropped and
   counted, as is every frame while the connection is down. Only that goroutine
-  waits on a server that stops reading (up to 2 s a write, then the client
-  drops the connection and tries again).
+  waits on a server that stops reading: up to 2 s a write, and the next write
+  as long again, since the client keeps the connection until its pings go
+  unanswered (nats.go's defaults, minutes). At shutdown ecu closes such a
+  connection under the write, so the wait ends at once.
 - **Events, in order and acknowledged.** Frames are core publishes; events are
   published through JetStream, one at a time: the next goes only once
   `EVENTS` has acknowledged the one before, and one that is not acknowledged
@@ -112,7 +114,8 @@ and ends a session exactly where v1 did, with v1's rules ported from its
   source at start, and the frames, 20 Hz frames and events published and
   dropped at the end, with `"final": true`. When a write still
   holds the publisher once the 5 s are up, that line has `"final": false`,
-  and ecu waits up to 3 s more for the line with the final totals.
+  ecu closes the connection under the write so it gives up at once, and waits
+  up to 3 s more for the line with the final totals.
 - **Tests.** The tests run the `nats-server` release paddock pins, downloaded
   once into the user's cache and checked against its sha256 (or the binary
   `TWR_TEST_NATS_SERVER` names), with the `TELEMETRY` and `EVENTS` definitions

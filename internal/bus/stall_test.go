@@ -120,9 +120,10 @@ func TestAStalledServerNeverHoldsAStep(t *testing.T) {
 			if took := returned.Sub(start); took > 300*time.Millisecond {
 				t.Errorf("Close took %v with 100 ms to go", took)
 			}
-			// N11: the final totals come once the write gives up (2 s), well within
-			// the 3 s cmd/ecu waits after Close; closing the connection, which may
-			// wait on the stalled socket again, comes after them.
+			// N11: the final totals come once the write gives up, which Close's
+			// cutting the connection makes at once, well within the 3 s cmd/ecu waits
+			// after Close. Without the cut, each write to the stalled socket waits
+			// 2 s and the next one as long again, past the 3 s.
 			select {
 			case <-pub.Closed():
 				if took := time.Since(returned); took > 2500*time.Millisecond {

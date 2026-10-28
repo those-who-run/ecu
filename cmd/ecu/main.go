@@ -83,8 +83,8 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout,
 		grace, cancel := context.WithTimeout(context.WithoutCancel(ctx), closeGrace)
 		defer cancel()
 		pub.Close(grace)
-		// A write that held the publisher past the grace gives up within 2 s; its
-		// final totals are logged then.
+		// A write that held the publisher past the grace gives up at once, as Close
+		// cuts the connection; its final totals are logged then.
 		select {
 		case <-pub.Closed():
 		case <-time.After(closeAfter):
