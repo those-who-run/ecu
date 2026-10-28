@@ -56,8 +56,13 @@ const Buffer = 600
 // sendTimeout bounds one heartbeat send, its name lookup included.
 const sendTimeout = time.Second
 
-// DefaultHeartbeat is the heartbeat interval when TWR_ECU_HEARTBEAT_SECS is unset.
-const DefaultHeartbeat = 2 * time.Second
+// DefaultHeartbeat is the heartbeat interval when TWR_ECU_HEARTBEAT_SECS is unset,
+// and minHeartbeat and maxHeartbeat the least and most it may be set to.
+const (
+	DefaultHeartbeat = 2 * time.Second
+	minHeartbeat     = 10 * time.Millisecond
+	maxHeartbeat     = time.Hour
+)
 
 // Config is the live source's configuration.
 type Config struct {
@@ -81,7 +86,7 @@ var ErrNoPS5 = errors.New("TWR_ECU_PS5_IP: the PS5's IP address is required to l
 
 // ConfigFromEnv reads the configuration through getenv. TWR_ECU_PS5_IP must be an
 // IP address (ErrNoPS5 when it is unset) and TWR_ECU_HEARTBEAT_SECS, when set, a
-// number of seconds above 0.
+// number of seconds from 0.01 to 3,600.
 func ConfigFromEnv(getenv func(string) string) (Config, error) {
 	cfg := Config{
 		PS5:           strings.TrimSpace(getenv("TWR_ECU_PS5_IP")),
@@ -97,8 +102,11 @@ func ConfigFromEnv(getenv func(string) string) (Config, error) {
 	}
 	if v := getenv("TWR_ECU_HEARTBEAT_SECS"); v != "" {
 		secs, err := strconv.ParseFloat(v, 64)
-		if err != nil || !(secs > 0) || math.IsInf(secs, 0) {
-			return Config{}, fmt.Errorf("TWR_ECU_HEARTBEAT_SECS: %q is not a number of seconds above 0", v)
+		// The bounds keep the interval a positive Duration (time.NewTicker panics on
+		// anything else), and the heartbeat one GT7 can live with.
+		if err != nil || math.IsNaN(secs) || secs < minHeartbeat.Seconds() || secs > maxHeartbeat.Seconds() {
+			return Config{}, fmt.Errorf("TWR_ECU_HEARTBEAT_SECS: %q is not a number of seconds from %v to %v",
+				v, minHeartbeat.Seconds(), maxHeartbeat.Seconds())
 		}
 		cfg.Heartbeat = time.Duration(secs * float64(time.Second))
 	}
@@ -128,8 +136,9 @@ type Source struct {
 
 	// send sends one heartbeat; the tests replace it to make sends fail.
 	send func(ctx context.Context) error
-	// backoff is the listener's first backoff; the tests shorten it.
-	backoff time.Duration
+	// backoff is the listener's first backoff and maxBackoff its most; the tests
+	// shorten them.
+	backoff, maxBackoff time.Duration
 
 	packets chan salsa.Received
 	stop    context.CancelFunc
@@ -163,7 +172,7 @@ func newSource(cfg Config, logger *slog.Logger) *Source {
 	ctx, stop := context.WithCancel(context.Background())
 	s := &Source{
 		cfg: cfg, logger: logger, start: time.Now(),
-		backoff: backoffFirst,
+		backoff: backoffFirst, maxBackoff: backoffMax,
 		packets: make(chan salsa.Received, Buffer),
 		ctx:     ctx, stop: stop,
 	}
@@ -320,7 +329,7 @@ func (s *Source) listen() {
 			return
 		case <-time.After(delay):
 		}
-		delay = min(delay*2, backoffMax)
+		delay = min(delay*2, s.maxBackoff)
 		s.counters.restarts.Add(1)
 	}
 }

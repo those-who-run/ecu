@@ -205,6 +205,14 @@ func TestLogsWhereItPublishes(t *testing.T) {
 			t.Errorf("log has no %s: %s", want, stdout.String())
 		}
 	}
+	// The source stops, then the recorder closes, then the publisher, so a server
+	// that cannot be reached never cuts a recording short.
+	log := stdout.String()
+	stopped, recorded, published := strings.Index(log, `"msg":"stopped listening to the PS5"`),
+		strings.Index(log, `"msg":"recorded"`), strings.Index(log, `"msg":"published"`)
+	if stopped >= recorded || recorded >= published {
+		t.Errorf("shut down out of order (source %d, recorder %d, publisher %d): %s", stopped, recorded, published, log)
+	}
 }
 
 // Without the PS5's address ecu listens to nothing and says so, and still serves,

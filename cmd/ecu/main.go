@@ -109,14 +109,20 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout,
 			_, _ = fmt.Fprintln(stderr, "TWR_ECU_RECORDINGS_DIR:", err)
 			return 2
 		}
-		defer func() {
-			grace, cancel := context.WithTimeout(context.WithoutCancel(ctx), closeGrace)
-			defer cancel()
-			rec.Close(grace)
-		}()
+	}
+	// The recorder closes before the publisher, so a NATS server that cannot be
+	// reached never uses up the recording's grace and cuts its gzip short.
+	closeRec := func() {
+		if rec == nil {
+			return
+		}
+		grace, cancel := context.WithTimeout(context.WithoutCancel(ctx), closeGrace)
+		defer cancel()
+		rec.Close(grace)
 	}
 	pub, err := bus.Connect(busCfg, logger, bus.Options{})
 	if err != nil {
+		closeRec()
 		logger.ErrorContext(ctx, "stopped", "err", err)
 		return 1
 	}
@@ -141,12 +147,14 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout,
 			at := func(r salsa.Received) time.Time { return start.Add(time.Duration(r.T * float64(time.Second))) }
 			drive(driveCtx, src, at, race.New(ulid.Make), pub, rec)
 		}()
-		// The drive ends, with the session it holds, before the recorder and the
-		// publisher close (deferred above).
+		// The drive ends, with the session it holds, and the source stops, so
+		// nothing writes to the recorder once it closes; then the recorder closes,
+		// then the publisher (deferred above).
 		defer func() {
 			stopDrive()
 			<-driven
 			_ = src.Close()
+			closeRec()
 		}()
 	}
 	if err := service.Run(ctx, cfg, logger, version); err != nil {

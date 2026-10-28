@@ -117,7 +117,7 @@ overflowed, the heartbeats sent and failed, and the listener's restarts.
 | Variable | Default | What |
 | --- | --- | --- |
 | `TWR_ECU_PS5_IP` | unset: not listening | The PS5's IP address, where the heartbeat goes; required to listen. |
-| `TWR_ECU_HEARTBEAT_SECS` | `2` | Seconds between heartbeats, any number above 0. |
+| `TWR_ECU_HEARTBEAT_SECS` | `2` | Seconds between heartbeats, from 0.01 to 3,600. |
 | `TWR_ECU_RECORDINGS_DIR` | unset: no recording | The directory each drive is recorded in ([Recording](#recording)). |
 
 The ports: UDP 33740 in (the PS5 sends there, to the address the heartbeat

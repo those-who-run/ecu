@@ -3,6 +3,7 @@ package live
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net"
@@ -317,16 +318,55 @@ func TestTheListenerRebindsWhenItsSocketDies(t *testing.T) {
 	}
 }
 
-// The backoff doubles from the first wait up to 30 s, and starts afresh once the
-// listener has bound.
-func TestTheBackoffIsCapped(t *testing.T) {
-	d := backoffFirst
-	for range 10 {
-		d = min(d*2, backoffMax)
+// The listener's backoff doubles from the first wait up to the most while it
+// cannot bind, and starts afresh from the first once it has bound and its socket
+// then dies: the waits it logs say so.
+func TestTheBackoffDoublesToTheCapAndResetsAfterABind(t *testing.T) {
+	p := newPS5(t)
+	addr := freeAddr(t)
+	held, err := net.ListenPacket("udp", addr)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if d != 30*time.Second {
-		t.Errorf("backoff reaches %v", d)
+	l := &logs{}
+	s := open(t, p, addr, l, func(s *Source) { s.backoff, s.maxBackoff = 10*time.Millisecond, 40*time.Millisecond })
+	eventually(t, "retried 5 times", func() bool { return s.Stats().Restarts >= 5 })
+	_ = held.Close()
+	eventually(t, "listening", func() bool { return s.Stats().Listening })
+	bound := len(waits(t, l))
+	s.mu.Lock()
+	_ = s.conn.Close()
+	s.mu.Unlock()
+	eventually(t, "a wait after the socket died", func() bool { return len(waits(t, l)) > bound })
+	got := waits(t, l)
+	want := []float64{0.01, 0.02, 0.04, 0.04, 0.04}
+	for i, w := range want {
+		if got[i] != w {
+			t.Fatalf("waits %v, want %v first", got, want)
+		}
 	}
+	if after := got[bound]; after != 0.01 {
+		t.Errorf("after the bind it waited %v s, want 0.01 again; waits %v", after, got)
+	}
+}
+
+// waits is every retry_in_secs the listener has logged, in order.
+func waits(t *testing.T, l *logs) []float64 {
+	t.Helper()
+	var all []float64
+	for line := range strings.Lines(l.String()) {
+		var rec struct {
+			Msg   string   `json:"msg"`
+			Retry *float64 `json:"retry_in_secs"`
+		}
+		if err := json.Unmarshal([]byte(line), &rec); err != nil {
+			t.Fatal(err)
+		}
+		if rec.Msg == "the telemetry listener stopped" && rec.Retry != nil {
+			all = append(all, *rec.Retry)
+		}
+	}
+	return all
 }
 
 // When Next falls behind, the oldest packet waiting is dropped and counted.
@@ -397,6 +437,11 @@ func TestConfigFromEnv(t *testing.T) {
 		{map[string]string{"TWR_ECU_PS5_IP": "192.0.2.7", "TWR_ECU_HEARTBEAT_SECS": "0"}, "TWR_ECU_HEARTBEAT_SECS"},
 		{map[string]string{"TWR_ECU_PS5_IP": "192.0.2.7", "TWR_ECU_HEARTBEAT_SECS": "two"}, "TWR_ECU_HEARTBEAT_SECS"},
 		{map[string]string{"TWR_ECU_PS5_IP": "192.0.2.7", "TWR_ECU_HEARTBEAT_SECS": "NaN"}, "TWR_ECU_HEARTBEAT_SECS"},
+		// A Duration of 0 and one that overflows to below 0, either of which would
+		// make the ticker panic.
+		{map[string]string{"TWR_ECU_PS5_IP": "192.0.2.7", "TWR_ECU_HEARTBEAT_SECS": "1e-10"}, "from 0.01 to 3600"},
+		{map[string]string{"TWR_ECU_PS5_IP": "192.0.2.7", "TWR_ECU_HEARTBEAT_SECS": "1e10"}, "from 0.01 to 3600"},
+		{map[string]string{"TWR_ECU_PS5_IP": "192.0.2.7", "TWR_ECU_HEARTBEAT_SECS": "Inf"}, "TWR_ECU_HEARTBEAT_SECS"},
 	} {
 		if _, err := ConfigFromEnv(env(c.vars)); err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%v: %v, want %q", c.vars, err, c.want)
