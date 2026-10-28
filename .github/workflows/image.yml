@@ -38,7 +38,8 @@ jobs:
           echo "the image runs as '$user', not distroless's nonroot user" >&2
           exit 1
         fi
-        id=$(docker run --detach --publish 127.0.0.1:8080:8080 "$IMAGE")
+        # Live mode needs the PS5's address; a documentation address (TEST-NET-1) sends the heartbeat nowhere.
+        id=$(docker run --detach --publish 127.0.0.1:8080:8080 -e TWR_ECU_PS5_IP=192.0.2.1 "$IMAGE")
         trap 'docker logs "$id"; docker rm --force "$id" >/dev/null' EXIT
         for _ in $(seq 20); do
           if curl --fail --silent --show-error http://127.0.0.1:8080/healthz; then exit 0; fi
