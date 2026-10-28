@@ -192,7 +192,7 @@ func laps(n int32) []race.Output {
 	var out []race.Output
 	for i := int32(1); i <= n; i++ {
 		out = append(out, race.Output{
-			Event:   ce.Event{ID: "x", Source: race.Source, Time: epoch},
+			Event:   ce.Event{ID: sid + ":lap.completed:" + strconv.Itoa(int(i)), Source: race.Source, Time: epoch},
 			Session: sid,
 			Lap:     &eventsv1.LapCompleted{SessionId: sid, Lap: i},
 		})
@@ -250,7 +250,7 @@ func TestAnEventNotAcknowledgedIsSentAgain(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if id := msg.Header.Get(ce.IDHeader); !strings.HasSuffix(id, ":lap:1:completed") {
+		if id := msg.Header.Get(ce.IDHeader); id != "parity:01JBUS00000000000000000000:lap.completed:1" {
 			t.Fatalf("copy %d is %s, want lap 1 again", i+1, id)
 		}
 	}

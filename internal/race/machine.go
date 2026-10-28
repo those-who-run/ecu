@@ -121,7 +121,8 @@ type Output struct {
 	// Event is the ce-id (and Nats-Msg-Id), ce-source and ce-time, the id built
 	// as contracts' subjects.yaml says: <run>:frame:<seq> for a frame, and
 	// <sid>:session.started:1, <sid>:lap.completed:<lap> and
-	// <sid>:session.ended:1 for the events.
+	// <sid>:session.ended:1 for the events. An event's id is the catalogue's
+	// without its <src>: the publisher puts <src>: in front (paddock#279).
 	Event ce.Event
 	// Session is the id of the session an event belongs to; "" for a frame.
 	Session string

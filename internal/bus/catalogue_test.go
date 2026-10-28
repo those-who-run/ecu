@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -14,8 +15,9 @@ import (
 	"github.com/those-who-run/contracts/ce"
 )
 
-// entry is a subject of contracts' subjects.yaml: its pattern and ce-type.
-type entry struct{ pattern, ceType string }
+// entry is a subject of contracts' subjects.yaml: its pattern, ce-type and msg_id
+// scheme.
+type entry struct{ pattern, ceType, msgID string }
 
 // catalogue reads the subjects of subjects.yaml at the contracts version go.mod
 // requires. Only the two keys this test needs are read, by their place in the
@@ -43,6 +45,8 @@ func catalogue(t *testing.T) []entry {
 			all, in = append(all, entry{pattern: strings.TrimSpace(v)}), true
 		} else if v, ok := strings.CutPrefix(line, "    ce_type: "); ok && in {
 			all[len(all)-1].ceType = strings.TrimSpace(v)
+		} else if v, ok := strings.CutPrefix(line, "    msg_id: "); ok && in {
+			all[len(all)-1].msgID = strings.TrimSpace(v)
 		} else if strings.HasPrefix(line, "  - ") || !strings.HasPrefix(line, " ") {
 			in = false
 		}
@@ -82,9 +86,10 @@ var uncatalogued = map[string]string{
 	"twr.v1.<src>.frame.gt7.lo": "paddock#137",
 }
 
-// AC6: every subject published in a replay (AC1's) is in subjects.yaml with the
-// ce-type it was sent with (R8).
-func TestEverySubjectIsInTheCatalogue(t *testing.T) {
+// published is every message a replay of the Suzuka recording (AC1's) puts on
+// twr.v1.parity.>, and the run it was published under.
+func published(t *testing.T) ([]*nats.Msg, string) {
+	t.Helper()
 	r := newRig(t, "parity")
 	sub, err := r.nc.SubscribeSync("twr.v1.parity.>")
 	if err != nil {
@@ -101,12 +106,23 @@ func TestEverySubjectIsInTheCatalogue(t *testing.T) {
 	r.pub.Publish(m.EndOfInput())
 	stats := r.close(t)
 
-	sent := map[[2]string]bool{} // subject with <sid> for the session id, ce-type
+	var all []*nats.Msg
 	for n := stats.Frames + stats.LoFrames + stats.Events; n > 0; n-- {
 		msg, err := sub.NextMsg(5 * time.Second)
 		if err != nil {
 			t.Fatalf("%d messages still to come: %v", n, err)
 		}
+		all = append(all, msg)
+	}
+	return all, m.Run()
+}
+
+// AC6: every subject published in a replay (AC1's) is in subjects.yaml with the
+// ce-type it was sent with (R8).
+func TestEverySubjectIsInTheCatalogue(t *testing.T) {
+	msgs, _ := published(t)
+	sent := map[[2]string]bool{} // subject with <sid> for the session id, ce-type
+	for _, msg := range msgs {
 		sent[[2]string{generic(msg), msg.Header.Get(ce.TypeHeader)}] = true
 	}
 	if len(sent) != 5 {
@@ -156,6 +172,87 @@ func TestMatches(t *testing.T) {
 	} {
 		if got := matches(c.pattern, c.subject); got != c.want {
 			t.Errorf("matches(%q, %q) = %t", c.pattern, c.subject, got)
+		}
+	}
+}
+
+// N2 of the review of ecu#12: every id ecu publishes, ce-id and Nats-Msg-Id alike,
+// follows the msg_id scheme subjects.yaml gives for its subject (R4, as amended by
+// paddock#279): <src>:<sid>:<area>.<what>:<part> for an event, with the subject's
+// own <src> and <sid>, and <run>:frame:<seq> for a frame.
+func TestEveryIDFollowsTheCatalogue(t *testing.T) {
+	msgs, run := published(t)
+	entries := catalogue(t)
+	checked := map[string]bool{}
+	for _, msg := range msgs {
+		id := msg.Header.Get(ce.IDHeader)
+		if msg.Header.Get(ce.MsgIDHeader) != id {
+			t.Fatalf("%s: Nats-Msg-Id %q, ce-id %q", msg.Subject, msg.Header.Get(ce.MsgIDHeader), id)
+		}
+		var scheme string
+		for _, e := range entries {
+			if matches(e.pattern, msg.Subject) {
+				scheme = e.msgID
+			}
+		}
+		if scheme == "" {
+			continue // uncatalogued: TestEverySubjectIsInTheCatalogue names it
+		}
+		tokens := strings.Split(msg.Subject, ".")
+		values := map[string]string{"src": tokens[2], "run": run}
+		if tokens[3] == "evt" {
+			values["sid"] = tokens[4]
+		}
+		if !followsScheme(scheme, id, values) {
+			t.Fatalf("%s has id %q; subjects.yaml says %s (src %s, run %s)", msg.Subject, id, scheme, tokens[2], run)
+		}
+		checked[scheme] = true
+	}
+	if len(checked) != 4 {
+		t.Errorf("checked ids against %d schemes, want 4: the frame's and the three events': %v", len(checked), checked)
+	}
+}
+
+// followsScheme says id is the msg_id scheme with each <placeholder> filled: from
+// values where it names one, else a number from 1.
+func followsScheme(scheme, id string, values map[string]string) bool {
+	var re strings.Builder
+	re.WriteString("^")
+	for rest := scheme; rest != ""; {
+		open := strings.Index(rest, "<")
+		if open < 0 {
+			re.WriteString(regexp.QuoteMeta(rest))
+			break
+		}
+		end := strings.Index(rest[open:], ">") + open
+		re.WriteString(regexp.QuoteMeta(rest[:open]))
+		if v, ok := values[rest[open+1:end]]; ok {
+			re.WriteString(regexp.QuoteMeta(v))
+		} else {
+			re.WriteString("[1-9][0-9]*")
+		}
+		rest = rest[end+1:]
+	}
+	re.WriteString("$")
+	return regexp.MustCompile(re.String()).MatchString(id)
+}
+
+func TestFollowsScheme(t *testing.T) {
+	v := map[string]string{"src": "parity", "sid": "S", "run": "R"}
+	for _, c := range []struct {
+		scheme, id string
+		want       bool
+	}{
+		{"<src>:<sid>:lap.completed:<n>", "parity:S:lap.completed:3", true},
+		{"<src>:<sid>:lap.completed:<n>", "S:lap.completed:3", false},
+		{"<src>:<sid>:lap.completed:<n>", "live:S:lap.completed:3", false},
+		{"<src>:<sid>:session.started:1", "parity:S:session.started:1", true},
+		{"<src>:<sid>:session.started:1", "parity:S:session:started", false},
+		{"<run>:frame:<seq>", "R:frame:12", true},
+		{"<run>:frame:<seq>", "R:frame:0", false},
+	} {
+		if got := followsScheme(c.scheme, c.id, v); got != c.want {
+			t.Errorf("followsScheme(%q, %q) = %t", c.scheme, c.id, got)
 		}
 	}
 }

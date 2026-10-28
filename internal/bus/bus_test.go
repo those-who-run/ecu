@@ -169,13 +169,13 @@ func TestAReplayLandsInTheStreams(t *testing.T) {
 		switch {
 		case want.Started != nil:
 			started++
-			gotMsg, what, id = &eventsv1.SessionStarted{}, "session.started", "session:started"
+			gotMsg, what, id = &eventsv1.SessionStarted{}, "session.started", "session.started:1"
 		case want.Lap != nil:
 			laps++
-			gotMsg, what, id = &eventsv1.LapCompleted{}, "lap.completed", "lap:"+strconv.Itoa(int(want.Lap.GetLap()))+":completed"
+			gotMsg, what, id = &eventsv1.LapCompleted{}, "lap.completed", "lap.completed:"+strconv.Itoa(int(want.Lap.GetLap()))
 		case want.Ended != nil:
 			ended++
-			gotMsg, what, id = &eventsv1.SessionEnded{}, "session.ended", "session:ended"
+			gotMsg, what, id = &eventsv1.SessionEnded{}, "session.ended", "session.ended:1"
 		}
 		e, err := ce.Decode(header(msg), msg.Data(), gotMsg)
 		if err != nil {
@@ -394,14 +394,14 @@ func TestAServerStoppedMidReplay(t *testing.T) {
 		var id string
 		switch o := want[i]; {
 		case o.Started != nil:
-			id = "session:started"
+			id = "session.started:1"
 		case o.Lap != nil:
-			id = "lap:" + strconv.Itoa(int(o.Lap.GetLap())) + ":completed"
+			id = "lap.completed:" + strconv.Itoa(int(o.Lap.GetLap()))
 		default:
-			id = "session:ended"
+			id = "session.ended:1"
 		}
 		if h := header(msg).Get(ce.IDHeader); h != "parity:"+want[i].Session+":"+id {
-			t.Errorf("event %d is %s, want %s: out of order", i+1, h, id)
+			t.Errorf("event %d is %s, want parity:%s:%s: out of order", i+1, h, want[i].Session, id)
 		}
 	}
 }

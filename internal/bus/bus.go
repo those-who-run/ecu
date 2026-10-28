@@ -17,7 +17,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
-	"strconv"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -206,36 +206,48 @@ func (p *Publisher) dropFrame(lo bool) {
 	}
 }
 
-// The event ids (R4): <src> is part of each, so two replays of one recording
-// under different sources are not deduplicated against each other.
+// event publishes a session event. Its id (R4, as amended by paddock#279) is the
+// race state's, which follows the catalogue's <sid>:<area>.<what>:<part>, with the
+// source in front, <src>:, because EVENTS deduplicates by Nats-Msg-Id across the
+// whole stream and two sources can carry the same session id. Its subject's
+// <area>.<what> comes from its ce-type, and an event with no session open goes on
+// evt._, its id then starting <src>:<run>: as the race state gives it.
 func (p *Publisher) event(o race.Output) {
-	var what, id string
-	switch {
-	case o.Started != nil:
-		o.Started.Source = p.src
-		what, id = "session.started", "session:started"
-	case o.Lap != nil:
-		what, id = "lap.completed", "lap:"+strconv.Itoa(int(o.Lap.GetLap()))+":completed"
-	case o.Ended != nil:
-		what, id = "session.ended", "session:ended"
-	default:
+	if o.Started == nil && o.Lap == nil && o.Ended == nil {
 		return
 	}
+	if o.Started != nil {
+		o.Started.Source = p.src
+	}
 	e := o.Event
-	e.ID = p.src + ":" + o.Session + ":" + id
+	e.ID = p.src + ":" + e.ID
 	h, data, err := ce.Encode(o.Message(), e)
 	if err != nil {
 		p.logger.Error("event not encoded", "id", e.ID, "err", err)
 		p.counters.droppedEvents.Add(1)
 		return
 	}
-	msg := &nats.Msg{Subject: "twr.v1." + p.src + ".evt." + o.Session + "." + what, Header: nats.Header(h), Data: data}
+	sid := o.Session
+	if sid == "" {
+		sid = "_"
+	}
+	msg := &nats.Msg{Subject: "twr.v1." + p.src + ".evt." + sid + "." + areaWhat(h.Get(ce.TypeHeader)), Header: nats.Header(h), Data: data}
 	select {
 	case p.events <- msg:
 	default:
 		p.counters.droppedEvents.Add(1)
 		p.logger.Error("event dropped: the queue is full", "id", e.ID, "queue", p.limit)
 	}
+}
+
+// areaWhat is a ce-type's <area>.<what>: lap.completed for
+// run.thosewho.lap.completed.v1.
+func areaWhat(ceType string) string {
+	t := strings.TrimPrefix(ceType, "run.thosewho.")
+	if i := strings.LastIndex(t, ".v"); i >= 0 {
+		t = t[:i]
+	}
+	return t
 }
 
 // run is the publishing goroutine: it owns the connection. Frames go out as they

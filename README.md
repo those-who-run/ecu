@@ -39,9 +39,9 @@ and ends a session exactly where v1 did, with v1's rules ported from its
   network or the file system in the package.
 - **Ids.** The machine mints a run id when it is made; frames are
   `<run>:frame:<seq>`, with `seq` from 1. Each session gets a ULID when it
-  starts, and its events' ids follow `contracts`' `subjects.yaml`;
-  `internal/bus` publishes the events under ids with the `<src>` in them
-  ([Publishing](#publishing)).
+  starts, and its events' ids are `<sid>:<area>.<what>:<part>`, the
+  catalogue's form in `contracts`' `subjects.yaml` without the source, which
+  `internal/bus` puts in front ([Publishing](#publishing)).
 - **Tests.** The tests replay v1's recordings from `salsa`'s `testdata/v1/` and
   compare the sessions, laps and final session kind with what v1 1.0.0 stored
   for each, in
@@ -69,10 +69,14 @@ and ends a session exactly where v1 did, with v1's rules ported from its
   JSON, with every CloudEvents header from `contracts`' `ce` package:
   `ce-specversion`, `ce-id`, `ce-type`, `ce-source` (`/twr/ecu/gt7`), `ce-time`
   (when ecu received the packet) and `ce-datacontenttype`, and `Nats-Msg-Id`
-  equal to `ce-id`. A frame's id is `<run>:frame:<seq>`; an event's is
-  `<src>:<sid>:session:started`, `<src>:<sid>:lap:<n>:completed` or
-  `<src>:<sid>:session:ended`, so two replays under different sources are not
-  deduplicated against each other. `session.started`'s `source` is the `<src>`.
+  equal to `ce-id`. The ids follow the `msg_id` schemes of `contracts`'
+  `subjects.yaml` (v0.1.5, paddock#279): a frame's is `<run>:frame:<seq>`, and
+  an event's is `<src>:<sid>:session.started:1`, `<src>:<sid>:lap.completed:<n>`
+  or `<src>:<sid>:session.ended:1`, with the subject's `<src>`, so two replays
+  under different sources are not deduplicated against each other. An event
+  published with no session open would go on `evt._`, with `<run>` in
+  `<sid>`'s place; the race state sends none yet. A test checks every id
+  against the catalogue. `session.started`'s `source` is the `<src>`.
 - **Nothing waits on the network.** The step loop encodes its outputs and
   hands them to one goroutine, which owns the connection, without waiting. A
   frame that finds the hand-over full (1,024 frames, about 17 s) is dropped and
