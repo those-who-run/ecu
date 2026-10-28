@@ -11,4 +11,4 @@
 {"event": "lap.completed", "session": 1, "lap": 10, "lap_time_ms": 83560, "complete": true, "fuel_start": 76.2586669921875, "fuel_end": 50.95698928833008, "fuel_used": 25.302, "position": 15, "frames": 93}
 {"event": "lap.completed", "session": 1, "lap": 11, "lap_time_ms": 82830, "complete": true, "fuel_start": 50.95698928833008, "fuel_end": 27.055879592895508, "fuel_used": 23.901, "position": 12, "frames": 92}
 {"event": "lap.completed", "session": 1, "lap": 12, "lap_time_ms": 83353, "complete": true, "fuel_start": 27.055879592895508, "fuel_end": 3.283984661102295, "fuel_used": 23.772, "position": 9, "frames": 94}
-{"event": "session.ended", "session": 1, "laps_completed": 12, "fuel_used": 95.0, "final_position": 9, "finished": true}
+{"event": "session.ended", "session": 1, "laps_completed": 12, "fuel_used": 95.0, "final_position": 9, "finished": true, "kind": "lap_race"}

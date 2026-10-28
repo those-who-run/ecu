@@ -43,7 +43,7 @@ func BenchmarkReplay(b *testing.B) {
 					}
 				}
 			}
-			m.Close()
+			m.EndOfInput()
 		}
 	}
 	b.StopTimer()

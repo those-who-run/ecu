@@ -13,7 +13,9 @@ The replay needs v1's `engineer` extra. This script needs only the standard libr
 One line per event, in the order v1 stored them: session.started, each
 lap.completed, then session.ended. The laps and the session totals come from the
 store's index.sqlite; finished and fuel_at_start, which the index doesn't keep, from
-the session's summary.json. Floats are written as Python's repr, so they read back
+the session's summary.json. The end's kind is the index's session_kind, the last
+verdict of v1's SessionDetector (sessionkind.py), which v1 stored as it changed, so
+the stored one is the session's final verdict (paddock#34). Floats are written as Python's repr, so they read back
 as the same float64. Session ids are left out: v1's are UTC stamps, v2's are ULIDs.
 """
 
@@ -27,9 +29,9 @@ def main(store: Path) -> None:
     db = sqlite3.connect(store / "index.sqlite")
     sessions = db.execute(
         "SELECT id, type, car_code, total_laps, laps_completed, fuel_used, final_position,"
-        " joined_on_lap FROM sessions ORDER BY started_at, id"
+        " joined_on_lap, session_kind FROM sessions ORDER BY started_at, id"
     ).fetchall()
-    for n, (sid, kind, car, total, completed, used, final, joined) in enumerate(sessions, 1):
+    for n, (sid, kind, car, total, completed, used, final, joined, final_kind) in enumerate(sessions, 1):
         summary = json.loads((store / "sessions" / sid / "summary.json").read_text())
         emit(
             event="session.started",
@@ -65,6 +67,7 @@ def main(store: Path) -> None:
             fuel_used=used,
             final_position=final,
             finished=summary["finished"],
+            kind=final_kind,
         )
 
 

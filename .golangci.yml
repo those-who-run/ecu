@@ -41,6 +41,14 @@ linters:
               desc: the race state is pure; no file system (paddock#33)
             - pkg: syscall
               desc: the race state is pure; no system calls (paddock#33)
+        # internal/bus is the only package that talks to NATS (paddock#34).
+        nats:
+          files:
+            - "$all"
+            - "!**/internal/bus/*.go"
+          deny:
+            - pkg: github.com/nats-io
+              desc: only internal/bus imports nats.go (paddock#34)
     sloglint:
       kv-only: true
       no-global: all

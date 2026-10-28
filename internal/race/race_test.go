@@ -60,6 +60,7 @@ type stored struct {
 	LapsCompleted *int32 `json:"laps_completed,omitempty"`
 	FinalPosition *int32 `json:"final_position,omitempty"`
 	Finished      bool   `json:"finished,omitempty"`
+	Kind          string `json:"kind,omitempty"`
 }
 
 func (s stored) String() string {
@@ -108,10 +109,14 @@ func nonZero(v int32) *int32 {
 	return &v
 }
 
-var sessionTypes = map[eventsv1.SessionType]string{
-	eventsv1.SessionType_SESSION_TYPE_RACE:       "race",
-	eventsv1.SessionType_SESSION_TYPE_TIME_TRIAL: "time_trial",
-	eventsv1.SessionType_SESSION_TYPE_PRACTICE:   "practice",
+// v1Kinds is v1's name for each session kind (sessionkind.Kind), one to one with
+// the SessionType values ecu sends.
+var v1Kinds = map[eventsv1.SessionType]string{
+	eventsv1.SessionType_SESSION_TYPE_UNKNOWN:     "unknown",
+	eventsv1.SessionType_SESSION_TYPE_LAP_RACE:    "lap_race",
+	eventsv1.SessionType_SESSION_TYPE_SOLO_LAPS:   "solo_laps",
+	eventsv1.SessionType_SESSION_TYPE_TIMED_FIELD: "timed_field",
+	eventsv1.SessionType_SESSION_TYPE_SOLO_TIMED:  "solo_timed",
 }
 
 // frames is each frame of the outputs, by seq.
@@ -139,8 +144,7 @@ func asStored(out []Output, skip map[uint32]bool) []stored {
 			s := o.Started
 			line := stored{
 				Event: "session.started", Session: sessions[o.Session],
-				Type: sessionTypes[s.GetSessionType()], CarCode: s.GetCarCode(), TotalLaps: s.GetTotalLaps(),
-				FuelAtStart: ptr(o.Start.FuelAtStart),
+				CarCode: s.GetCarCode(), TotalLaps: s.GetTotalLaps(), FuelAtStart: ptr(s.GetFuelAtStart()),
 			}
 			if s.GetJoinedPartWay() {
 				line.JoinedOnLap = ptr(all[s.GetFirstSeq()].GetLap())
@@ -165,11 +169,12 @@ func asStored(out []Output, skip map[uint32]bool) []stored {
 				Position: pos, Frames: n,
 			})
 		case o.Ended != nil:
+			sum := o.Ended.GetSummary()
 			lines = append(lines, stored{
 				Event: "session.ended", Session: sessions[o.Session],
-				LapsCompleted: ptr(o.Ended.GetSummary().GetLapsCompleted()),
-				FuelUsed:      ptr(o.End.FuelUsed), FinalPosition: nonZero(o.End.FinalPosition),
-				Finished: o.End.Why == WhyFinished,
+				LapsCompleted: ptr(sum.GetLapsCompleted()),
+				FuelUsed:      ptr(sum.GetFuelUsed()), FinalPosition: nonZero(sum.GetFinalPosition()),
+				Finished: o.Why == WhyFinished, Kind: v1Kinds[sum.GetSessionType()],
 			})
 		}
 	}
@@ -187,12 +192,25 @@ func strs(lines []stored, float32s bool) []string {
 	return out
 }
 
-// AC1, and the same for every other recording: the sessions and laps v1 stored.
+// AC1, and the same for every other recording: the sessions and laps v1 stored,
+// and the session's kind as v1's SessionDetector last gave it (paddock#34).
+//
+// One field of v1's is not compared, on purpose: the start's type, v1's
+// store.session_type (race, time trial or practice from GT7's cars-on-track flag).
+// contracts v0.1.4 replaced it with the kind (paddock#276), which the end's kind
+// holds to v1. The positions are compared as they are: v1 stored none in the
+// recordings' one solo session, so leaving them out outside a field (also
+// paddock#276) changes nothing here; TestNoPositionOutsideAField pins that
+// difference.
 func TestSessionsAndLapsEqualV1s(t *testing.T) {
 	for _, name := range goldenFixtures {
 		t.Run(name, func(t *testing.T) {
 			all := packets(t, name)
-			want := strs(readGolden(t, name), roundedFixtures[name])
+			golden := readGolden(t, name)
+			for i := range golden {
+				golden[i].Type = ""
+			}
+			want := strs(golden, roundedFixtures[name])
 			got := strs(asStored(run(all), frozen(all)), roundedFixtures[name])
 			if !slices.Equal(got, want) {
 				t.Errorf("got\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
@@ -282,18 +300,18 @@ func TestRestartsEndTheirSessions(t *testing.T) {
 	for i, restartLap := range []int32{2, 1} {
 		s := got[i]
 		end := s[len(s)-1]
-		if end.Ended == nil || end.End.Why == WhyFinished {
+		if end.Ended == nil || end.Why == WhyFinished {
 			t.Fatalf("session %d: last output %v, want an end before the flag", i+1, end.Message())
 		}
 		// GT7 restarts through a loading screen with the lap counter reset.
-		at := all[end.End.LastSeq]
-		if at.GetPhase() != phaseLoading || at.GetLap() != 0 || all[end.End.LastSeq-1].GetLap() != restartLap {
+		at := all[end.Ended.GetLastSeq()]
+		if at.GetPhase() != phaseLoading || at.GetLap() != 0 || all[end.Ended.GetLastSeq()-1].GetLap() != restartLap {
 			t.Errorf("session %d ended on %v lap %d, after lap %d; want a loading screen at lap 0 after lap %d",
-				i+1, at.GetPhase(), at.GetLap(), all[end.End.LastSeq-1].GetLap(), restartLap)
+				i+1, at.GetPhase(), at.GetLap(), all[end.Ended.GetLastSeq()-1].GetLap(), restartLap)
 		}
 		next := got[i+1][0].Started
-		if next.GetFirstSeq() <= end.End.LastSeq {
-			t.Errorf("session %d starts at %d, before session %d ended at %d", i+2, next.GetFirstSeq(), i+1, end.End.LastSeq)
+		if next.GetFirstSeq() <= end.Ended.GetLastSeq() {
+			t.Errorf("session %d starts at %d, before session %d ended at %d", i+2, next.GetFirstSeq(), i+1, end.Ended.GetLastSeq())
 		}
 	}
 	lapOneRestart := got[1]
@@ -305,8 +323,8 @@ func TestRestartsEndTheirSessions(t *testing.T) {
 			t.Errorf("the lap-1 restart's session has a complete lap %d", o.Lap.GetLap())
 		}
 	}
-	if last := got[2][len(got[2])-1]; last.End.Why != WhyFinished {
-		t.Errorf("the third race ended %v, want finished", last.End.Why)
+	if last := got[2][len(got[2])-1]; last.Why != WhyFinished {
+		t.Errorf("the third race ended %v, want finished", last.Why)
 	}
 }
 
@@ -328,17 +346,17 @@ func TestATwoLapRaceEndsAtTheFlag(t *testing.T) {
 	if end.Ended == nil {
 		t.Fatal("the race has no end")
 	}
-	if end.End.Why != WhyFinished || end.Ended.GetReason() != eventsv1.EndReason_END_REASON_FINISHED {
-		t.Errorf("the race ended %v (%v), want finished", end.End.Why, end.Ended.GetReason())
+	if end.Why != WhyFinished || end.Ended.GetReason() != eventsv1.EndReason_END_REASON_FINISHED {
+		t.Errorf("the race ended %v (%v), want finished", end.Why, end.Ended.GetReason())
 	}
-	if f := all[end.End.LastSeq]; f.GetPhase() != phaseFinished || f.GetLap() != 3 {
+	if f := all[end.Ended.GetLastSeq()]; f.GetPhase() != phaseFinished || f.GetLap() != 3 {
 		t.Errorf("the race ended on %v lap %d, want the flag on lap 3", f.GetPhase(), f.GetLap())
 	}
 	if p := end.Ended.GetSummary().FinishingPosition; p == nil || *p != 6 {
 		t.Errorf("finishing position %v, want 6", p)
 	}
 	var blip int
-	for seq := end.End.LastSeq + 1; all[seq] != nil; seq++ {
+	for seq := end.Ended.GetLastSeq() + 1; all[seq] != nil; seq++ {
 		if all[seq].GetPhase() == phaseInRace {
 			blip++
 		}
@@ -370,7 +388,7 @@ func encoded(t *testing.T, out []Output) []string {
 		if err != nil {
 			t.Fatal(err)
 		}
-		extra, err := json.Marshal([]any{o.Session, o.Start, o.End})
+		extra, err := json.Marshal([]any{o.Session, o.Why})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -462,7 +480,7 @@ func TestIDsAndSeqs(t *testing.T) {
 	for _, r := range packets(t, "real-nuc-suzuka-no-stop-2026-10-15") {
 		out = append(out, m.Step(r)...)
 	}
-	out = append(out, m.Close()...)
+	out = append(out, m.EndOfInput()...)
 	var seq, first uint32
 	for _, o := range out {
 		if o.Event.Source != Source || o.Event.Time.IsZero() {
@@ -489,8 +507,8 @@ func TestIDsAndSeqs(t *testing.T) {
 			}
 			first = l.GetLastSeq() + 1
 		case o.Ended != nil:
-			if o.Event.ID != o.Session+":session.ended:1" || o.Ended.GetSessionId() != o.Session || o.End.LastSeq != seq {
-				t.Errorf("end %q at %d, frame %d", o.Event.ID, o.End.LastSeq, seq)
+			if o.Event.ID != o.Session+":session.ended:1" || o.Ended.GetSessionId() != o.Session || o.Ended.GetLastSeq() != seq {
+				t.Errorf("end %q at %d, frame %d", o.Event.ID, o.Ended.GetLastSeq(), seq)
 			}
 		}
 	}
@@ -504,19 +522,34 @@ func itoa(n uint32) string {
 	return string(b)
 }
 
-// A recording that stops mid-race ends its session as stopped, on its last frame.
-func TestTheEndOfTheInputEndsTheSessionAsStopped(t *testing.T) {
+// A recording that stops mid-race ends its session as the input ended, on its last
+// frame; ecu stopping at the same point ends it as stopped. v1 told the two apart
+// only by finished being false: the end reasons are new in contracts v0.1.4
+// (paddock#276), a deliberate difference from v1.
+func TestTheEndOfTheInputAndStoppingEndTheSession(t *testing.T) {
 	all := packets(t, "real-nuc-willow-springs-pit-stop-2026-10-17")
-	out := run(all)
-	end := out[len(out)-1]
-	if end.Ended == nil || end.End.Why != WhyStopped ||
-		end.Ended.GetReason() != eventsv1.EndReason_END_REASON_ENGINEER_STOPPED {
-		t.Fatalf("last output %v, want the session ended as stopped", end.Message())
-	}
-	if end.End.LastSeq != uint32(len(all)) { //nolint:gosec // a recording's frame count fits
-		t.Errorf("ended at %d, want the last frame, %d", end.End.LastSeq, len(all))
-	}
-	if end.Ended.GetSummary().FinishingPosition != nil {
-		t.Error("a session stopped before the flag has a finishing position")
+	for _, c := range []struct {
+		close  func(*Machine) []Output
+		why    Why
+		reason eventsv1.EndReason
+	}{
+		{(*Machine).EndOfInput, WhyInputEnded, eventsv1.EndReason_END_REASON_INPUT_ENDED},
+		{(*Machine).Stop, WhyStopped, eventsv1.EndReason_END_REASON_ENGINEER_STOPPED},
+	} {
+		m := New(testIDs())
+		for _, r := range all {
+			m.Step(r)
+		}
+		out := c.close(m)
+		end := out[len(out)-1]
+		if end.Ended == nil || end.Why != c.why || end.Ended.GetReason() != c.reason {
+			t.Fatalf("last output %v (%v), want the session ended %v", end.Message(), end.Why, c.reason)
+		}
+		if end.Ended.GetLastSeq() != uint32(len(all)) { //nolint:gosec // a recording's frame count fits
+			t.Errorf("ended at %d, want the last frame, %d", end.Ended.GetLastSeq(), len(all))
+		}
+		if end.Ended.GetSummary().FinishingPosition != nil {
+			t.Error("a session ended before the flag has a finishing position")
+		}
 	}
 }

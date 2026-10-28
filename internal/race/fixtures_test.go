@@ -90,7 +90,7 @@ func run(all []Received) []Output {
 	for _, r := range all {
 		out = append(out, m.Step(r)...)
 	}
-	return append(out, m.Close()...)
+	return append(out, m.EndOfInput()...)
 }
 
 // frozen is the seqs (from 1) of the frames v1's PauseClock (pause.py at v1.0.0)

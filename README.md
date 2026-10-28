@@ -20,6 +20,16 @@ events it gives rise to, `session.started`, `lap.completed` and
 and ends a session exactly where v1 did, with v1's rules ported from its
 `state.py`, `engine.py` and `store.py` at v1.0.0 (paddock#33).
 
+- **Session type.** v1's `SessionDetector` (`sessionkind.py`), cut to the
+  kind: a lap race, solo laps, a timed session with a field, or solo timed,
+  from the lap total and the field of cars. `session.started` carries the
+  verdict on the session's first frame, and `session.ended`'s summary the
+  final one, which can differ (paddock#34). Outside a field, `position` and
+  `final_position` are left out, where v1 stored GT7's 1; `finishing_position`
+  is set only for a lap race that ended at the flag.
+- **End reasons.** At the flag, quit, restarted, the next session started, the
+  input ended (`EndOfInput`, the end of a recording) and ecu stopped (`Stop`).
+
 - **No clock, no NATS, no files.** Each packet comes with the time ecu received
   it, which becomes its frame's `ce-time`; a session's `started_at` is its
   first frame's. The caller gives the ULID generator: `race.New(ulid.Make)`
@@ -29,14 +39,86 @@ and ends a session exactly where v1 did, with v1's rules ported from its
   network or the file system in the package.
 - **Ids.** The machine mints a run id when it is made; frames are
   `<run>:frame:<seq>`, with `seq` from 1. Each session gets a ULID when it
-  starts, and its events' ids follow `contracts`' `subjects.yaml`.
+  starts, and its events' ids are `<sid>:<area>.<what>:<part>`, the
+  catalogue's form in `contracts`' `subjects.yaml` without the source, which
+  `internal/bus` puts in front ([Publishing](#publishing)).
 - **Tests.** The tests replay v1's recordings from `salsa`'s `testdata/v1/` and
-  compare the sessions and laps with what v1 1.0.0 stored for each, in
+  compare the sessions, laps and final session kind with what v1 1.0.0 stored
+  for each, in
   [`internal/race/testdata/golden/`](internal/race/testdata/golden), which
   `make_golden.py` there says how to make.
 - **Benchmark.** `go test -run '^$' -bench Replay ./internal/race` replays
   every recording and reports the p50, p99 and max time of a step, per frame
   and per session start, lap close and session end.
+
+## Publishing
+
+[`internal/bus`](internal/bus) puts the race state's outputs on NATS
+(paddock#34), and is the only package that imports nats.go (depguard in
+[`.golangci.yml`](.golangci.yml)).
+
+| Subject | What | Captured by |
+| --- | --- | --- |
+| `twr.v1.<src>.frame.gt7` | every frame | `TELEMETRY` |
+| `twr.v1.<src>.frame.gt7.lo` | the same frames, at most one per 50 ms of frame time (20 Hz) | none |
+| `twr.v1.<src>.evt.<sid>.session.started` | a session began | `EVENTS` |
+| `twr.v1.<src>.evt.<sid>.lap.completed` | a lap ended | `EVENTS` |
+| `twr.v1.<src>.evt.<sid>.session.ended` | a session ended | `EVENTS` |
+
+- **Messages.** Each is the `contracts` message in protobuf
+  JSON, with every CloudEvents header from `contracts`' `ce` package:
+  `ce-specversion`, `ce-id`, `ce-type`, `ce-source` (`/twr/ecu/gt7`), `ce-time`
+  (when ecu received the packet) and `ce-datacontenttype`, and `Nats-Msg-Id`
+  equal to `ce-id`. The ids follow the `msg_id` schemes of `contracts`'
+  `subjects.yaml` (v0.1.5, paddock#279): a frame's is `<run>:frame:<seq>`, and
+  an event's is `<src>:<sid>:session.started:1`, `<src>:<sid>:lap.completed:<n>`
+  or `<src>:<sid>:session.ended:1`, with the subject's `<src>`, so two replays
+  under different sources are not deduplicated against each other. An event
+  published with no session open would go on `evt._`, with `<run>` in
+  `<sid>`'s place; the race state sends none yet. A test checks every id
+  against the catalogue. `session.started`'s `source` is the `<src>`.
+- **Nothing waits on the network.** The step loop encodes its outputs and
+  hands them to one goroutine, which owns the connection, without waiting. A
+  frame that finds the hand-over full (1,024 frames, about 17 s) is dropped and
+  counted, as is every frame while the connection is down. Only that goroutine
+  waits on a server that stops reading (up to 2 s a write, then the client
+  drops the connection and tries again).
+- **Events, in order and acknowledged.** Frames are core publishes; events are
+  published through JetStream, one at a time: the next goes only once
+  `EVENTS` has acknowledged the one before, and one that is not acknowledged
+  within 5 s, or could not be sent, is sent again after `ReconnectWait`. So
+  events reach `EVENTS` in the order they happened, and none is lost while ecu
+  runs. Up to 2,048 wait, 1,024 in the publisher's queue and 1,024 in the
+  hand-over to it; beyond that an event is dropped, counted and logged as an
+  error, and the step does not wait. At the end ecu waits up to 5 s for the
+  queue, and no longer.
+- **Copies.** A copy sent again that `EVENTS` already stored is dropped there
+  within its 2 min duplicate window. A copy can still be stored twice in two
+  cases: an acknowledgement is lost and the connection then stays down for more
+  than 2 min, or the connection stays up but JetStream does not answer for more
+  than 2 min (the stream unavailable, say). And a core subscriber on an event
+  subject sees every copy sent. So every consumer, live core subscribers as
+  well as logbook (whose writes are upserts), treats `ce-id` as the event's
+  identity.
+- **ecu needs `EVENTS`.** Without the stream (a bare development server, not
+  a deployment, which has it from paddock's bootstrap), each event waits 5 s
+  for an acknowledgement and is sent again, so events stall and core
+  subscribers see copies. ecu logs a warning, once, the first time an event is
+  not acknowledged.
+- **Configuration.** `--nats` or `TWR_NATS_URL` (`nats://127.0.0.1:4222`), and
+  `--src` or `TWR_SRC` (`live`): `live`, `parity` or `replay-<run>`, the run of
+  letters, digits, `_` and `-`. Anything else, such as a `.`, `*`, `>` or white
+  space, stops ecu at start. ecu logs the server (without credentials) and the
+  source at start, and the frames, 20 Hz frames and events published and
+  dropped at the end, with `"final": true`. When a write still
+  holds the publisher once the 5 s are up, that line has `"final": false`,
+  and ecu waits up to 3 s more for the line with the final totals.
+- **Tests.** The tests run the `nats-server` release paddock pins, downloaded
+  once into the user's cache and checked against its sha256 (or the binary
+  `TWR_TEST_NATS_SERVER` names), with the `TELEMETRY` and `EVENTS` definitions
+  of paddock's `deploy/nats/streams` in
+  [`internal/bus/testdata/streams`](internal/bus/testdata/streams). `go test
+  -run '^$' -bench EncodeFrame ./internal/bus` measures a frame's encoding.
 
 ## Checks
 

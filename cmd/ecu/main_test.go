@@ -129,3 +129,56 @@ func TestServesUntilCancelled(t *testing.T) {
 		t.Fatal("still running 10 s after cancel")
 	}
 }
+
+// AC5 of paddock#34: a src that is not one subject token stops ecu at start, from
+// the flag or the environment, with a message naming the rule.
+func TestASrcOfReplayDot1IsRefusedAtStart(t *testing.T) {
+	for _, c := range []struct {
+		args []string
+		env  map[string]string
+	}{
+		{[]string{"-src", "replay.1"}, nil},
+		{nil, map[string]string{"TWR_SRC": "replay.1"}},
+	} {
+		var stdout, stderr bytes.Buffer
+		code := run(t.Context(), c.args, env(c.env), &stdout, &stderr)
+		if code != 2 || !strings.Contains(stderr.String(), `src "replay.1": a src is one subject token`) {
+			t.Errorf("%v %v: exit %d, stderr %q; want 2 and the rule", c.args, c.env, code, stderr.String())
+		}
+		if stdout.Len() != 0 {
+			t.Errorf("%v %v: logged %q before refusing", c.args, c.env, stdout.String())
+		}
+	}
+}
+
+// R10 of paddock#34: ecu logs the NATS server and src it publishes to at start,
+// and what it published at the end.
+func TestLogsWhereItPublishes(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	stdout := newReadyLog()
+	exit := make(chan int, 1)
+	go func() {
+		exit <- run(ctx, []string{"-nats", "nats://127.0.0.1:1", "-src", "parity"},
+			env(map[string]string{"ADDR": "127.0.0.1:0"}), stdout, &bytes.Buffer{})
+	}()
+	select {
+	case <-stdout.ready:
+	case code := <-exit:
+		t.Fatalf("exit %d before serving, log %q", code, stdout.String())
+	case <-time.After(10 * time.Second):
+		t.Fatal("not serving after 10 s")
+	}
+	cancel()
+	if code := <-exit; code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+	for _, want := range []string{
+		`"msg":"publishing","nats":"nats://127.0.0.1:1","src":"parity"`,
+		`"msg":"published","frames":0,`,
+		`"dropped_events":0,"final":true}`,
+	} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Errorf("log has no %s: %s", want, stdout.String())
+		}
+	}
+}
