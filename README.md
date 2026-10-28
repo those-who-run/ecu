@@ -84,12 +84,23 @@ and ends a session exactly where v1 did, with v1's rules ported from its
   `EVENTS` has acknowledged the one before, and one that is not acknowledged
   within 5 s, or could not be sent, is sent again after `ReconnectWait`. So
   events reach `EVENTS` in the order they happened, and none is lost while ecu
-  runs. Up to 1,024 wait; beyond that an event is dropped, counted and logged
-  as an error. A copy sent again that `EVENTS` already stored is dropped there
-  within its 2 min duplicate window; only when an acknowledgement is lost and
-  the connection stays down longer than that can a copy be stored twice, so a
-  consumer treats `ce-id` as the event's identity (logbook's writes are
-  upserts). At the end ecu waits up to 5 s for the queue.
+  runs. Up to 2,048 wait, 1,024 in the publisher's queue and 1,024 in the
+  hand-over to it; beyond that an event is dropped, counted and logged as an
+  error, and the step does not wait. At the end ecu waits up to 5 s for the
+  queue, and no longer.
+- **Copies.** A copy sent again that `EVENTS` already stored is dropped there
+  within its 2 min duplicate window. A copy can still be stored twice in two
+  cases: an acknowledgement is lost and the connection then stays down for more
+  than 2 min, or the connection stays up but JetStream does not answer for more
+  than 2 min (the stream unavailable, say). And a core subscriber on an event
+  subject sees every copy sent. So every consumer, live core subscribers as
+  well as logbook (whose writes are upserts), treats `ce-id` as the event's
+  identity.
+- **ecu needs `EVENTS`.** Without the stream (a bare development server, not
+  a deployment, which has it from paddock's bootstrap), each event waits 5 s
+  for an acknowledgement and is sent again, so events stall and core
+  subscribers see copies. ecu logs a warning, once, the first time an event is
+  not acknowledged.
 - **Configuration.** `--nats` or `TWR_NATS_URL` (`nats://127.0.0.1:4222`), and
   `--src` or `TWR_SRC` (`live`): `live`, `parity` or `replay-<run>`, the run of
   letters, digits, `_` and `-`. Anything else, such as a `.`, `*`, `>` or white

@@ -237,17 +237,22 @@ func freePort(t *testing.T) int {
 // bootstrap applies in compose and the cluster.
 func addStreams(t *testing.T, js jetstream.JetStream) {
 	t.Helper()
-	for _, name := range []string{"telemetry", "events"} {
-		data, err := os.ReadFile(filepath.Join("testdata", "streams", name+".json")) //nolint:gosec // a fixture
-		if err != nil {
-			t.Fatal(err)
-		}
-		var cfg jetstream.StreamConfig
-		if err := json.Unmarshal(data, &cfg); err != nil {
-			t.Fatalf("%s: %v", name, err)
-		}
-		if _, err := js.CreateStream(t.Context(), cfg); err != nil {
-			t.Fatalf("%s: %v", name, err)
-		}
+	addStream(t, js, "telemetry")
+	addStream(t, js, "events")
+}
+
+// addStream creates the stream testdata/streams/<name>.json defines.
+func addStream(t *testing.T, js jetstream.JetStream, name string) {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join("testdata", "streams", name+".json")) //nolint:gosec // a fixture
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cfg jetstream.StreamConfig
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		t.Fatalf("%s: %v", name, err)
+	}
+	if _, err := js.CreateStream(t.Context(), cfg); err != nil {
+		t.Fatalf("%s: %v", name, err)
 	}
 }

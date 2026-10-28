@@ -30,9 +30,10 @@ import (
 
 // Options are the publisher's limits. The zero value takes the defaults.
 type Options struct {
-	// QueueSize is how many events wait to be sent and acknowledged: 1,024 by
-	// default, hours of laps. Events beyond it are dropped, counted and logged as
-	// errors, never silently.
+	// QueueSize bounds the events waiting to be sent and acknowledged: QueueSize in
+	// the publishing goroutine's queue and QueueSize more in the hand-over to it,
+	// 2 × 1,024 = 2,048 by default, hours of laps. An event beyond them is dropped,
+	// counted and logged as an error, never silently, and never waited for.
 	QueueSize int
 	// FrameBuffer is how many frames wait for the publishing goroutine: 1,024 by
 	// default, about 17 s at 60 Hz. A frame beyond it is dropped and counted.
@@ -82,7 +83,8 @@ type Publisher struct {
 
 	frames chan frameMsg
 	events chan *nats.Msg
-	stop   chan context.Context // Close's request, with its deadline
+	quit   chan struct{}   // closed by Close
+	until  context.Context // Close's deadline, set before quit is closed
 	done   chan struct{}
 
 	// The step loop's own: the frame time of the last frame put on .lo.
@@ -143,7 +145,7 @@ func Connect(cfg Config, logger *slog.Logger, opts Options) (*Publisher, error) 
 		nc: nc, js: js, src: cfg.Src, logger: logger, limit: opts.QueueSize, wait: opts.ReconnectWait,
 		frames: make(chan frameMsg, opts.FrameBuffer),
 		events: make(chan *nats.Msg, opts.QueueSize),
-		stop:   make(chan context.Context),
+		quit:   make(chan struct{}),
 		done:   make(chan struct{}),
 	}
 	go p.run()
@@ -242,9 +244,20 @@ func (p *Publisher) run() {
 		retry    *time.Timer
 		retryC   <-chan time.Time
 		closing  context.Context
+		quit     = p.quit
 		lastErr  string
+		warned   bool // the missing acknowledgement was logged
 	)
 	for {
+		if closing != nil && closing.Err() != nil {
+			// Out of time: what is left is dropped, before anything more waits on
+			// the network.
+			for range len(p.frames) {
+				p.dropFrame((<-p.frames).lo)
+			}
+			p.counters.droppedEvents.Add(uint64(len(queue) + len(p.events)))
+			return
+		}
 		if inflight == nil && retryC == nil && len(queue) > 0 {
 			f, err := p.js.PublishMsgAsync(queue[0])
 			if err == nil {
@@ -256,15 +269,6 @@ func (p *Publisher) run() {
 			}
 		}
 		if closing != nil && len(queue) == 0 && len(p.events) == 0 && len(p.frames) == 0 {
-			return
-		}
-		if closing != nil && closing.Err() != nil {
-			// Out of time: what is left is dropped, before any more waits on the
-			// network.
-			for range len(p.frames) {
-				p.dropFrame((<-p.frames).lo)
-			}
-			p.counters.droppedEvents.Add(uint64(len(queue) + len(p.events)))
 			return
 		}
 		var ok <-chan *jetstream.PubAck
@@ -290,14 +294,20 @@ func (p *Publisher) run() {
 			queue[0] = nil
 			queue, inflight, lastErr = queue[1:], nil, ""
 		case err := <-failed:
+			if !warned && (errors.Is(err, jetstream.ErrAsyncPublishTimeout) || errors.Is(err, jetstream.ErrNoStreamResponse)) {
+				warned = true
+				p.logger.Warn("EVENTS did not acknowledge an event: is the stream there? "+
+					"Each event is sent again until it is, and core subscribers see the copies",
+					"id", queue[0].Header.Get(ce.IDHeader), "err", err)
+			}
 			lastErr = p.notSent(queue[0], err, lastErr)
 			inflight = nil
 			retry = time.NewTimer(p.wait)
 			retryC = retry.C
 		case <-retryC:
 			retryC = nil
-		case ctx := <-p.stop:
-			closing = ctx
+		case <-quit:
+			closing, quit = p.until, nil
 		case <-deadline:
 			// The check at the top drops what is left.
 		}
@@ -342,18 +352,27 @@ func (p *Publisher) Stats() Stats {
 // Close publishes what Publish has handed over and waits for EVENTS to acknowledge
 // every event, until ctx is done; the events still waiting then are counted as
 // dropped. It then flushes the frames the client holds and closes the connection,
-// and logs and returns the totals (R10). Publish must not be called after it.
+// and logs and returns the totals (R10). It returns once ctx is done even if the
+// publishing goroutine is still held by a write, which then closes the connection
+// itself when the write gives up. Publish must not be called after it, and Close
+// only once.
 func (p *Publisher) Close(ctx context.Context) Stats {
-	select {
-	case p.stop <- ctx:
-		<-p.done
-	case <-p.done:
-	}
+	p.until = ctx
+	close(p.quit)
 	var err error
-	if p.nc.IsConnected() {
-		err = p.nc.FlushWithContext(ctx)
+	select {
+	case <-p.done:
+		if p.nc.IsConnected() {
+			err = p.nc.FlushWithContext(ctx)
+		}
+		p.nc.Close()
+	case <-ctx.Done():
+		go func() {
+			<-p.done
+			p.nc.Close()
+		}()
+		err = errors.New("the publisher was still writing when the time ran out")
 	}
-	p.nc.Close()
 	s := p.Stats()
 	p.logger.InfoContext(ctx, "published",
 		"frames", s.Frames, "lo_frames", s.LoFrames, "events", s.Events,

@@ -110,12 +110,20 @@ func TestAStalledServerNeverHoldsAStep(t *testing.T) {
 			}
 			ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
 			defer cancel()
-			s := pub.Close(ctx)
+			start := time.Now()
+			pub.Close(ctx)
+			// N8 of the review of ecu#12: Close keeps to its context, even while the
+			// goroutine is held by a write.
+			if took := time.Since(start); took > 300*time.Millisecond {
+				t.Errorf("Close took %v with 100 ms to go", took)
+			}
 			if slowest > 100*time.Millisecond {
 				t.Errorf("the slowest of %d steps took %v", steps, slowest)
 			}
 			// The goroutine was held: frames were dropped, and no event was
-			// acknowledged.
+			// acknowledged. Its totals are final once it has given up its write.
+			<-pub.done
+			s := pub.Stats()
 			if s.DroppedFrames == 0 || s.Events != 0 || s.DroppedEvents == 0 {
 				t.Errorf("stats %+v: the server never stalled the goroutine", s)
 			}
@@ -129,14 +137,7 @@ func TestAStalledServerNeverHoldsAStep(t *testing.T) {
 // order.
 func TestEventsStayInOrderAcrossAReconnect(t *testing.T) {
 	r := newRig(t, "parity")
-	const sid = "01JBUS00000000000000000000"
-	lap := func(n int32) []race.Output {
-		return []race.Output{{
-			Event:   ce.Event{ID: "x", Source: race.Source, Time: epoch},
-			Session: sid,
-			Lap:     &eventsv1.LapCompleted{SessionId: sid, Lap: n},
-		}}
-	}
+	all := laps(300)
 	r.nc.Close()
 	for n := int32(1); n <= 300; n++ {
 		switch n {
@@ -145,7 +146,7 @@ func TestEventsStayInOrderAcrossAReconnect(t *testing.T) {
 		case 150:
 			r.srv.start() // the publisher finds it again within 20 ms, while laps keep coming
 		}
-		r.pub.Publish(lap(n))
+		r.pub.Publish(all[n-1 : n])
 		time.Sleep(time.Millisecond)
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
@@ -162,9 +163,29 @@ func TestEventsStayInOrderAcrossAReconnect(t *testing.T) {
 	if r.js, err = jetstream.New(nc); err != nil {
 		t.Fatal(err)
 	}
-	got := r.read(t, "EVENTS", 300)
-	if len(got) != 300 {
-		t.Fatalf("EVENTS holds %d events, want 300", len(got))
+	readLaps(t, r, 300)
+}
+
+// laps is lap events 1 to n of one session, as the race state gives them.
+func laps(n int32) []race.Output {
+	const sid = "01JBUS00000000000000000000"
+	var out []race.Output
+	for i := int32(1); i <= n; i++ {
+		out = append(out, race.Output{
+			Event:   ce.Event{ID: "x", Source: race.Source, Time: epoch},
+			Session: sid,
+			Lap:     &eventsv1.LapCompleted{SessionId: sid, Lap: i},
+		})
+	}
+	return out
+}
+
+// readLaps checks that EVENTS holds laps 1 to n, each once, in order.
+func readLaps(t *testing.T, r *rig, n int) {
+	t.Helper()
+	got := r.read(t, "EVENTS", n)
+	if len(got) != n {
+		t.Fatalf("EVENTS holds %d events, want %d", len(got), n)
 	}
 	for i, msg := range got {
 		var l eventsv1.LapCompleted
@@ -172,7 +193,94 @@ func TestEventsStayInOrderAcrossAReconnect(t *testing.T) {
 			t.Fatal(err)
 		}
 		if l.GetLap() != int32(i+1) { //nolint:gosec // a lap number
-			t.Fatalf("event %d is lap %d: out of order", i+1, l.GetLap())
+			t.Fatalf("event %d is lap %d, want lap %d", i+1, l.GetLap(), i+1)
 		}
 	}
+}
+
+// B3 of the review of ecu#12: an event whose publish fails while the connection is
+// up (here EVENTS is missing, and a core subscriber answers in its place, so no
+// acknowledgement comes) is kept and sent again, ahead of the rest, until EVENTS
+// takes it. The warning says why, once.
+func TestAnEventNotAcknowledgedIsSentAgain(t *testing.T) {
+	r := newRig(t, "parity")
+	if err := r.js.DeleteStream(t.Context(), "EVENTS"); err != nil {
+		t.Fatal(err)
+	}
+	sub, err := r.nc.SubscribeSync("twr.v1.parity.evt.>")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.nc.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	r.pub.Publish(laps(5))
+	// Lap 1 reaches the subscriber, then waits the 5 s ack timeout.
+	if _, err := sub.NextMsg(5 * time.Second); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the missing acknowledgement", func() bool {
+		return strings.Contains(r.logs.String(), "EVENTS did not acknowledge an event")
+	})
+	if s := r.pub.Stats(); s.Events != 0 || s.DroppedEvents != 0 {
+		t.Fatalf("stats %+v before EVENTS is back", s)
+	}
+	addStream(t, r.js, "events")
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
+	if s := r.pub.Close(ctx); s.Events != 5 || s.DroppedEvents != 0 {
+		t.Fatalf("stats %+v, want 5 events acknowledged", s)
+	}
+	readLaps(t, r, 5)
+	if n := strings.Count(r.logs.String(), "EVENTS did not acknowledge an event"); n != 1 {
+		t.Errorf("the warning was logged %d times, want once", n)
+	}
+}
+
+// N5 of the review of ecu#12: with the server down, events beyond the queue and
+// the hand-over (QueueSize each) are dropped, counted and logged, and no step waits;
+// the ones kept are stored in order once the server is back.
+func TestAFullEventQueueDropsAndCounts(t *testing.T) {
+	r := newRig(t, "parity")
+	r.pub.Close(t.Context())
+	var err error
+	r.pub, err = Connect(Config{URL: r.srv.URL(), Src: "parity"}, r.logs.logger(),
+		Options{QueueSize: 4, ReconnectWait: 20 * time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.nc.Close()
+	r.srv.stop()
+	waitFor(t, "lost connection", func() bool { return !r.pub.nc.IsConnected() })
+	var slowest time.Duration
+	for i, o := range laps(20) {
+		start := time.Now()
+		r.pub.Publish([]race.Output{o})
+		slowest = max(slowest, time.Since(start))
+		if i < 4 { // the goroutine takes the first four into its queue
+			waitFor(t, "the hand-over to empty", func() bool { return len(r.pub.events) == 0 })
+		}
+	}
+	if s := r.pub.Stats(); s.DroppedEvents != 12 || slowest > 100*time.Millisecond {
+		t.Errorf("stats %+v, the slowest step %v; want 12 dropped (20 less 4 queued and 4 handed over)", s, slowest)
+	}
+	if n := strings.Count(r.logs.String(), "event dropped: the queue is full"); n != 12 {
+		t.Errorf("%d drops logged, want 12", n)
+	}
+	r.srv.start()
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
+	if s := r.pub.Close(ctx); s.Events != 8 {
+		t.Fatalf("stats %+v, want the 8 kept acknowledged", s)
+	}
+	nc, err := nats.Connect(r.srv.URL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer nc.Close()
+	r.nc = nc
+	if r.js, err = jetstream.New(nc); err != nil {
+		t.Fatal(err)
+	}
+	readLaps(t, r, 8)
 }
