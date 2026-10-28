@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.2](https://github.com/those-who-run/ecu/compare/v0.1.1...v0.1.2) (2026-10-28)
+
+
+### Features
+
+* **track:** the track table and v1's track detector, as a pure library ([#17](https://github.com/those-who-run/ecu/issues/17)) ([380588c](https://github.com/those-who-run/ecu/commit/380588c0245b1ce4e45541ef26273bfec4ca3755))
+
+
+### Bug Fixes
+
+* **bus:** cut a stalled connection when Close's time runs out ([#19](https://github.com/those-who-run/ecu/issues/19)) ([fdc1d5e](https://github.com/those-who-run/ecu/commit/fdc1d5e4c1bc0e6f1123d147a53e345772dbdee9))
+
 ## [0.1.1](https://github.com/those-who-run/ecu/compare/v0.1.0...v0.1.1) (2026-10-28)
 
 
