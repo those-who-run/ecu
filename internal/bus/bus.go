@@ -17,7 +17,9 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"net"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -50,13 +52,43 @@ type Options struct {
 // 20 Hz at most (R2).
 const loGap = 0.05
 
-// The client's timeouts. writeTimeout bounds how long the publishing goroutine
-// waits on a server that stops reading before the client drops the connection and
-// tries again; ackTimeout how long an event waits for EVENTS' acknowledgement
-// before it is sent again.
+// dialer is the client's dialer: it keeps the connection it made last, so Close can
+// cut a connection whose writes hold the publishing goroutine.
+type dialer struct {
+	d    net.Dialer
+	mu   sync.Mutex
+	last net.Conn
+}
+
+func (d *dialer) Dial(network, address string) (net.Conn, error) {
+	c, err := d.d.Dial(network, address)
+	if err == nil {
+		d.mu.Lock()
+		d.last = c
+		d.mu.Unlock()
+	}
+	return c, err
+}
+
+// cut closes the connection made last, if there is one.
+func (d *dialer) cut() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.last != nil {
+		_ = d.last.Close()
+	}
+}
+
+// The client's timeouts. writeTimeout bounds one write to a server that stops
+// reading; the client keeps the connection after it, so the next write can wait as
+// long again, and Close cuts the connection when one holds it at the end. ackTimeout
+// is how long an event waits for EVENTS' acknowledgement before it is sent again,
+// and connectTimeout how long one attempt to reach the server takes at most, the
+// client's own default.
 const (
-	writeTimeout = 2 * time.Second
-	ackTimeout   = 5 * time.Second
+	writeTimeout   = 2 * time.Second
+	ackTimeout     = 5 * time.Second
+	connectTimeout = nats.DefaultTimeout
 )
 
 // Stats is what was published and dropped. Events counts the acknowledgements
@@ -78,6 +110,7 @@ type frameMsg struct {
 // runs on the publisher's own goroutine.
 type Publisher struct {
 	nc     *nats.Conn
+	conns  *dialer
 	js     jetstream.JetStream
 	src    string
 	logger *slog.Logger
@@ -121,6 +154,7 @@ func Connect(cfg Config, logger *slog.Logger, opts Options) (*Publisher, error) 
 	if opts.ReconnectWait <= 0 {
 		opts.ReconnectWait = time.Second
 	}
+	d := &dialer{d: net.Dialer{Timeout: connectTimeout}}
 	nc, err := nats.Connect(cfg.URL,
 		nats.Name("ecu"),
 		nats.RetryOnFailedConnect(true),
@@ -130,6 +164,7 @@ func Connect(cfg Config, logger *slog.Logger, opts Options) (*Publisher, error) 
 		// dropped at once, and an event waits in the publisher's queue.
 		nats.ReconnectBufSize(-1),
 		nats.FlusherTimeout(writeTimeout),
+		nats.SetCustomDialer(d),
 		nats.ReconnectHandler(func(nc *nats.Conn) {
 			logger.Info("NATS connected again", "server", nc.ConnectedUrlRedacted())
 		}),
@@ -149,7 +184,7 @@ func Connect(cfg Config, logger *slog.Logger, opts Options) (*Publisher, error) 
 		return nil, err
 	}
 	p := &Publisher{
-		nc: nc, js: js, src: cfg.Src, logger: logger, limit: opts.QueueSize, wait: opts.ReconnectWait,
+		nc: nc, conns: d, js: js, src: cfg.Src, logger: logger, limit: opts.QueueSize, wait: opts.ReconnectWait,
 		frames: make(chan frameMsg, opts.FrameBuffer),
 		events: make(chan *nats.Msg, opts.QueueSize),
 		quit:   make(chan struct{}),
@@ -377,9 +412,9 @@ func (p *Publisher) Stats() Stats {
 // logs and returns the totals (R10), with "final" true.
 //
 // It returns once ctx is done even if the publishing goroutine is still held by a
-// write. The totals it logs and returns then have "final" false: the goroutine
-// counts what it drops once the write gives up (2 s at most), then closes the
-// connection and logs the final totals itself. Closed says when that is done.
+// write. The totals it logs and returns then have "final" false, and it cuts the
+// connection, so the write gives up at once: the goroutine counts what it drops,
+// then logs the final totals itself and closes the connection. Closed says when that is done.
 // Publish must not be called after Close, and Close only once.
 func (p *Publisher) Close(ctx context.Context) Stats {
 	p.until = ctx
@@ -409,6 +444,12 @@ func (p *Publisher) Close(ctx context.Context) Stats {
 	}
 	s := p.logTotals(ctx, false)
 	p.logger.WarnContext(ctx, "the publisher was still writing when the time ran out: the totals follow once it stops")
+	// A write to a server that stopped reading gives up only after writeTimeout, and
+	// the client does not drop the connection when it does, so the next write waits
+	// as long again, the client's own flusher's and the publisher's in turn, for as
+	// long as they keep coming. Closing the socket ends the write that holds the
+	// goroutine at once, and every one after it.
+	p.conns.cut()
 	later := context.WithoutCancel(ctx)
 	go func() {
 		<-p.done
