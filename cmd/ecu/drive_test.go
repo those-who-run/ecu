@@ -148,12 +148,18 @@ func TestALiveDriveReachesThePublisherAndIsRecorded(t *testing.T) {
 			machine(), got, rec)
 	}()
 
-	// The PS5 answers the heartbeat: wait for it, then send to the listener in
-	// batches the socket's buffer holds.
+	// The PS5 answers the heartbeat: wait for it, and for the listener, which
+	// starts beside the heartbeat and may bind after it (a packet sent before then
+	// is lost, as GT7's would be), then send in batches the socket's buffer holds.
 	buf := make([]byte, 8)
 	_ = ps5.SetReadDeadline(time.Now().Add(5 * time.Second))
 	if n, _, err := ps5.ReadFromUDP(buf); err != nil || n != 1 || buf[0] != salsa.HeartbeatA {
 		t.Fatalf("no heartbeat: %v", err)
+	}
+	for deadline := time.Now().Add(5 * time.Second); !src.Stats().Listening; time.Sleep(2 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("not listening after 5 s")
+		}
 	}
 	waitFor := func(frames int) {
 		deadline := time.Now().Add(10 * time.Second)
@@ -173,9 +179,7 @@ func TestALiveDriveReachesThePublisherAndIsRecorded(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		// Loopback UDP drops what the socket cannot hold while a loaded machine
-		// keeps the reader waiting: a few packets at a time never fill it.
-		if i%5 == 4 {
+		if i%50 == 49 {
 			waitFor(i + 1)
 		}
 	}
