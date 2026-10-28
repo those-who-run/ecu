@@ -53,6 +53,9 @@ const (
 // transitions.
 const Buffer = 600
 
+// readBuffer is the socket receive buffer the listener asks for: 1 MiB.
+const readBuffer = 1 << 20
+
 // sendTimeout bounds one heartbeat send, its name lookup included.
 const sendTimeout = time.Second
 
@@ -309,6 +312,12 @@ func (s *Source) listen() {
 			}
 			s.conn = conn
 			s.mu.Unlock()
+			// Room for a few seconds of packets while the step loop is held up (a
+			// pause of the collector, a slow disk): the kernel drops what does not
+			// fit. Best effort, as the kernel caps it.
+			if uc, ok := conn.(*net.UDPConn); ok {
+				_ = uc.SetReadBuffer(readBuffer)
+			}
 			s.counters.listening.Store(true)
 			s.logger.Info("listening for telemetry", "addr", conn.LocalAddr().String())
 			delay = s.backoff // it did bind: back off afresh
