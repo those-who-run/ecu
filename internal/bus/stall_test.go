@@ -121,12 +121,13 @@ func TestAStalledServerNeverHoldsAStep(t *testing.T) {
 				t.Errorf("Close took %v with 100 ms to go", took)
 			}
 			// N11: the final totals come once the write gives up, which Close's
-			// cutting the connection makes at once, well within the 3 s cmd/ecu waits
-			// after Close. Without the cut, each write to the stalled socket waits
-			// 2 s and the next one as long again, past the 3 s.
+			// cutting the connection makes at once: within milliseconds, and the
+			// 100 ms bound pins the cut. Without it, each write to the stalled socket
+			// waits up to 2 s and the next one as long again, often past the 3 s
+			// cmd/ecu waits after Close.
 			select {
 			case <-pub.Closed():
-				if took := time.Since(returned); took > 2500*time.Millisecond {
+				if took := time.Since(returned); took > 100*time.Millisecond {
 					t.Errorf("the final totals came %v after Close returned", took)
 				}
 			case <-time.After(3 * time.Second):
