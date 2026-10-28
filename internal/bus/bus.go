@@ -41,6 +41,9 @@ type Options struct {
 	// ReconnectWait is the pause between attempts to reach the server again, and
 	// before an event that was not acknowledged is sent again: 1 s by default.
 	ReconnectWait time.Duration
+
+	// ackTimeout overrides ackTimeout, for the tests.
+	ackTimeout time.Duration
 }
 
 // loGap is the least frame time between two frames on the .lo subject: 50 ms,
@@ -85,7 +88,8 @@ type Publisher struct {
 	events chan *nats.Msg
 	quit   chan struct{}   // closed by Close
 	until  context.Context // Close's deadline, set before quit is closed
-	done   chan struct{}
+	done   chan struct{}   // the publishing goroutine has ended
+	closed chan struct{}   // the connection is closed and the final totals logged
 
 	// The step loop's own: the frame time of the last frame put on .lo.
 	lastLo float64
@@ -110,6 +114,9 @@ func Connect(cfg Config, logger *slog.Logger, opts Options) (*Publisher, error) 
 	}
 	if opts.FrameBuffer <= 0 {
 		opts.FrameBuffer = 1024
+	}
+	if opts.ackTimeout <= 0 {
+		opts.ackTimeout = ackTimeout
 	}
 	if opts.ReconnectWait <= 0 {
 		opts.ReconnectWait = time.Second
@@ -136,7 +143,7 @@ func Connect(cfg Config, logger *slog.Logger, opts Options) (*Publisher, error) 
 		return nil, err
 	}
 	// One event in flight at a time keeps EVENTS in the order the events happened.
-	js, err := jetstream.New(nc, jetstream.WithPublishAsyncTimeout(ackTimeout), jetstream.WithPublishAsyncMaxPending(1))
+	js, err := jetstream.New(nc, jetstream.WithPublishAsyncTimeout(opts.ackTimeout), jetstream.WithPublishAsyncMaxPending(1))
 	if err != nil {
 		nc.Close()
 		return nil, err
@@ -147,6 +154,7 @@ func Connect(cfg Config, logger *slog.Logger, opts Options) (*Publisher, error) 
 		events: make(chan *nats.Msg, opts.QueueSize),
 		quit:   make(chan struct{}),
 		done:   make(chan struct{}),
+		closed: make(chan struct{}),
 	}
 	go p.run()
 	logger.Info("publishing", "nats", redacted(cfg.URL), "src", cfg.Src)
@@ -351,34 +359,53 @@ func (p *Publisher) Stats() Stats {
 
 // Close publishes what Publish has handed over and waits for EVENTS to acknowledge
 // every event, until ctx is done; the events still waiting then are counted as
-// dropped. It then flushes the frames the client holds and closes the connection,
-// and logs and returns the totals (R10). It returns once ctx is done even if the
-// publishing goroutine is still held by a write, which then closes the connection
-// itself when the write gives up. Publish must not be called after it, and Close
-// only once.
+// dropped. It then flushes the frames the client holds, closes the connection, and
+// logs and returns the totals (R10), with "final" true.
+//
+// It returns once ctx is done even if the publishing goroutine is still held by a
+// write. The totals it logs and returns then have "final" false: the goroutine
+// counts what it drops once the write gives up (2 s at most), then closes the
+// connection and logs the final totals itself. Closed says when that is done.
+// Publish must not be called after Close, and Close only once.
 func (p *Publisher) Close(ctx context.Context) Stats {
 	p.until = ctx
 	close(p.quit)
-	var err error
 	select {
 	case <-p.done:
+		var err error
 		if p.nc.IsConnected() {
 			err = p.nc.FlushWithContext(ctx)
 		}
 		p.nc.Close()
+		s := p.logTotals(ctx, true)
+		if err != nil && !errors.Is(err, context.Canceled) {
+			p.logger.WarnContext(ctx, "the last frames may not have reached the server", "err", err)
+		}
+		close(p.closed)
+		return s
 	case <-ctx.Done():
-		go func() {
-			<-p.done
-			p.nc.Close()
-		}()
-		err = errors.New("the publisher was still writing when the time ran out")
 	}
+	s := p.logTotals(ctx, false)
+	p.logger.WarnContext(ctx, "the publisher was still writing when the time ran out: the totals follow once it stops")
+	later := context.WithoutCancel(ctx)
+	go func() {
+		<-p.done
+		p.nc.Close()
+		p.logTotals(later, true)
+		close(p.closed)
+	}()
+	return s
+}
+
+// Closed is closed once Close has closed the connection and logged the final
+// totals.
+func (p *Publisher) Closed() <-chan struct{} { return p.closed }
+
+func (p *Publisher) logTotals(ctx context.Context, final bool) Stats {
 	s := p.Stats()
 	p.logger.InfoContext(ctx, "published",
 		"frames", s.Frames, "lo_frames", s.LoFrames, "events", s.Events,
-		"dropped_frames", s.DroppedFrames, "dropped_lo_frames", s.DroppedLoFrames, "dropped_events", s.DroppedEvents)
-	if err != nil && !errors.Is(err, context.Canceled) {
-		p.logger.WarnContext(ctx, "the last frames may not have reached the server", "err", err)
-	}
+		"dropped_frames", s.DroppedFrames, "dropped_lo_frames", s.DroppedLoFrames, "dropped_events", s.DroppedEvents,
+		"final", final)
 	return s
 }

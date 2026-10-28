@@ -23,8 +23,12 @@ import (
 	"github.com/those-who-run/ecu/internal/service"
 )
 
-// closeGrace is how long ecu waits at shutdown to send the events still queued.
-const closeGrace = 5 * time.Second
+// closeGrace is how long ecu waits at shutdown to send the events still queued, and
+// closeAfter how much longer it waits for the publisher's final totals.
+const (
+	closeGrace = 5 * time.Second
+	closeAfter = 3 * time.Second
+)
 
 // version is what -version prints and GET /healthz reports: "dev" unless the build
 // sets it with -ldflags "-X main.version=X.Y.Z". The Dockerfile does that from its
@@ -79,6 +83,12 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout,
 		grace, cancel := context.WithTimeout(context.WithoutCancel(ctx), closeGrace)
 		defer cancel()
 		pub.Close(grace)
+		// A write that held the publisher past the grace gives up within 2 s; its
+		// final totals are logged then.
+		select {
+		case <-pub.Closed():
+		case <-time.After(closeAfter):
+		}
 	}()
 	if err := service.Run(ctx, cfg, logger, version); err != nil {
 		logger.ErrorContext(ctx, "stopped", "err", err)

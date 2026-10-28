@@ -175,6 +175,7 @@ func TestLogsWhereItPublishes(t *testing.T) {
 	for _, want := range []string{
 		`"msg":"publishing","nats":"nats://127.0.0.1:1","src":"parity"`,
 		`"msg":"published","frames":0,`,
+		`"dropped_events":0,"final":true}`,
 	} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Errorf("log has no %s: %s", want, stdout.String())

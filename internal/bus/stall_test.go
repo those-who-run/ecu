@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"net"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -87,7 +88,8 @@ func TestAStalledServerNeverHoldsAStep(t *testing.T) {
 	}{{"stops reading", false}, {"never answers", true}} {
 		t.Run(c.name, func(t *testing.T) {
 			url := stalled(t, c.silent)
-			pub, err := Connect(Config{URL: url, Src: "parity"}, (&logs{}).logger(), Options{ReconnectWait: 20 * time.Millisecond})
+			l := &logs{}
+			pub, err := Connect(Config{URL: url, Src: "parity"}, l.logger(), Options{ReconnectWait: 20 * time.Millisecond})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -122,10 +124,28 @@ func TestAStalledServerNeverHoldsAStep(t *testing.T) {
 			}
 			// The goroutine was held: frames were dropped, and no event was
 			// acknowledged. Its totals are final once it has given up its write.
-			<-pub.done
+			<-pub.Closed()
 			s := pub.Stats()
 			if s.DroppedFrames == 0 || s.Events != 0 || s.DroppedEvents == 0 {
 				t.Errorf("stats %+v: the server never stalled the goroutine", s)
+			}
+			// N10: the totals logged last are final and are these, logged once,
+			// even when Close gave up first and logged totals not yet final.
+			var published []string
+			for line := range strings.Lines(l.String()) {
+				if strings.Contains(line, `"msg":"published"`) {
+					published = append(published, line)
+				}
+			}
+			want := `"dropped_frames":` + strconv.FormatUint(s.DroppedFrames, 10) +
+				`,"dropped_lo_frames":` + strconv.FormatUint(s.DroppedLoFrames, 10) +
+				`,"dropped_events":` + strconv.FormatUint(s.DroppedEvents, 10) + `,"final":true}`
+			if n := len(published); n == 0 || !strings.Contains(published[n-1], want) ||
+				strings.Count(l.String(), `"final":true`) != 1 {
+				t.Errorf("published lines %q, want the last one to end %s", published, want)
+			}
+			if len(published) == 2 && !strings.Contains(published[0], `"final":false`) {
+				t.Errorf("the first of two published lines is %q, want it not final", published[0])
 			}
 		})
 	}
@@ -204,6 +224,13 @@ func readLaps(t *testing.T, r *rig, n int) {
 // takes it. The warning says why, once.
 func TestAnEventNotAcknowledgedIsSentAgain(t *testing.T) {
 	r := newRig(t, "parity")
+	r.pub.Close(t.Context())
+	var err error
+	r.pub, err = Connect(Config{URL: r.srv.URL(), Src: "parity"}, r.logs.logger(),
+		Options{ReconnectWait: 20 * time.Millisecond, ackTimeout: 200 * time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := r.js.DeleteStream(t.Context(), "EVENTS"); err != nil {
 		t.Fatal(err)
 	}
@@ -215,13 +242,18 @@ func TestAnEventNotAcknowledgedIsSentAgain(t *testing.T) {
 		t.Fatal(err)
 	}
 	r.pub.Publish(laps(5))
-	// Lap 1 reaches the subscriber, then waits the 5 s ack timeout.
-	if _, err := sub.NextMsg(5 * time.Second); err != nil {
-		t.Fatal(err)
+	// Lap 1 reaches the subscriber three times: sent, not acknowledged within the
+	// ack timeout, sent again, not acknowledged again, and sent a third time. Two
+	// missing acknowledgements, and one warning.
+	for i := range 3 {
+		msg, err := sub.NextMsg(5 * time.Second)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if id := msg.Header.Get(ce.IDHeader); !strings.HasSuffix(id, ":lap:1:completed") {
+			t.Fatalf("copy %d is %s, want lap 1 again", i+1, id)
+		}
 	}
-	waitFor(t, "the missing acknowledgement", func() bool {
-		return strings.Contains(r.logs.String(), "EVENTS did not acknowledge an event")
-	})
 	if s := r.pub.Stats(); s.Events != 0 || s.DroppedEvents != 0 {
 		t.Fatalf("stats %+v before EVENTS is back", s)
 	}
@@ -233,7 +265,7 @@ func TestAnEventNotAcknowledgedIsSentAgain(t *testing.T) {
 	}
 	readLaps(t, r, 5)
 	if n := strings.Count(r.logs.String(), "EVENTS did not acknowledge an event"); n != 1 {
-		t.Errorf("the warning was logged %d times, want once", n)
+		t.Errorf("the warning was logged %d times over two missing acknowledgements, want once", n)
 	}
 }
 

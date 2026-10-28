@@ -106,7 +106,9 @@ and ends a session exactly where v1 did, with v1's rules ported from its
   letters, digits, `_` and `-`. Anything else, such as a `.`, `*`, `>` or white
   space, stops ecu at start. ecu logs the server (without credentials) and the
   source at start, and the frames, 20 Hz frames and events published and
-  dropped at the end.
+  dropped at the end, with `"final": true`. When a write still
+  holds the publisher once the 5 s are up, that line has `"final": false`,
+  and ecu waits up to 3 s more for the line with the final totals.
 - **Tests.** The tests run the `nats-server` release paddock pins, downloaded
   once into the user's cache and checked against its sha256 (or the binary
   `TWR_TEST_NATS_SERVER` names), with the `TELEMETRY` and `EVENTS` definitions
