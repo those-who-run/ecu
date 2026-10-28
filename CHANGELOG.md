@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.3](https://github.com/those-who-run/ecu/compare/v0.1.2...v0.1.3) (2026-10-28)
+
+
+### Features
+
+* **live:** listen to the PS5 and record each drive in v1's format ([#18](https://github.com/those-who-run/ecu/issues/18)) ([88a8e0a](https://github.com/those-who-run/ecu/commit/88a8e0a76fcda63b94398d27031238dc731a9f40))
+
 ## [0.1.2](https://github.com/those-who-run/ecu/compare/v0.1.1...v0.1.2) (2026-10-28)
 
 
