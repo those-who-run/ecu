@@ -40,7 +40,10 @@ func (c Confidence) String() string {
 const MaxReportedCandidates = 8
 
 // NoLap is the lap given to ObservePoint for a frame that is not racing, where
-// GT7's lap counter means nothing.
+// GT7's lap counter means nothing: v1's lap=None. It is -1, which GT7 also sends
+// as its lap counter in menus, so a caller never passes GT7's counter on its own:
+// a frame that is not racing gives NoLap, as Observe does (v1 read an explicit -1
+// as a racing lap, which its own callers never passed).
 const NoLap int32 = -1
 
 // Candidate is a layout that still fits.
@@ -127,7 +130,28 @@ type Config struct {
 	LengthTolerance float64
 }
 
-// Defaults are v1's tolerances.
+// withDefaults is the config with each zero field set from Defaults.
+func (c Config) withDefaults() Config {
+	for _, f := range []struct{ v, d *float64 }{
+		{&c.BoxTolerance, &Defaults.BoxTolerance},
+		{&c.StartRadius, &Defaults.StartRadius},
+		{&c.Teleport, &Defaults.Teleport},
+		{&c.MinDistance, &Defaults.MinDistance},
+		{&c.Dominance, &Defaults.Dominance},
+		{&c.LineRadius, &Defaults.LineRadius},
+		{&c.LineHalfWidth, &Defaults.LineHalfWidth},
+		{&c.TickRadius, &Defaults.TickRadius},
+		{&c.MinFit, &Defaults.MinFit},
+		{&c.LengthTolerance, &Defaults.LengthTolerance},
+	} {
+		if *f.v == 0 {
+			*f.v = *f.d
+		}
+	}
+	return c
+}
+
+// Defaults are v1's tolerances. New takes a zero field of its Config from here.
 var Defaults = Config{
 	BoxTolerance:    50,
 	StartRadius:     1000,
@@ -221,12 +245,16 @@ type Detector struct {
 	partial      bool // the lap in progress is the one joined part way
 }
 
-// New is a detector over the tracks (the whole Table when nil) with the
-// tolerances given. Rows without geometry are left out.
+// New is a detector over the tracks, the whole Table when none are given (as v1
+// loads the table for an empty one), with the tolerances given: a field left
+// zero takes its value from Defaults, so New(nil, Config{}) is v1's detector, not
+// one whose zero Teleport counts every step as a jump. Rows without geometry are
+// left out.
 func New(tracks []Track, cfg Config) *Detector {
-	if tracks == nil {
+	if len(tracks) == 0 {
 		tracks = Table()
 	}
+	cfg = cfg.withDefaults()
 	d := &Detector{cfg: cfg, index: map[int32]int{}}
 	for _, t := range tracks {
 		if t.HasGeometry {
@@ -321,8 +349,9 @@ func (d *Detector) Observe(f *telemetryv1.Frame) (Match, bool) {
 	return d.ObservePoint(Point{f.GetPosX(), f.GetPosZ()}, Point{f.GetVelX(), f.GetVelZ()}, lap)
 }
 
-// ObservePoint feeds one position. lap is GT7's lap counter while racing, NoLap
-// otherwise. It returns the match, and whether its decision changed.
+// ObservePoint feeds one position. lap is GT7's lap counter while racing (in
+// race or finished), NoLap otherwise; never GT7's -1 from a menu, which is NoLap
+// (see there). It returns the match, and whether its decision changed.
 //
 // velocity is the car's world-frame (x, z) velocity on this frame. When it is not
 // zero, it sets the direction of travel used against the table's line

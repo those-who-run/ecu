@@ -3,7 +3,12 @@ package track
 import "math"
 
 // The geometry the detector reads (v1's trackdetect.py at v1.0.0), ported as it is,
-// operation for operation, so the same positions give the same answers.
+// operation for operation. One thing differs: Go's math.Hypot is not CPython's
+// math.hypot, which is nearly correctly rounded, so a distance or a widened line
+// can differ from v1's in its last bit (18 of the table's 105 widened lines do).
+// That changes an answer only when a point lands exactly on a line point or a
+// threshold (30 m, 150 m, 1000 m), which telemetry doesn't do: every recording
+// gives v1's verdicts (recordings_test.go).
 
 // boxContains says inner lies inside outer, give or take tolerance.
 func boxContains(outer, inner Box, tolerance float64) bool {

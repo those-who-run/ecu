@@ -524,6 +524,27 @@ func TestADominantLayoutIsConfirmed(t *testing.T) {
 	}
 }
 
+// A zero Config is v1's tolerances, and a zero field of one takes v1's value:
+// New(nil, Config{}) detects as v1 does, rather than reading every step as a jump.
+func TestAZeroConfigIsV1s(t *testing.T) {
+	if got := New(nil, Config{}).cfg; got != Defaults {
+		t.Errorf("Config{}: %+v", got)
+	}
+	got := New(nil, Config{BoxTolerance: 20, StartRadius: 500}).cfg
+	want := Defaults
+	want.BoxTolerance, want.StartRadius = 20, 500
+	if got != want {
+		t.Errorf("two fields set: %+v, want %+v", got, want)
+	}
+	d := New(rectangle(), Config{})
+	drive(d, fullLap, 1)
+	drive(d, fullLap[:3], 2)
+	id, _ := d.Match().Decision()
+	if id != 1 || d.DistanceM() == 0 {
+		t.Errorf("Config{}: %+v after %.0f m", d.Match(), d.DistanceM())
+	}
+}
+
 func TestConfidenceNames(t *testing.T) {
 	for c, want := range map[Confidence]string{None: "none", Ambiguous: "ambiguous", Probable: "probable", Confirmed: "confirmed"} {
 		if c.String() != want {
@@ -535,12 +556,16 @@ func TestConfidenceNames(t *testing.T) {
 	}
 }
 
-// The whole table, when New is given none, leaves out the rows with no geometry.
+// The whole table, when New is given none, leaves out the rows with no geometry;
+// an empty list is none, as in v1.
 func TestNewReadsTheTable(t *testing.T) {
-	d := New(nil, Defaults)
-	if len(d.tracks) != 105 || d.IsAlive(1261) || !d.IsAlive(sugo) {
-		t.Errorf("%d layouts", len(d.tracks))
+	for _, tracks := range [][]Track{nil, {}} {
+		d := New(tracks, Defaults)
+		if len(d.tracks) != 105 || d.IsAlive(1261) || !d.IsAlive(sugo) {
+			t.Errorf("%d layouts", len(d.tracks))
+		}
 	}
+	d := New(nil, Defaults)
 	if m := d.Match(); m.Confidence != None || m.Evidence != "no position data yet" {
 		t.Errorf("%+v", m)
 	}
