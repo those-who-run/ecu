@@ -432,7 +432,9 @@ func TestConfigFromEnv(t *testing.T) {
 		vars map[string]string
 		want string
 	}{
-		{nil, "TWR_ECU_PS5_IP: the PS5's IP address is required"},
+		{nil, "TWR_ECU_PS5_IP: the PS5's IP address is required for live mode"},
+		{map[string]string{"TWR_ECU_PS5_IP": ""}, "required for live mode"},
+		{map[string]string{"TWR_ECU_PS5_IP": "  "}, "required for live mode"},
 		{map[string]string{"TWR_ECU_PS5_IP": "ps5.local"}, `"ps5.local" is not an IP address`},
 		{map[string]string{"TWR_ECU_PS5_IP": "192.0.2.7", "TWR_ECU_HEARTBEAT_SECS": "0"}, "TWR_ECU_HEARTBEAT_SECS"},
 		{map[string]string{"TWR_ECU_PS5_IP": "192.0.2.7", "TWR_ECU_HEARTBEAT_SECS": "two"}, "TWR_ECU_HEARTBEAT_SECS"},

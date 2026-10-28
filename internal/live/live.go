@@ -82,9 +82,9 @@ type Config struct {
 	Listen string
 }
 
-// ErrNoPS5 is ConfigFromEnv's error when TWR_ECU_PS5_IP is unset: there is nothing
-// to listen to.
-var ErrNoPS5 = errors.New("TWR_ECU_PS5_IP: the PS5's IP address is required to listen to it live " +
+// ErrNoPS5 is ConfigFromEnv's error when TWR_ECU_PS5_IP is unset or empty: there
+// is nothing to listen to.
+var ErrNoPS5 = errors.New("TWR_ECU_PS5_IP: the PS5's IP address is required for live mode " +
 	"(there is no broadcast discovery)")
 
 // ConfigFromEnv reads the configuration through getenv. TWR_ECU_PS5_IP must be an

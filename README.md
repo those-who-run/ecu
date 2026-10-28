@@ -103,10 +103,10 @@ It ports v1's lessons (`telemetry.py` at v1.0.0), not its code:
   session. When the race state falls behind (600 packets waiting, 10 s), the
   oldest waiting is dropped.
 - **No discovery.** UDP broadcast does not work from a pod, so the PS5's
-  address is required to listen. Without `TWR_ECU_PS5_IP` ecu logs an error,
-  `not listening to the PS5`, and listens to nothing, records nothing and
-  publishes nothing, but serves `/healthz`, as the image's smoke test runs it.
-  A value that is not an IP address stops ecu at start.
+  address is required: without `TWR_ECU_PS5_IP`, or with a value that is not an
+  IP address, ecu stops at start (exit 2), so a typo in a deployment fails
+  loudly rather than leaving a healthy pod that hears nothing (the
+  maintainer's decision, 2026-10-28).
 - **Live only on `live`.** Live frames go out under the source `live` and no
   other (paddock#106, R8): `--src` or `TWR_SRC` set to anything else stops ecu
   at start.
@@ -116,7 +116,7 @@ overflowed, the heartbeats sent and failed, and the listener's restarts.
 
 | Variable | Default | What |
 | --- | --- | --- |
-| `TWR_ECU_PS5_IP` | unset: not listening | The PS5's IP address, where the heartbeat goes; required to listen. |
+| `TWR_ECU_PS5_IP` | none: required | The PS5's IP address, where the heartbeat goes. |
 | `TWR_ECU_HEARTBEAT_SECS` | `2` | Seconds between heartbeats, from 0.01 to 3,600. |
 | `TWR_ECU_RECORDINGS_DIR` | unset: no recording | The directory each drive is recorded in ([Recording](#recording)). |
 

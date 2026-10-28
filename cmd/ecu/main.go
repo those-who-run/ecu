@@ -1,8 +1,8 @@
 // Command ecu listens to the PS5 live: it keeps GT7 sending with its heartbeat,
 // reads each packet, runs it through the race state and publishes the frames and
 // events on NATS, and, with TWR_ECU_RECORDINGS_DIR set, records the drive in v1's
-// format (paddock#106, paddock#266). Without TWR_ECU_PS5_IP it logs an error and
-// listens to nothing, serving GET /healthz and publishing nothing, as before. It reads its configuration from the
+// format (paddock#106, paddock#266). TWR_ECU_PS5_IP is required: without it ecu
+// stops at start. It reads its configuration from the
 // environment, logs JSON to standard output and serves GET /healthz until it gets
 // SIGINT or SIGTERM. `ecu -version` prints its version and exits.
 //
@@ -84,27 +84,17 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout,
 		err = fmt.Errorf("src %q: live frames go out under the source %q only", busCfg.Src, bus.DefaultSrc)
 	}
 	var liveCfg live.Config
-	listening := false
 	if err == nil {
 		liveCfg, err = live.ConfigFromEnv(getenv)
 		liveCfg.Listen = or(listenAddr, liveCfg.Listen)
-		// Without the PS5's address ecu serves and publishes nothing, as the image's
-		// smoke test runs it; the error is logged below.
-		listening = err == nil
-		if errors.Is(err, live.ErrNoPS5) {
-			err = nil
-		}
 	}
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, err)
 		return 2
 	}
 	logger := service.NewLogger(stdout, cfg.LogLevel)
-	if !listening {
-		logger.ErrorContext(ctx, "not listening to the PS5", "err", live.ErrNoPS5)
-	}
 	var rec *record.Writer
-	if dir := getenv("TWR_ECU_RECORDINGS_DIR"); dir != "" && listening {
+	if dir := getenv("TWR_ECU_RECORDINGS_DIR"); dir != "" {
 		if rec, err = record.Open(dir, logger, time.Now); err != nil {
 			_, _ = fmt.Fprintln(stderr, "TWR_ECU_RECORDINGS_DIR:", err)
 			return 2
@@ -137,26 +127,24 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout,
 		case <-time.After(closeAfter):
 		}
 	}()
-	if listening {
-		src := live.Open(liveCfg, logger)
-		driveCtx, stopDrive := context.WithCancel(ctx)
-		driven := make(chan struct{})
-		go func() {
-			defer close(driven)
-			start := src.Start()
-			at := func(r salsa.Received) time.Time { return start.Add(time.Duration(r.T * float64(time.Second))) }
-			drive(driveCtx, src, at, race.New(ulid.Make), pub, rec)
-		}()
-		// The drive ends, with the session it holds, and the source stops, so
-		// nothing writes to the recorder once it closes; then the recorder closes,
-		// then the publisher (deferred above).
-		defer func() {
-			stopDrive()
-			<-driven
-			_ = src.Close()
-			closeRec()
-		}()
-	}
+	src := live.Open(liveCfg, logger)
+	driveCtx, stopDrive := context.WithCancel(ctx)
+	driven := make(chan struct{})
+	go func() {
+		defer close(driven)
+		start := src.Start()
+		at := func(r salsa.Received) time.Time { return start.Add(time.Duration(r.T * float64(time.Second))) }
+		drive(driveCtx, src, at, race.New(ulid.Make), pub, rec)
+	}()
+	// The drive ends, with the session it holds, and the source stops, so
+	// nothing writes to the recorder once it closes; then the recorder closes,
+	// then the publisher (deferred above).
+	defer func() {
+		stopDrive()
+		<-driven
+		_ = src.Close()
+		closeRec()
+	}()
 	if err := service.Run(ctx, cfg, logger, version); err != nil {
 		logger.ErrorContext(ctx, "stopped", "err", err)
 		return 1

@@ -215,39 +215,10 @@ func TestLogsWhereItPublishes(t *testing.T) {
 	}
 }
 
-// Without the PS5's address ecu listens to nothing and says so, and still serves,
-// as the image's smoke test runs it.
-func TestWithoutThePS5sAddressItServesAndSaysSo(t *testing.T) {
-	ctx, cancel := context.WithCancel(t.Context())
-	stdout := newReadyLog()
-	exit := make(chan int, 1)
-	go func() {
-		exit <- run(ctx, nil, env(map[string]string{"ADDR": "127.0.0.1:0", "TWR_ECU_RECORDINGS_DIR": t.TempDir()}),
-			stdout, &bytes.Buffer{})
-	}()
-	select {
-	case <-stdout.ready:
-	case code := <-exit:
-		t.Fatalf("exit %d before serving, log %q", code, stdout.String())
-	case <-time.After(10 * time.Second):
-		t.Fatal("not serving after 10 s")
-	}
-	cancel()
-	if code := <-exit; code != 0 {
-		t.Fatalf("exit %d", code)
-	}
-	log := stdout.String()
-	if !strings.Contains(log, `"level":"ERROR","msg":"not listening to the PS5","err":"TWR_ECU_PS5_IP: the PS5's IP address is required`) {
-		t.Errorf("not logged: %s", log)
-	}
-	if strings.Contains(log, `"msg":"listening to the PS5"`) || strings.Contains(log, `"msg":"recording"`) {
-		t.Errorf("listened or recorded: %s", log)
-	}
-}
-
-// A PS5 address that is not an IP address, a bad heartbeat, a src other than
-// live, or a recordings directory ecu cannot write to stops ecu at start, before
-// it logs anything.
+// No PS5 address (the maintainer's decision, 2026-10-28: a typo in a deployment
+// fails loudly rather than leaving a healthy pod that hears nothing), one that is
+// not an IP address, a bad heartbeat, a src other than live, or a recordings
+// directory ecu cannot write to stops ecu at start, before it logs anything.
 func TestLiveModeIsConfiguredAtStart(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "file")
 	if err := os.WriteFile(file, nil, 0o600); err != nil {
@@ -258,6 +229,8 @@ func TestLiveModeIsConfiguredAtStart(t *testing.T) {
 		env  func(string) string
 		want string
 	}{
+		{nil, env(nil), "TWR_ECU_PS5_IP: the PS5's IP address is required for live mode"},
+		{nil, env(map[string]string{"TWR_ECU_PS5_IP": " "}), "TWR_ECU_PS5_IP: the PS5's IP address is required for live mode"},
 		{nil, env(map[string]string{"TWR_ECU_PS5_IP": "ps5"}), `TWR_ECU_PS5_IP: "ps5" is not an IP address`},
 		{nil, liveEnv(map[string]string{"TWR_ECU_HEARTBEAT_SECS": "-1"}), "TWR_ECU_HEARTBEAT_SECS"},
 		{[]string{"-src", "parity"}, liveEnv(nil), `src "parity": live frames go out under the source "live" only`},
