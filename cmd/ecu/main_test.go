@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"net"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -12,6 +14,22 @@ import (
 
 func env(vars map[string]string) func(string) string {
 	return func(key string) string { return vars[key] }
+}
+
+// liveEnv is vars with the PS5's address live mode needs: loopback, so the
+// heartbeat goes nowhere.
+func liveEnv(vars map[string]string) func(string) string {
+	all := map[string]string{"TWR_ECU_PS5_IP": "127.0.0.1"}
+	for k, v := range vars {
+		all[k] = v
+	}
+	return env(all)
+}
+
+// The tests never bind the PS5's port.
+func TestMain(m *testing.M) {
+	listenAddr = "127.0.0.1:0"
+	os.Exit(m.Run())
 }
 
 // readyLog collects the service's log and closes ready once it logs "serving", so a
@@ -97,7 +115,7 @@ func TestABadConfigurationIsAUsageError(t *testing.T) {
 
 func TestAServiceThatCannotStartExitsOne(t *testing.T) {
 	var stdout bytes.Buffer
-	code := run(t.Context(), nil, env(map[string]string{"ADDR": heldAddress(t)}), &stdout, &bytes.Buffer{})
+	code := run(t.Context(), nil, liveEnv(map[string]string{"ADDR": heldAddress(t)}), &stdout, &bytes.Buffer{})
 	if code != 1 || !strings.Contains(stdout.String(), `"msg":"stopped"`) {
 		t.Errorf("exit %d, log %q; want 1 and the failure logged", code, stdout.String())
 	}
@@ -109,7 +127,7 @@ func TestServesUntilCancelled(t *testing.T) {
 	stdout := newReadyLog()
 	exit := make(chan int, 1)
 	go func() {
-		exit <- run(ctx, nil, env(map[string]string{"ADDR": "127.0.0.1:0"}), stdout, &bytes.Buffer{})
+		exit <- run(ctx, nil, liveEnv(map[string]string{"ADDR": "127.0.0.1:0"}), stdout, &bytes.Buffer{})
 	}()
 	// The timeouts only stop a hung test; the service is cancelled once it serves.
 	select {
@@ -152,14 +170,16 @@ func TestASrcOfReplayDot1IsRefusedAtStart(t *testing.T) {
 }
 
 // R10 of paddock#34: ecu logs the NATS server and src it publishes to at start,
-// and what it published at the end.
+// and what it published at the end; and, live, where it listens and records, and
+// what it heard and recorded.
 func TestLogsWhereItPublishes(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	stdout := newReadyLog()
 	exit := make(chan int, 1)
+	dir := t.TempDir()
 	go func() {
-		exit <- run(ctx, []string{"-nats", "nats://127.0.0.1:1", "-src", "parity"},
-			env(map[string]string{"ADDR": "127.0.0.1:0"}), stdout, &bytes.Buffer{})
+		exit <- run(ctx, []string{"-nats", "nats://127.0.0.1:1", "-src", "live"},
+			liveEnv(map[string]string{"ADDR": "127.0.0.1:0", "TWR_ECU_RECORDINGS_DIR": dir}), stdout, &bytes.Buffer{})
 	}()
 	select {
 	case <-stdout.ready:
@@ -173,12 +193,76 @@ func TestLogsWhereItPublishes(t *testing.T) {
 		t.Fatalf("exit %d", code)
 	}
 	for _, want := range []string{
-		`"msg":"publishing","nats":"nats://127.0.0.1:1","src":"parity"`,
+		`"msg":"publishing","nats":"nats://127.0.0.1:1","src":"live"`,
 		`"msg":"published","frames":0,`,
 		`"dropped_events":0,"final":true}`,
+		`"msg":"listening to the PS5","ps5":"127.0.0.1","heartbeat_port":33739,"listen":"127.0.0.1:0","heartbeat_secs":2}`,
+		`"msg":"recording","dir":"` + dir + `"`,
+		`"msg":"stopped listening to the PS5","packets":0,`,
+		`"msg":"recorded","path":"","frames":0,"dropped":0}`,
 	} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Errorf("log has no %s: %s", want, stdout.String())
+		}
+	}
+}
+
+// Without the PS5's address ecu listens to nothing and says so, and still serves,
+// as the image's smoke test runs it.
+func TestWithoutThePS5sAddressItServesAndSaysSo(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	stdout := newReadyLog()
+	exit := make(chan int, 1)
+	go func() {
+		exit <- run(ctx, nil, env(map[string]string{"ADDR": "127.0.0.1:0", "TWR_ECU_RECORDINGS_DIR": t.TempDir()}),
+			stdout, &bytes.Buffer{})
+	}()
+	select {
+	case <-stdout.ready:
+	case code := <-exit:
+		t.Fatalf("exit %d before serving, log %q", code, stdout.String())
+	case <-time.After(10 * time.Second):
+		t.Fatal("not serving after 10 s")
+	}
+	cancel()
+	if code := <-exit; code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+	log := stdout.String()
+	if !strings.Contains(log, `"level":"ERROR","msg":"not listening to the PS5","err":"TWR_ECU_PS5_IP: the PS5's IP address is required`) {
+		t.Errorf("not logged: %s", log)
+	}
+	if strings.Contains(log, `"msg":"listening to the PS5"`) || strings.Contains(log, `"msg":"recording"`) {
+		t.Errorf("listened or recorded: %s", log)
+	}
+}
+
+// A PS5 address that is not an IP address, a bad heartbeat, a src other than
+// live, or a recordings directory ecu cannot write to stops ecu at start, before
+// it logs anything.
+func TestLiveModeIsConfiguredAtStart(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(file, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		args []string
+		env  func(string) string
+		want string
+	}{
+		{nil, env(map[string]string{"TWR_ECU_PS5_IP": "ps5"}), `TWR_ECU_PS5_IP: "ps5" is not an IP address`},
+		{nil, liveEnv(map[string]string{"TWR_ECU_HEARTBEAT_SECS": "-1"}), "TWR_ECU_HEARTBEAT_SECS"},
+		{[]string{"-src", "parity"}, liveEnv(nil), `src "parity": live frames go out under the source "live" only`},
+		{nil, liveEnv(map[string]string{"TWR_SRC": "replay-x"}), `src "replay-x": live frames`},
+		{nil, liveEnv(map[string]string{"TWR_ECU_RECORDINGS_DIR": file}), "TWR_ECU_RECORDINGS_DIR:"},
+	} {
+		var stdout, stderr bytes.Buffer
+		code := run(t.Context(), c.args, c.env, &stdout, &stderr)
+		if code != 2 || !strings.Contains(stderr.String(), c.want) {
+			t.Errorf("%v: exit %d, stderr %q; want 2 and %q", c.args, code, stderr.String(), c.want)
+		}
+		if strings.Contains(stdout.String(), "publishing") {
+			t.Errorf("%v: connected before refusing: %q", c.args, stdout.String())
 		}
 	}
 }

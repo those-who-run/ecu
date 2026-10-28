@@ -81,6 +81,81 @@ nothing calls yet. Publishing the verdict is paddock#81.
   [`internal/track/testdata/v1/`](internal/track/testdata/v1) with their
   provenance and checksums.
 
+## Listening to the PS5
+
+`ecu`, run with no subcommand, listens to the PS5 live
+([`internal/live`](internal/live), paddock#106): it sends GT7's heartbeat,
+reads each datagram, decodes it with `salsa` and drives the race state and the
+publisher with it, exactly as a recording's packets would. The live source is a
+`salsa.Source`, so the rest of ecu cannot tell a live drive from a replayed one.
+It ports v1's lessons (`telemetry.py` at v1.0.0), not its code:
+
+- **Our own heartbeat.** An `A` goes to the PS5's UDP port 33739 at start and
+  then every `TWR_ECU_HEARTBEAT_SECS`, from a fresh socket each time. A failed
+  send is logged once per outage, and when it gets out again, and never stops
+  the heartbeat: v1 lost the stream for good when gt-telem's 10 s heartbeat died
+  on one error.
+- **A listener that comes back.** ecu listens on UDP 33740. When it cannot bind
+  (the port is busy) or its socket dies, it is logged and bound again with
+  exponential backoff, from 1 s up to 30 s. It never stops ecu.
+- **In order.** A packet whose id is not newer than the last one handed on is
+  dropped and counted, unless it is 600 ids or more back, which is a new game
+  session. When the race state falls behind (600 packets waiting, 10 s), the
+  oldest waiting is dropped.
+- **No discovery.** UDP broadcast does not work from a pod, so the PS5's
+  address is required to listen. Without `TWR_ECU_PS5_IP` ecu logs an error,
+  `not listening to the PS5`, and listens to nothing, records nothing and
+  publishes nothing, but serves `/healthz`, as the image's smoke test runs it.
+  A value that is not an IP address stops ecu at start.
+- **Live only on `live`.** Live frames go out under the source `live` and no
+  other (paddock#106, R8): `--src` or `TWR_SRC` set to anything else stops ecu
+  at start.
+
+At the end ecu logs the packets handed on, dropped late, undecodable and
+overflowed, the heartbeats sent and failed, and the listener's restarts.
+
+| Variable | Default | What |
+| --- | --- | --- |
+| `TWR_ECU_PS5_IP` | unset: not listening | The PS5's IP address, where the heartbeat goes; required to listen. |
+| `TWR_ECU_HEARTBEAT_SECS` | `2` | Seconds between heartbeats, any number above 0. |
+| `TWR_ECU_RECORDINGS_DIR` | unset: no recording | The directory each drive is recorded in ([Recording](#recording)). |
+
+The ports: UDP 33740 in (the PS5 sends there, to the address the heartbeat
+came from), and UDP out to the PS5's 33739. In a pod, 33740/UDP needs a
+`hostPort`, as v1's Deployment has.
+
+Not here yet, and still paddock#106's: telemetry lost and restored after the
+timeout (`telemetry.lost`, R6, with paddock#87), and the listener's state in
+`/healthz` and the `live` KV (R7, with paddock#88 and paddock#107), and the
+metrics (R9).
+
+## Recording
+
+With `TWR_ECU_RECORDINGS_DIR` set, ecu records every packet it drives on
+([`internal/record`](internal/record), paddock#266) in **v1's recording
+format**: gzip-compressed JSON lines, one v1 `RaceState` per line, byte for byte
+as v1's `RaceState.to_dict` and `RecordingWriter` write them. So a drive raced
+on v2 replays through v1's `replay` and through `salsa`'s `OpenRecording`, and
+v1 and v2 can be compared on it. A test writes v1's own recordings again and
+compares them byte for byte, and another reads a live drive's recording back
+through `salsa`.
+
+- **One file per run**, made on the first packet and named for the UTC time
+  then, as v1 names its outings: `20261031-200509.jsonl.gz` (`-2` and so on
+  when one of that second exists). A run that hears nothing makes no file.
+- **`t` is seconds since ecu started**, on the monotonic clock: only
+  differences between times mean anything, as in v1's recordings.
+- **Off the frame path.** A goroutine writes the file; up to 4,096 packets
+  wait for it (about 68 s), and a packet beyond that is dropped from the
+  recording and counted. The file is written in gzip members of 600 lines,
+  so if ecu is killed mid-drive everything up to the last 10 s reads back.
+- **A directory ecu cannot write to stops it at start**; one that fails later
+  stops the recording, logged, and never the drive.
+- No PS5 address or other setting is written into a recording.
+
+Not here yet, and still paddock#266's: a recording per outing, archiving,
+pruning and listing recordings.
+
 ## Publishing
 
 [`internal/bus`](internal/bus) puts the race state's outputs on NATS
@@ -140,7 +215,9 @@ nothing calls yet. Publishing the verdict is paddock#81.
 - **Configuration.** `--nats` or `TWR_NATS_URL` (`nats://127.0.0.1:4222`), and
   `--src` or `TWR_SRC` (`live`): `live`, `parity` or `replay-<run>`, the run of
   letters, digits, `_` and `-`. Anything else, such as a `.`, `*`, `>` or white
-  space, stops ecu at start. ecu logs the server (without credentials) and the
+  space, stops ecu at start, and so does anything but `live` until ecu replays
+  recordings: it publishes only live frames
+  ([Listening to the PS5](#listening-to-the-ps5)). ecu logs the server (without credentials) and the
   source at start, and the frames, 20 Hz frames and events published and
   dropped at the end, with `"final": true`. When a write still
   holds the publisher once the 5 s are up, that line has `"final": false`,
