@@ -229,6 +229,8 @@ func (p *Publisher) event(o race.Output) {
 	}
 	sid := o.Session
 	if sid == "" {
+		// No session open: unreachable until events can come with no session
+		// (Prost); TestAnEventWithNoSessionGoesOnEvtUnderscore holds the rule.
 		sid = "_"
 	}
 	msg := &nats.Msg{Subject: "twr.v1." + p.src + ".evt." + sid + "." + areaWhat(h.Get(ce.TypeHeader)), Header: nats.Header(h), Data: data}
@@ -384,33 +386,43 @@ func (p *Publisher) Close(ctx context.Context) Stats {
 	close(p.quit)
 	select {
 	case <-p.done:
+	case <-ctx.Done():
+	}
+	select {
+	case <-p.done: // in time, or just as the time ran out
 		var err error
-		if p.nc.IsConnected() {
+		if ctx.Err() == nil && p.nc.IsConnected() {
 			err = p.nc.FlushWithContext(ctx)
 		}
-		p.nc.Close()
 		s := p.logTotals(ctx, true)
 		if err != nil && !errors.Is(err, context.Canceled) {
 			p.logger.WarnContext(ctx, "the last frames may not have reached the server", "err", err)
 		}
 		close(p.closed)
+		if ctx.Err() != nil {
+			go p.nc.Close() // it flushes, and may wait on a server that stops reading
+		} else {
+			p.nc.Close()
+		}
 		return s
-	case <-ctx.Done():
+	default:
 	}
 	s := p.logTotals(ctx, false)
 	p.logger.WarnContext(ctx, "the publisher was still writing when the time ran out: the totals follow once it stops")
 	later := context.WithoutCancel(ctx)
 	go func() {
 		<-p.done
-		p.nc.Close()
+		// The counters are final once the goroutine has ended: the line goes out
+		// before closing the connection, which may wait on the stalled socket.
 		p.logTotals(later, true)
 		close(p.closed)
+		p.nc.Close()
 	}()
 	return s
 }
 
-// Closed is closed once Close has closed the connection and logged the final
-// totals.
+// Closed is closed once Close has logged the final totals; the connection is
+// closed then, or just after.
 func (p *Publisher) Closed() <-chan struct{} { return p.closed }
 
 func (p *Publisher) logTotals(ctx context.Context, final bool) Stats {

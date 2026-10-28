@@ -13,6 +13,8 @@ import (
 	"github.com/nats-io/nats.go"
 
 	"github.com/those-who-run/contracts/ce"
+	eventsv1 "github.com/those-who-run/contracts/gen/go/twr/events/v1"
+	"github.com/those-who-run/ecu/internal/race"
 )
 
 // entry is a subject of contracts' subjects.yaml: its pattern, ce-type and msg_id
@@ -254,5 +256,44 @@ func TestFollowsScheme(t *testing.T) {
 		if got := followsScheme(c.scheme, c.id, v); got != c.want {
 			t.Errorf("followsScheme(%q, %q) = %t", c.scheme, c.id, got)
 		}
+	}
+}
+
+// An event published with no session open goes on evt._, with the run in the id
+// where the session would be (subjects.yaml, paddock#279). The race state sends
+// none yet (Prost will), so the event is built by hand.
+func TestAnEventWithNoSessionGoesOnEvtUnderscore(t *testing.T) {
+	r := newRig(t, "parity")
+	sub, err := r.nc.SubscribeSync("twr.v1.parity.evt._.>")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.nc.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	const run = "01JBUSRUN0000000000000000A"
+	r.pub.Publish([]race.Output{{
+		Event: ce.Event{ID: run + ":lap.completed:1", Source: race.Source, Time: epoch},
+		Lap:   &eventsv1.LapCompleted{Lap: 1},
+	}})
+	msg, err := sub.NextMsg(5 * time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if msg.Subject != "twr.v1.parity.evt._.lap.completed" {
+		t.Errorf("subject %s, want twr.v1.parity.evt._.lap.completed", msg.Subject)
+	}
+	var scheme string
+	for _, e := range catalogue(t) {
+		if matches(e.pattern, msg.Subject) {
+			scheme = e.msgID
+		}
+	}
+	id := msg.Header.Get(ce.IDHeader)
+	if scheme == "" || !followsScheme(scheme, id, map[string]string{"src": "parity", "sid": run}) {
+		t.Errorf("id %q, want the scheme %q with the run as <sid>", id, scheme)
+	}
+	if s := r.close(t); s.Events != 1 {
+		t.Errorf("stats %+v, want the event acknowledged", s)
 	}
 }

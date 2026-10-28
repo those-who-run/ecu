@@ -114,17 +114,28 @@ func TestAStalledServerNeverHoldsAStep(t *testing.T) {
 			defer cancel()
 			start := time.Now()
 			pub.Close(ctx)
+			returned := time.Now()
 			// N8 of the review of ecu#12: Close keeps to its context, even while the
 			// goroutine is held by a write.
-			if took := time.Since(start); took > 300*time.Millisecond {
+			if took := returned.Sub(start); took > 300*time.Millisecond {
 				t.Errorf("Close took %v with 100 ms to go", took)
+			}
+			// N11: the final totals come once the write gives up (2 s), well within
+			// the 3 s cmd/ecu waits after Close; closing the connection, which may
+			// wait on the stalled socket again, comes after them.
+			select {
+			case <-pub.Closed():
+				if took := time.Since(returned); took > 2500*time.Millisecond {
+					t.Errorf("the final totals came %v after Close returned", took)
+				}
+			case <-time.After(3 * time.Second):
+				t.Fatal("no final totals within cmd/ecu's 3 s wait")
 			}
 			if slowest > 100*time.Millisecond {
 				t.Errorf("the slowest of %d steps took %v", steps, slowest)
 			}
 			// The goroutine was held: frames were dropped, and no event was
 			// acknowledged. Its totals are final once it has given up its write.
-			<-pub.Closed()
 			s := pub.Stats()
 			if s.DroppedFrames == 0 || s.Events != 0 || s.DroppedEvents == 0 {
 				t.Errorf("stats %+v: the server never stalled the goroutine", s)
