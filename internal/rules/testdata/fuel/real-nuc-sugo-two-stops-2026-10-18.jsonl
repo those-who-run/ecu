@@ -1,0 +1,12 @@
+{"event": "session.started", "session": 1, "frame": 45}
+{"event": "callout", "session": 1, "frame": 153, "kind": "template", "slots": {"laps": 3}, "priority": 15, "hold_secs": 0.0, "expiry_secs": 8.0, "pit_lane": "spoken", "text": "Fuel. three laps remaining."}
+{"event": "callout", "session": 1, "frame": 240, "kind": "template_pit_next", "slots": {}, "priority": 5, "hold_secs": 0.0, "expiry_secs": 8.0, "pit_lane": "spoken", "text": "Box next lap."}
+{"event": "callout", "session": 1, "frame": 240, "kind": "template", "slots": {"laps": 2}, "priority": 15, "hold_secs": 0.0, "expiry_secs": 8.0, "pit_lane": "spoken", "text": "Fuel. two laps remaining."}
+{"event": "callout", "session": 1, "frame": 328, "kind": "template_pit", "slots": {}, "priority": 5, "hold_secs": 0.0, "expiry_secs": 8.0, "pit_lane": "spoken", "text": "Pit this lap."}
+{"event": "callout", "session": 1, "frame": 328, "kind": "template_critical", "slots": {}, "priority": 5, "hold_secs": 0.0, "expiry_secs": 8.0, "pit_lane": "spoken", "text": "Fuel critical. Less than one lap."}
+{"event": "callout", "session": 1, "frame": 578, "kind": "template_short", "slots": {"laps": 3}, "priority": 15, "hold_secs": 0.0, "expiry_secs": 8.0, "pit_lane": "spoken", "text": "Fuel. Just under three laps."}
+{"event": "callout", "session": 1, "frame": 678, "kind": "template_pit_next", "slots": {}, "priority": 5, "hold_secs": 0.0, "expiry_secs": 8.0, "pit_lane": "spoken", "text": "Box next lap."}
+{"event": "callout", "session": 1, "frame": 678, "kind": "template_short", "slots": {"laps": 2}, "priority": 15, "hold_secs": 0.0, "expiry_secs": 8.0, "pit_lane": "spoken", "text": "Fuel. Just under two laps."}
+{"event": "callout", "session": 1, "frame": 769, "kind": "template_pit", "slots": {}, "priority": 5, "hold_secs": 0.0, "expiry_secs": 8.0, "pit_lane": "spoken", "text": "Pit this lap."}
+{"event": "callout", "session": 1, "frame": 769, "kind": "template", "slots": {"laps": 1}, "priority": 15, "hold_secs": 0.0, "expiry_secs": 8.0, "pit_lane": "spoken", "text": "Fuel. one lap remaining."}
+{"event": "callout", "session": 1, "frame": 1034, "kind": "template_tight", "slots": {}, "priority": 15, "hold_secs": 0.0, "expiry_secs": 8.0, "pit_lane": "spoken", "text": "Fuel to the flag, just. Save a little."}
