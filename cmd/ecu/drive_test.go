@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -107,6 +108,11 @@ func events(outs []race.Output) []string {
 	return all
 }
 
+// withoutPositions is the events but race.position's.
+func withoutPositions(all []string) []string {
+	return slices.DeleteFunc(all, func(e string) bool { return strings.Contains(e, ":race.position:") })
+}
+
 // A fake PS5 sends a v1 recording's packets, encrypted as GT7 sends them, with a
 // few sent again late among them: every packet reaches the publisher once, in
 // order, and the events are the replay's of the same packets, event for event.
@@ -195,7 +201,11 @@ func TestALiveDriveReachesThePublisherAndIsRecorded(t *testing.T) {
 	if st := src.Stats(); st.Late != uint64(len(in)/10) || st.Packets != uint64(len(in)) {
 		t.Errorf("source %+v; want %d packets and %d late", st, len(in), len(in)/10)
 	}
-	w, g := events(want.outs), events(got.outs)
+	// The packets go out far faster than GT7 sends them, so live they all arrive
+	// within a second or so of the source's clock: no position holds the 3 s
+	// race.position needs (paddock#84), which the replay's own clock gives it.
+	// Every other event is the replay's.
+	w, g := withoutPositions(events(want.outs)), withoutPositions(events(got.outs))
 	// The replay ends its open session as the input ended, live as ecu stopping.
 	if len(w) == 0 || len(w) != len(g) || strings.Join(w[:len(w)-1], "\n") != strings.Join(g[:len(g)-1], "\n") {
 		t.Fatalf("events differ:\nreplay %v\nlive   %v", w, g)

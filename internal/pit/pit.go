@@ -248,6 +248,10 @@ func New() *Detector { return &Detector{} }
 // Reset forgets everything: call on a race start or restart.
 func (d *Detector) Reset() { *d = Detector{} }
 
+// InPitLane says the car is in the pit lane: a stop is open (Status().InPitLane,
+// without copying the stops).
+func (d *Detector) InPitLane() bool { return d.open != nil }
+
 // Status is the stops so far, the open one last, and the withdrawn ones.
 func (d *Detector) Status() Status {
 	stops := append([]Stop(nil), d.stops...)
