@@ -93,6 +93,19 @@ func TestALapEqualInTenthsIsEqualToBest(t *testing.T) {
 	})
 }
 
+// R4: a time rounds half up to tenths, as v1 spoke it, so a lap at an exact
+// .x50 sounds a tenth slower than a best at .x00: 63.2 against 63.1.
+func TestTimesRoundHalfUpToTenths(t *testing.T) {
+	for ms, want := range map[int32]int32{102250: 1023, 102350: 1024, 102249: 1022, 63150: 632} {
+		if got := tenthsHalfUp(ms); got != want {
+			t.Errorf("tenthsHalfUp(%d) = %d, want %d", ms, got, want)
+		}
+	}
+	runSteps(t, newRule(), []step{
+		{closed(2, 63150, true, pit.RoleNone), false, 63100, &shape{KindDeltaSlowerSmall, 0, 2, 63150, 50}},
+	})
+}
+
 // R5, R6: the situational kinds, chosen on the spoken difference with v1's
 // thresholds.
 func TestTheSituationalKinds(t *testing.T) {
