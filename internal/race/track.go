@@ -54,6 +54,7 @@ func (m *Machine) applyTrack(match track.Match, s *state, t time.Time) {
 		}
 	}
 	sess.track = &match
+	m.trackChanges = append(m.trackChanges, sess.track)
 	seq := strconv.FormatUint(uint64(s.seq), 10)
 	out := Output{
 		Event:   m.event(sess.id+":session.track:"+m.run+":"+seq, t),

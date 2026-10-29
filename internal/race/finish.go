@@ -43,6 +43,8 @@ func (m *Machine) observeFinish(prev, s *state, t time.Time, kind kindVerdict) {
 	default:
 		return
 	}
+	v := at.view()
+	m.ctx.Finish, m.ctx.FinishKind = &v, m.finish.kind
 	if m.session != nil {
 		m.publishFinish(at, t)
 	}

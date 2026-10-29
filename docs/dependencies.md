@@ -31,4 +31,5 @@ the test reads.
 | `github.com/oklog/ulid/v2` | Session and run ids are ULIDs (paddock#33); the race state mints them with it. |
 | `github.com/those-who-run/contracts` | The frame and event messages ecu publishes, and `ce`, their CloudEvents headers. |
 | `github.com/those-who-run/salsa` | The GT7 packets the race state reads, and v1's recordings, which its tests replay. |
+| `go.yaml.in/yaml/v3` | The rules file is v1's rules YAML (paddock#89); `internal/rules` reads it with this, the YAML org's maintained module, which contracts uses too. |
 | `google.golang.org/protobuf` | The contracts messages are protobuf: the session start's time is a `timestamppb.Timestamp`. |

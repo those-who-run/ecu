@@ -171,6 +171,10 @@ type Output struct {
 	Position    *eventsv1.RacePositionChanged
 	Finished    *eventsv1.RaceFinished
 
+	// Callout is a callout the rule engine raised (internal/rules, paddock#89),
+	// on twr.v1.<src>.callout.<level>: never the machine's own.
+	Callout *eventsv1.Callout
+
 	// Why is why the session ended, set with Ended; SessionEnded's reason is
 	// Why.Reason().
 	Why Why
@@ -203,6 +207,8 @@ func (o Output) Message() proto.Message {
 		return o.Position
 	case o.Finished != nil:
 		return o.Finished
+	case o.Callout != nil:
+		return o.Callout
 	default:
 		return o.Ended
 	}
@@ -226,7 +232,12 @@ type Machine struct {
 	pits        *pit.Detector
 	session     *session
 
-	out []Output
+	out    []Output
+	ctx    Context // the frame as the rules read it (context.go, paddock#89)
+	joined bool    // the session was joined part way (v1's rule.joined)
+	// trackChanges are the verdicts applied to a session since the rules last
+	// saw one, for Context.TrackChanges.
+	trackChanges []*track.Match
 }
 
 // session is the open session: v1's store.Session, cut to what the events need.
@@ -278,9 +289,11 @@ func (m *Machine) Run() string { return m.run }
 func (m *Machine) Step(r Received) []Output {
 	m.seq++
 	s := newState(m.seq, r.T, &r.Packet)
+	s.frame, s.received = frame(m.seq, r.T, s.phase, &r.Packet), r.Time
+	m.ctx = Context{}
 	m.out = []Output{{
 		Event: m.event(m.run+":frame:"+strconv.FormatUint(uint64(m.seq), 10), r.Time),
-		Frame: frame(m.seq, r.T, s.phase, &r.Packet),
+		Frame: s.frame,
 	}}
 
 	// Engine._step, the parts that open, close and end.
@@ -300,6 +313,7 @@ func (m *Machine) Step(r Received) []Output {
 		m.finalLap, m.places = false, places{}
 		m.kinds = kinds{}
 		m.pits.Reset()
+		m.joined, m.trackChanges = joinedPartWay(prev, &s), nil
 		// The track detector starts over by itself after a menu or a loading screen
 		// at lap 0, so only a restart, which teleports the car back to the grid with
 		// neither, resets it here, as v1's engine does: a rolling start keeps what
@@ -348,6 +362,9 @@ func (m *Machine) Step(r Received) []Output {
 	// go here, read the pit lane after this frame and the kind before it, and come
 	// before the lap the same crossing closes, as v1 decided them.
 	m.observeRace(seen, &s, r.Time, kindBefore)
+	// The rules' view of the frame (context.go): filled here, at v1's place for
+	// the rules, then the lap, the finish and the end below add to it.
+	m.ruleContext(prev, seen, &s, r.Time, starting, kindBefore)
 	// The detector sees every frame, a session open or not; a change of its
 	// decision is the session's to keep or not, before the lap store reads the
 	// frame, as in v1's Engine._step.
@@ -372,6 +389,11 @@ func (m *Machine) Step(r Received) []Output {
 	// first and race.finished's total time and best lap count that lap, which
 	// closes on the flag frame.
 	m.observeFinish(seen, &s, r.Time, kindBefore)
+	m.ctx.Finished = m.finish.kind != eventsv1.FinishKind_FINISH_KIND_UNSPECIFIED
+	if ended && s.phase != phaseFinished && !m.ctx.Finished && m.lastDriving != nil {
+		last := m.lastDriving.view()
+		m.ctx.EndedEarly = &last
+	}
 	if m.session != nil && ended {
 		m.finalTrack()
 		// v1's set_pits on a race's end, before end_session: the lap the session
@@ -493,7 +515,11 @@ func (m *Machine) closeLap(lap int32, s *state, t time.Time, complete bool) {
 	// lap_time rule decided on the frame that posted the time.
 	role := sess.laps.pits.LapRole(lap)
 	ev.PitRole = pitRole(role)
+	if complete {
+		m.ctx.Lap = &ClosedLap{Lap: lap, TimeMs: max(s.lastLapMs, 0), Role: role}
+	}
 	if complete && s.lastLapMs > 0 {
+		m.ctx.Lap.Counts = countsForBest(lap, s, role)
 		ev.LapTimeMs = s.lastLapMs
 		ev.CountsForBest = countsForBest(lap, s, role)
 		sess.laps.timed = append(sess.laps.timed, timedLap{lap: lap, ms: s.lastLapMs, counts: ev.CountsForBest})
@@ -501,6 +527,9 @@ func (m *Machine) closeLap(lap int32, s *state, t time.Time, complete bool) {
 	// Outside a field the position is left out, by the verdict at the lap's end.
 	if p := s.racePosition(); p != 0 && !solo(m.kinds.kind()) {
 		ev.Position = &p
+		if complete {
+			m.ctx.Lap.Position = p
+		}
 	}
 	sess.lapStartFuel = s.fuel
 	sess.lapsFuelUsed += used
