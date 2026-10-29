@@ -497,8 +497,7 @@ the context stands for v1's hooks, what the engine stamps, and how to add a
 rule.
 
 - **Rules.** `final_lap` (paddock#93) and `fuel` ([Fuel](#fuel), paddock#92)
-  so far; the others (#91 to #98) are
-  each a package under `internal/rules`.
+  so far; the others (#91 to #98) are each a package under `internal/rules`.
 - **Where in the step.** The context holds each value as v1's rules saw it in
   `Engine._step` (after the pits, before the timed finish, the track, the kind
   and the lap store), plus the lap closed, the finish and the end of the
