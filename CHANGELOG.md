@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.4](https://github.com/those-who-run/ecu/compare/v0.1.3...v0.1.4) (2026-10-29)
+
+
+### Features
+
+* **race:** publish the session's track (session.track) ([#24](https://github.com/those-who-run/ecu/issues/24)) ([e379fe5](https://github.com/those-who-run/ecu/commit/e379fe54273422a42a57ce3ac2fde0943c9c6900))
+* **replay:** replay a v1 recording onto the bus (ecu replay) ([#23](https://github.com/those-who-run/ecu/issues/23)) ([64e9055](https://github.com/those-who-run/ecu/commit/64e905545424bbbb11770556c26c84051bb1b3ea))
+
 ## [0.1.3](https://github.com/those-who-run/ecu/compare/v0.1.2...v0.1.3) (2026-10-28)
 
 
