@@ -4,8 +4,9 @@
 // twr.v1.<src>.frame.gt7.lo too. session.started, session.track, lap.completed
 // and session.ended go on twr.v1.<src>.evt.<sid>.<area>.<what>, which the EVENTS
 // stream captures and deduplicates on Nats-Msg-Id; each is published through
-// JetStream and sent again until EVENTS acknowledges it. Every message carries the full set of CloudEvents
-// headers, from contracts' ce package. It is the only package that imports nats.go.
+// JetStream and sent again until EVENTS acknowledges it. Every message carries the
+// full set of CloudEvents headers, from contracts' ce package. It is the only
+// package that imports nats.go.
 //
 // Nothing on the live frame path waits on the network: Publish encodes the outputs
 // and hands them to one goroutine, which owns the connection, without waiting. That
