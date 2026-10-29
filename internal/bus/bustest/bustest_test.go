@@ -61,3 +61,16 @@ func TestFindNATSServerChecksTheVersion(t *testing.T) {
 		t.Error("a missing binary was accepted")
 	}
 }
+
+// A stalled server completes the handshake, or, silent, never answers it.
+func TestStalled(t *testing.T) {
+	nc, err := nats.Connect(Stalled(t, false))
+	if err != nil {
+		t.Fatalf("the handshake: %v", err)
+	}
+	nc.Close()
+	if nc, err := nats.Connect(Stalled(t, true), nats.Timeout(200*time.Millisecond)); err == nil {
+		nc.Close()
+		t.Error("a silent server answered")
+	}
+}

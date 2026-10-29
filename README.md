@@ -206,7 +206,9 @@ docker run --rm -v "$PWD:/recordings" ghcr.io/those-who-run/twr-ecu \
   (`x.jsonl:4: ...`); what came before the bad line is published, and its
   session ended as ecu stopped. `2` for a NATS server not reached within 10 s,
   one that did not take everything by the end of the 30 s (any frame or event
-  dropped, which the final `published` log line counts), or a bad flag. `130`
+  dropped, which the final `published` log line counts, or a final flush that
+  failed), or a bad flag. ecu waits for the connection to close before it
+  exits, so nothing is logged after its last line. `130`
   when SIGINT or SIGTERM stops it, the open session ended as ecu stopped; a
   signal while it waits for the server at the end cuts that wait to 1 s.
 

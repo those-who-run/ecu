@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -99,8 +100,21 @@ func TestAReplayAtMaxPublishesEveryFrameAndEvent(t *testing.T) {
 		}
 	}
 
-	if n := srv.Count("TELEMETRY"); n != uint64(len(in)) {
-		t.Errorf("TELEMETRY holds %d frames, want every one of the %d", n, len(in))
+	// Every frame, in order: seq runs 1..N in stream order, under one run id.
+	frames := srv.Read("TELEMETRY", 0)
+	if len(frames) != len(in) {
+		t.Errorf("TELEMETRY holds %d frames, want every one of the %d", len(frames), len(in))
+	}
+	var run string
+	for i, m := range frames {
+		id := ce.Header(m.Header).Get(ce.IDHeader) // <run>:frame:<seq>
+		r, seq, _ := strings.Cut(id, ":frame:")
+		if i == 0 {
+			run = r
+		}
+		if r != run || seq != strconv.Itoa(i+1) {
+			t.Fatalf("frame %d in the stream is %s, want %s:frame:%d", i, id, run, i+1)
+		}
 	}
 	stored := srv.Read("EVENTS", 0)
 	var gotKinds []string
@@ -420,5 +434,17 @@ func TestASignalDuringTheFlush(t *testing.T) {
 	took := time.Since(log.at)
 	if code != 130 || log.at.IsZero() || took > 2*time.Second {
 		t.Errorf("exit %d %v after the signal, stderr %q; want 130 within 2 s", code, took, stderr.String())
+	}
+}
+
+// A final flush that fails (a server that stops reading after the handshake never
+// answers it) exits 2: a replay that may have lost its last frames never exits 0.
+func TestAFailedFlushExitsTwo(t *testing.T) {
+	replayGrace = 300 * time.Millisecond
+	t.Cleanup(func() { replayGrace = 30 * time.Second })
+	path := synthetic(t, 3, func(i int) float64 { return float64(i) })
+	got := runReplay(t, nil, "--speed", "max", "--src", "parity", "--nats", bustest.Stalled(t, false), path)
+	if got.code != 2 || !strings.Contains(got.stderr, "the final flush failed") {
+		t.Errorf("exit %d, stderr %q; want 2 and the flush named", got.code, got.stderr)
 	}
 }

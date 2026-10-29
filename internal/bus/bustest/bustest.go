@@ -14,6 +14,7 @@ package bustest
 
 import (
 	"archive/tar"
+	"bufio"
 	"bytes"
 	"compress/gzip"
 	"context"
@@ -352,4 +353,62 @@ func (s *Server) Read(stream string, n uint64) []Msg {
 		all = append(all, Msg{Subject: m.Subject, Header: m.Header, Data: m.Data})
 	}
 	return all
+}
+
+// Stalled is a TCP listener that plays a NATS server gone wrong: each connection
+// it accepts is held open, and either never answered (silent), or answered up to
+// the client's first PING and then never read again, so the client's writes fill
+// the socket and wait.
+func Stalled(t testing.TB, silent bool) string {
+	t.Helper()
+	var lc net.ListenConfig
+	ln, err := lc.Listen(context.Background(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mu sync.Mutex
+	var conns []net.Conn
+	t.Cleanup(func() {
+		_ = ln.Close()
+		mu.Lock()
+		defer mu.Unlock()
+		for _, c := range conns {
+			_ = c.Close()
+		}
+	})
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			mu.Lock()
+			conns = append(conns, c)
+			mu.Unlock()
+			if silent {
+				continue
+			}
+			_ = c.(*net.TCPConn).SetReadBuffer(4096)
+			go handshake(c)
+		}
+	}()
+	return "nats://" + ln.Addr().String()
+}
+
+// handshake answers a client's CONNECT and first PING as a server would, then reads
+// nothing more.
+func handshake(c net.Conn) {
+	_, _ = c.Write([]byte(`INFO {"server_id":"stalled","version":"2.15.1","proto":1,"headers":true,` +
+		`"max_payload":1048576}` + "\r\n"))
+	r := bufio.NewReader(c)
+	for {
+		line, err := r.ReadString('\n')
+		if err != nil {
+			return
+		}
+		if strings.HasPrefix(line, "PING") {
+			_, _ = c.Write([]byte("PONG\r\n"))
+			return
+		}
+	}
 }

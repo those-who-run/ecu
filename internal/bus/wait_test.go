@@ -174,5 +174,51 @@ func TestWaitConnectedGivesUp(t *testing.T) {
 	if err := pub.WaitConnected(ctx); err == nil {
 		t.Error("connected to nothing")
 	}
-	pub.Close(ctx)
+	if s := pub.Close(ctx); !s.Unflushed {
+		t.Errorf("stats %+v, want unflushed: it never connected", s)
+	}
+	select {
+	case <-pub.Gone():
+	case <-time.After(5 * time.Second):
+		t.Error("a connection never made is not gone 5 s after Close")
+	}
+}
+
+// paddock#35: a final flush that fails (a server that stops reading after the
+// handshake never answers its PING) is reported in Stats, so a replay does not
+// exit 0 on it; and Gone follows Closed once the client is done.
+func TestAFailedFlushIsReported(t *testing.T) {
+	pub, err := Connect(Config{URL: stalled(t, false), Src: "parity"}, (&logs{}).logger(), Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := pub.WaitConnected(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	pub.Publish(frames(t)[:3])
+	ctx, cancel := context.WithTimeout(t.Context(), 300*time.Millisecond)
+	defer cancel()
+	if s := pub.Close(ctx); !s.Unflushed || s.DroppedFrames != 0 {
+		t.Errorf("stats %+v, want the flush reported failed", s)
+	}
+	select {
+	case <-pub.Gone():
+	case <-time.After(5 * time.Second):
+		t.Error("the connection not gone 5 s after Close")
+	}
+}
+
+// A publisher closed in time on a server that takes everything reports nothing
+// unflushed, and its connection goes.
+func TestAFlushInTime(t *testing.T) {
+	r := newRig(t, "parity")
+	r.pub.Publish(frames(t)[:3])
+	if s := r.close(t); s.Unflushed || s.Frames != 3 {
+		t.Errorf("stats %+v, want 3 frames flushed", s)
+	}
+	select {
+	case <-r.pub.Gone():
+	case <-time.After(5 * time.Second):
+		t.Error("the connection not gone 5 s after Close")
+	}
 }

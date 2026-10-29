@@ -144,7 +144,8 @@ func replay(ctx context.Context, args []string, getenv func(string) string, stdi
 	// NotifyContext takes every later signal, so Ctrl-C must not wait 30 s.
 	grace, cancel := context.WithTimeout(context.WithoutCancel(ctx), replayGrace)
 	defer cancel()
-	stopCut := context.AfterFunc(ctx, func() { time.AfterFunc(interruptGrace, cancel) })
+	cut := interruptGrace // read here: the func below may run after replay returns
+	stopCut := context.AfterFunc(ctx, func() { time.AfterFunc(cut, cancel) })
 	defer stopCut()
 	pub.Close(grace)
 	// The totals are final only once Closed is: the publisher counts what it
@@ -156,6 +157,7 @@ func replay(ctx context.Context, args []string, getenv func(string) string, stdi
 	case <-time.After(closeAfter):
 	}
 	s := pub.Stats()
+	waitGone(pub)
 	var re *salsa.RecordingError
 	switch {
 	case errors.As(failed, &re):
@@ -171,6 +173,9 @@ func replay(ctx context.Context, args []string, getenv func(string) string, stdi
 		_, _ = fmt.Fprintf(stderr, "ecu replay: NATS did not take everything: %d frames and %d events dropped\n",
 			s.DroppedFrames, s.DroppedEvents)
 		return exitNATS
+	case s.Unflushed:
+		_, _ = fmt.Fprintln(stderr, "ecu replay: the last frames may not have reached NATS: the final flush failed")
+		return exitNATS
 	}
 	return 0
 }
@@ -180,6 +185,21 @@ func closeQuickly(ctx context.Context, pub *bus.Publisher) {
 	grace, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
 	defer cancel()
 	pub.Close(grace)
+	waitGone(pub)
+}
+
+// goneAfter bounds the wait for the client's last callback: closing a connection
+// to a server that stopped reading can take a write timeout (2 s).
+const goneAfter = 3 * time.Second
+
+// waitGone waits, a little, for the connection to close and the client's last
+// callback to run, so nothing logs once replay returns and the last log lines come
+// before the process exits.
+func waitGone(pub *bus.Publisher) {
+	select {
+	case <-pub.Gone():
+	case <-time.After(goneAfter):
+	}
 }
 
 // waiting publishes with PublishWait: a replay waits for room in the publisher

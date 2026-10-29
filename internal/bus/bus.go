@@ -93,10 +93,13 @@ const (
 )
 
 // Stats is what was published and dropped. Events counts the acknowledgements
-// from EVENTS, a duplicate's included.
+// from EVENTS, a duplicate's included. Unflushed is set by Close when the frames
+// the client held at the end may not have reached the server: the final flush
+// failed, the connection was down, or the time ran out.
 type Stats struct {
 	Frames, LoFrames, Events                      uint64
 	DroppedFrames, DroppedLoFrames, DroppedEvents uint64
+	Unflushed                                     bool
 }
 
 // frameMsg is a frame for the publishing goroutine, with whether it goes on .lo
@@ -124,6 +127,7 @@ type Publisher struct {
 	until  context.Context // Close's deadline, set before quit is closed
 	done   chan struct{}   // the publishing goroutine has ended
 	closed chan struct{}   // the connection is closed and the final totals logged
+	gone   chan struct{}   // the connection is closed and the client's last callback has run
 
 	// The step loop's own: the frame time of the last frame put on .lo.
 	lastLo float64
@@ -132,6 +136,7 @@ type Publisher struct {
 	counters struct {
 		frames, lo, events                      atomic.Uint64
 		droppedFrames, droppedLo, droppedEvents atomic.Uint64
+		unflushed                               atomic.Bool
 	}
 }
 
@@ -156,6 +161,7 @@ func Connect(cfg Config, logger *slog.Logger, opts Options) (*Publisher, error) 
 		opts.ReconnectWait = time.Second
 	}
 	d := &dialer{d: net.Dialer{Timeout: connectTimeout}}
+	gone := make(chan struct{})
 	nc, err := nats.Connect(cfg.URL,
 		nats.Name("ecu"),
 		nats.RetryOnFailedConnect(true),
@@ -174,6 +180,9 @@ func Connect(cfg Config, logger *slog.Logger, opts Options) (*Publisher, error) 
 				logger.Warn("NATS connection lost", "err", err)
 			}
 		}),
+		// The client runs its callbacks in order on a goroutine of its own, the
+		// closed one last: after it, nothing the client does logs.
+		nats.ClosedHandler(func(*nats.Conn) { close(gone) }),
 	)
 	if err != nil {
 		return nil, err
@@ -191,6 +200,7 @@ func Connect(cfg Config, logger *slog.Logger, opts Options) (*Publisher, error) 
 		quit:   make(chan struct{}),
 		done:   make(chan struct{}),
 		closed: make(chan struct{}),
+		gone:   gone,
 	}
 	go p.run()
 	logger.Info("publishing", "nats", redacted(cfg.URL), "src", cfg.Src)
@@ -448,6 +458,7 @@ func (p *Publisher) Stats() Stats {
 	return Stats{
 		Frames: c.frames.Load(), LoFrames: c.lo.Load(), Events: c.events.Load(),
 		DroppedFrames: c.droppedFrames.Load(), DroppedLoFrames: c.droppedLo.Load(), DroppedEvents: c.droppedEvents.Load(),
+		Unflushed: c.unflushed.Load(),
 	}
 }
 
@@ -473,6 +484,11 @@ func (p *Publisher) Close(ctx context.Context) Stats {
 		var err error
 		if ctx.Err() == nil && p.nc.IsConnected() {
 			err = p.nc.FlushWithContext(ctx)
+		} else {
+			p.counters.unflushed.Store(true)
+		}
+		if err != nil {
+			p.counters.unflushed.Store(true)
 		}
 		s := p.logTotals(ctx, true)
 		if err != nil && !errors.Is(err, context.Canceled) {
@@ -487,6 +503,7 @@ func (p *Publisher) Close(ctx context.Context) Stats {
 		return s
 	default:
 	}
+	p.counters.unflushed.Store(true)
 	s := p.logTotals(ctx, false)
 	p.logger.WarnContext(ctx, "the publisher was still writing when the time ran out: the totals follow once it stops")
 	// A write to a server that stopped reading gives up only after writeTimeout, and
@@ -510,6 +527,11 @@ func (p *Publisher) Close(ctx context.Context) Stats {
 // Closed is closed once Close has logged the final totals; the connection is
 // closed then, or just after.
 func (p *Publisher) Closed() <-chan struct{} { return p.closed }
+
+// Gone is closed once the connection is closed and the client has run its last
+// callback, after Closed: from then on nothing the publisher or its client does
+// logs. A replay waits for it before it returns (paddock#35).
+func (p *Publisher) Gone() <-chan struct{} { return p.gone }
 
 func (p *Publisher) logTotals(ctx context.Context, final bool) Stats {
 	s := p.Stats()
