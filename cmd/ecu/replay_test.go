@@ -149,7 +149,8 @@ func TestAReplayAtMaxPublishesEveryFrameAndEvent(t *testing.T) {
 		}
 	}
 	// Each payload is the race state's for the same packets, laps and lap times
-	// included, apart from the session id, which is random on each run.
+	// included, apart from the session id, which is random on each run, and the
+	// run id session.track and session.kind carry.
 	var wantEvents []race.Output
 	for _, o := range want.outs {
 		if o.Frame == nil {
@@ -166,7 +167,7 @@ func TestAReplayAtMaxPublishesEveryFrameAndEvent(t *testing.T) {
 			t.Fatal(err)
 		}
 		var w, g map[string]any
-		if err := json.Unmarshal([]byte(strings.ReplaceAll(string(data), o.Session, sid)), &w); err != nil {
+		if err := json.Unmarshal([]byte(strings.ReplaceAll(strings.ReplaceAll(string(data), o.Session, sid), wantRun, run)), &w); err != nil {
 			t.Fatal(err)
 		}
 		if err := json.Unmarshal(stored[i].Data, &g); err != nil {

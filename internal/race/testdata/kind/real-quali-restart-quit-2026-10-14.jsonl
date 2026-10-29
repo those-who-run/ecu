@@ -1,0 +1,10 @@
+{"event": "session.started", "session": 1, "frame": 30}
+{"event": "session.kind", "session": 1, "frame": 30, "kind": {"kind": "timed_field", "total_laps": 0, "field": true, "fuel_use": null, "cars_on_track": true, "start": "unknown", "evidence": "no lap total, 20 cars; fuel use not known yet"}}
+{"event": "session.kind", "session": 1, "frame": 32, "kind": {"kind": "timed_field", "total_laps": 0, "field": true, "fuel_use": null, "cars_on_track": true, "start": "flying", "evidence": "no lap total, 20 cars; fuel use not known yet; flying start at 109 km/h"}}
+{"event": "session.kind", "session": 1, "frame": 33, "kind": {"kind": "timed_field", "total_laps": 0, "field": true, "fuel_use": true, "cars_on_track": true, "start": "flying", "evidence": "no lap total, 20 cars; fuel use on; flying start at 109 km/h"}}
+{"event": "session.ended", "session": 1, "frame": 301, "kind": {"kind": "timed_field", "total_laps": 0, "field": true, "fuel_use": true, "cars_on_track": true, "start": "flying", "evidence": "no lap total, 20 cars; fuel use on; flying start at 109 km/h"}}
+{"event": "session.started", "session": 2, "frame": 301}
+{"event": "session.kind", "session": 2, "frame": 301, "kind": {"kind": "timed_field", "total_laps": 0, "field": true, "fuel_use": null, "cars_on_track": true, "start": "unknown", "evidence": "no lap total, 20 cars; fuel use not known yet"}}
+{"event": "session.kind", "session": 2, "frame": 302, "kind": {"kind": "timed_field", "total_laps": 0, "field": true, "fuel_use": null, "cars_on_track": true, "start": "flying", "evidence": "no lap total, 20 cars; fuel use not known yet; flying start at 173 km/h"}}
+{"event": "session.kind", "session": 2, "frame": 321, "kind": {"kind": "timed_field", "total_laps": 0, "field": true, "fuel_use": false, "cars_on_track": true, "start": "flying", "evidence": "no lap total, 20 cars; fuel use off; flying start at 173 km/h"}}
+{"event": "session.ended", "session": 2, "frame": 774, "kind": {"kind": "timed_field", "total_laps": 0, "field": true, "fuel_use": false, "cars_on_track": true, "start": "flying", "evidence": "no lap total, 20 cars; fuel use off; flying start at 173 km/h"}}

@@ -127,8 +127,8 @@ func TestEverySubjectIsInTheCatalogue(t *testing.T) {
 	for _, msg := range msgs {
 		sent[[2]string{generic(msg), msg.Header.Get(ce.TypeHeader)}] = true
 	}
-	if len(sent) != 6 {
-		t.Errorf("%d kinds of message sent, want 6: frames, .lo and four events: %v", len(sent), sent)
+	if len(sent) != 7 {
+		t.Errorf("%d kinds of message sent, want 7: frames, .lo and five events: %v", len(sent), sent)
 	}
 	entries := catalogue(t)
 	for k := range sent {
@@ -210,8 +210,8 @@ func TestEveryIDFollowsTheCatalogue(t *testing.T) {
 		}
 		checked[scheme] = true
 	}
-	if len(checked) != 5 {
-		t.Errorf("checked ids against %d schemes, want 5: the frame's and the four events': %v", len(checked), checked)
+	if len(checked) != 6 {
+		t.Errorf("checked ids against %d schemes, want 6: the frame's and the five events': %v", len(checked), checked)
 	}
 }
 
@@ -254,6 +254,7 @@ func TestFollowsScheme(t *testing.T) {
 		{"<run>:frame:<seq>", "R:frame:0", false},
 		{"<src>:<sid>:session.track:<run>:<seq>", "parity:S:session.track:R:42", true},
 		{"<src>:<sid>:session.track:<run>:<seq>", "parity:S:session.track:42", false},
+		{"<src>:<sid>:session.kind:<run>:<seq>", "parity:S:session.kind:R:42", true},
 	} {
 		if got := followsScheme(c.scheme, c.id, v); got != c.want {
 			t.Errorf("followsScheme(%q, %q) = %t", c.scheme, c.id, got)
