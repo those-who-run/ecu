@@ -50,9 +50,9 @@ func TestSuzukaFuelUsedIsBothStints(t *testing.T) {
 	}
 }
 
-// AC3: at Circuit Gilles Villeneuve the joined lap (6) and the in-lap and
-// out-lap (7) are not measured: lap 8 is the only lap in the average, and the
-// gauge reads it.
+// AC3: at Circuit Gilles Villeneuve, joined on lap 5, the joined lap (5), the
+// in-lap (6) and the out-lap (7) are not measured: lap 8 is the only lap in the
+// average, and the gauge reads it.
 func TestGillesVilleneuveMeasuresOnlyLap8(t *testing.T) {
 	r, measured := drive(t, "real-nuc-gilles-villeneuve-pit-stop-2026-10-17")
 	if !slices.Equal(measured, []int32{8}) {
