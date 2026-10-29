@@ -1,15 +1,9 @@
 package startbrief
 
 import (
-	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
-	"math"
-	"math/rand/v2"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -19,78 +13,9 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 
 	eventsv1 "github.com/those-who-run/contracts/gen/go/twr/events/v1"
-	"github.com/those-who-run/ecu/internal/race"
 	"github.com/those-who-run/ecu/internal/rules"
-	"github.com/those-who-run/salsa"
+	"github.com/those-who-run/ecu/internal/rules/rulestest"
 )
-
-// recordings are v1's 25 recordings (testdata/make_golden.py's goldens).
-var recordings = []string{
-	"real-race-2laps-2026-10-14",
-	"real-quali-restart-quit-2026-10-14",
-	"real-n24h-race-lap1-positions-2026-10-14",
-	"real-nuc-unknown-track-2026-10-15",
-	"real-nuc-suzuka-east-2026-10-15",
-	"real-nuc-suzuka-no-stop-2026-10-15",
-	"real-nuc-suzuka-pit-stop-2026-10-15",
-	"real-nuc-sugo-timed-2026-10-15",
-	"real-nuc-fuji-timed-2026-10-15",
-	"real-nuc-tokyo-east-race-2026-10-15",
-	"real-nuc-nordschleife-rolling-start-2026-10-15",
-	"real-nuc-laguna-seca-race-2026-10-15",
-	"real-nuc-tsukuba-brz-drift-2026-10-15",
-	"real-nuc-suzuka-timed-race-2026-10-16",
-	"real-nuc-willow-springs-pit-stop-2026-10-17",
-	"real-nuc-gilles-villeneuve-race-2026-10-17",
-	"real-nuc-gilles-villeneuve-pit-stop-2026-10-17",
-	"real-nuc-sugo-two-stops-2026-10-18",
-	"real-nuc-sugo-replay-2026-10-18",
-	"real-nuc-laguna-seca-demo-2026-10-18",
-	"real-nuc-sugo-restarts-2026-10-18",
-	"real-nuc-suzuka-joined-mid-race-2026-10-18",
-	"real-nuc-suzuka-before-restart-2026-10-18",
-	"real-nuc-spa-pit-cut-quit-2026-10-18",
-	"real-nuc-spa-time-trial-2026-10-18",
-}
-
-// epoch is the wall-clock time of each recording's first frame.
-var epoch = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-
-// packets is every packet of a recording: salsa's testdata/v1, else
-// internal/track's, as internal/race's tests read them.
-func packets(t *testing.T, name string) []race.Received {
-	t.Helper()
-	path := filepath.Join("..", "..", "track", "testdata", "v1", name+".jsonl.gz")
-	if _, err := os.Stat(path); err != nil {
-		out, err := exec.CommandContext(context.Background(), "go", "list", "-m", "-f", "{{.Dir}}",
-			"github.com/those-who-run/salsa").Output()
-		if err != nil {
-			t.Fatal(err)
-		}
-		path = filepath.Join(strings.TrimSpace(string(out)), "testdata", "v1", name+".jsonl.gz")
-	}
-	src, err := salsa.OpenRecording(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = src.Close() }()
-	var all []race.Received
-	for {
-		r, err := src.Next(t.Context())
-		if errors.Is(err, io.EOF) {
-			return all
-		}
-		if err != nil {
-			t.Fatal(err)
-		}
-		t0 := r.T
-		if len(all) > 0 {
-			t0 = all[0].T
-		}
-		at := epoch.Add(time.Duration(math.Round((r.T - t0) * float64(time.Second))))
-		all = append(all, race.Received{Received: r, Time: at})
-	}
-}
 
 // goldenLine is a callout line of a golden.
 type goldenLine struct {
@@ -160,19 +85,16 @@ func replay(t *testing.T, name string) []string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m := race.New(race.NewIDs(func() time.Time { return epoch }, rand.NewChaCha8([32]byte{'e', 'c', 'u'})))
 	sessions := map[string]int{}
 	times := map[uint32]time.Time{}
 	var out []string
-	for _, r := range packets(t, name) {
-		for _, o := range m.Step(r) {
-			if o.Started != nil {
-				sessions[o.Session] = len(sessions) + 1
-			}
-		}
-		ctx := m.Context()
-		times[ctx.Cur.Seq] = ctx.Time
-		for _, o := range e.Step(ctx) {
+	for _, o := range rulestest.Run(rulestest.Packets(t, name), e) {
+		switch {
+		case o.Started != nil:
+			sessions[o.Session] = len(sessions) + 1
+		case o.Frame != nil:
+			times[o.Frame.GetSeq()] = o.Event.Time
+		case o.Callout != nil:
 			c := o.Callout
 			created, expires := c.GetCreatedAt().AsTime(), c.GetExpiresAt().AsTime()
 			hold := 0.0
@@ -185,9 +107,6 @@ func replay(t *testing.T, name string) []string {
 			}
 			out = append(out, show(sessions[c.GetSessionId()], c.GetAt(), c.GetKind(), c.GetSlots(), c.GetPriority(),
 				hold, expires.Sub(created).Seconds(), c.GetPitLane().String(), outcome))
-			if c.GetRule() != Name {
-				t.Errorf("a callout of %s", c.GetRule())
-			}
 		}
 	}
 	return out
@@ -200,7 +119,7 @@ func replay(t *testing.T, name string) []string {
 // replays and demo races) are held to v1's engine taking every start for a
 // drive (make_golden.py --drive), as ecu does until paddock#74.
 func TestTheStartBriefIsV1sOnEveryRecording(t *testing.T) {
-	for _, name := range recordings {
+	for _, name := range rulestest.Recordings {
 		t.Run(name, func(t *testing.T) {
 			want := readGolden(t, name)
 			if len(want) == 0 {
