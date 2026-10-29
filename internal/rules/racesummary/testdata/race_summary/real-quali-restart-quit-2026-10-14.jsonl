@@ -1,0 +1,4 @@
+{"event": "session.started", "session": 1, "frame": 30}
+{"event": "session.ended", "session": 1, "frame": 301}
+{"event": "session.started", "session": 2, "frame": 301}
+{"event": "session.ended", "session": 2, "frame": 774}

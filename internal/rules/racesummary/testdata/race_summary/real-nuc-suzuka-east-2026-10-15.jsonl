@@ -1,0 +1,3 @@
+{"event": "session.started", "session": 1, "frame": 1}
+{"event": "callout", "session": 1, "at": 118, "as_of": 118, "kind": "template", "slots": {}, "priority": 25, "max_age": 30.0, "hold": 0.0, "pit_lane": "speak", "in_pit_lane": false, "text": "Chequered flag.", "outcome": "spoken"}
+{"event": "session.ended", "session": 1, "frame": 118}

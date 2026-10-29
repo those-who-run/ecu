@@ -1,0 +1,7 @@
+{"event": "session.started", "session": 1, "frame": 46}
+{"event": "session.ended", "session": 1, "frame": 641}
+{"event": "session.started", "session": 2, "frame": 668}
+{"event": "session.ended", "session": 2, "frame": 773}
+{"event": "session.started", "session": 3, "frame": 790}
+{"event": "callout", "session": 3, "at": 1151, "as_of": 1151, "kind": "template_position_podium", "slots": {"best_lap_ms": 83610, "position": 2}, "priority": 25, "max_age": 30.0, "hold": 0.0, "pit_lane": "speak", "in_pit_lane": false, "text": "Chequered flag. Finished second. Best lap one twenty-three point six.", "outcome": "spoken"}
+{"event": "session.ended", "session": 3, "frame": 1151}
