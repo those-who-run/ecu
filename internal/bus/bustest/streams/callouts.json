@@ -1,0 +1,31 @@
+{
+  "$comment": [
+    "CALLOUTS: what ecu's rules decide to say, from every source (live, replay-<run>, parity), for radio to speak (ADR 0001, point 1; paddock#73). ecu decides; radio only speaks what it reads here.",
+    "subjects: twr.v1.*.callout.> covers contracts' callout.p0, .p1 and .p2, twr.v1.<src>.callout.<level>.",
+    "retention workqueue (ADR 0001): a callout is said once, so the consumer's ack removes it; nothing reads callouts afterwards.",
+    "max_age 30 s (30000000000 ns): a callout is worth saying only while it is current. 30 s, not ADR 0001's 15 s, as decided in the triage of paddock#73: the race summary's own expiry is 30 s, so the stream never ages out what a rule still allows.",
+    "duplicate_window 30 s (30000000000 ns): the callout's id is its Nats-Msg-Id (contracts' subjects.yaml), so one sent again is stored once. paddock#73 asks for 2 min, but the server refuses a duplicate window longer than max_age (error 10052), and a callout older than 30 s is gone anyway.",
+    "max_bytes 64 MiB (67108864): a callout is a few hundred bytes and lives 30 s, so the stream holds a few KB. The limit is a backstop so a stuck consumer cannot fill the disk.",
+    "discard old: if the backstop is ever reached, the oldest callouts, the stalest, go first.",
+    "max_msg_size -1: bounded by the server's max_payload (1 MiB by default). max_msgs, max_msgs_per_subject and max_consumers -1: max_age and max_bytes are the limits.",
+    "num_replicas 1: one NATS server (ADR 0004). File storage so a callout raised just before a server restart is still said."
+  ],
+  "name": "CALLOUTS",
+  "description": "Callouts from every source for radio, kept 30 s or until acked, deduplicated on Nats-Msg-Id (paddock#73).",
+  "subjects": ["twr.v1.*.callout.>"],
+  "retention": "workqueue",
+  "storage": "file",
+  "num_replicas": 1,
+  "discard": "old",
+  "max_age": 30000000000,
+  "max_bytes": 67108864,
+  "duplicate_window": 30000000000,
+  "max_msgs": -1,
+  "max_msgs_per_subject": -1,
+  "max_msg_size": -1,
+  "max_consumers": -1,
+  "deny_delete": false,
+  "deny_purge": false,
+  "allow_rollup_hdrs": false,
+  "allow_direct": false
+}
