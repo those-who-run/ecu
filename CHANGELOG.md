@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.5](https://github.com/those-who-run/ecu/compare/v0.1.4...v0.1.5) (2026-10-29)
+
+
+### Features
+
+* **race:** publish pit entry and exit (pit.entered, pit.exited) ([#28](https://github.com/those-who-run/ecu/issues/28)) ([474076e](https://github.com/those-who-run/ecu/commit/474076e247696e4f1bd65a3e3b26fc43b820fd44))
+* **race:** publish the session's kind (session.kind) ([#27](https://github.com/those-who-run/ecu/issues/27)) ([ebb4430](https://github.com/those-who-run/ecu/commit/ebb44307fa2a9ab111b5f1881add88a0f537cd39))
+
 ## [0.1.4](https://github.com/those-who-run/ecu/compare/v0.1.3...v0.1.4) (2026-10-29)
 
 
