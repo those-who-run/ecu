@@ -1,0 +1,2 @@
+{"event": "session.started", "session": 1, "frame": 67, "joined": false}
+{"event": "callout", "session": 1, "frame": 72, "kind": "template", "slots": {"track": "Circuit de Spa-Francorchamps"}, "priority": 8, "hold_secs": 0.0, "expiry_secs": 8.0, "pit_lane": "hold", "text": "Circuit de Spa Francorchamps.", "outcome": "spoken"}

@@ -1,0 +1,6 @@
+{"event": "session.started", "session": 1, "frame": 30, "joined": false}
+{"event": "callout", "session": 1, "frame": 33, "kind": "template", "slots": {"timed": true, "position": 1, "total_cars": 20}, "priority": 8, "hold_secs": 0.0, "expiry_secs": 8.0, "pit_lane": "hold", "text": "Timed race. P one of twenty.", "outcome": "spoken"}
+{"event": "callout", "session": 1, "frame": 72, "kind": "template_track", "slots": {"track": "Nurburgring 24h"}, "priority": 8, "hold_secs": 0.0, "expiry_secs": 8.0, "pit_lane": "hold", "text": "Nurburgring twenty-four hour.", "outcome": "spoken"}
+{"event": "session.started", "session": 2, "frame": 301, "joined": false}
+{"event": "callout", "session": 2, "frame": 303, "kind": "template", "slots": {"timed": true, "position": 1, "total_cars": 20}, "priority": 8, "hold_secs": 0.0, "expiry_secs": 8.0, "pit_lane": "hold", "text": "Timed race. P one of twenty.", "outcome": "spoken"}
+{"event": "callout", "session": 2, "frame": 320, "kind": "template_track", "slots": {"track": "Nurburgring 24h"}, "priority": 8, "hold_secs": 0.0, "expiry_secs": 8.0, "pit_lane": "hold", "text": "Nurburgring twenty-four hour.", "outcome": "spoken"}

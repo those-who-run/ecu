@@ -1,0 +1,2 @@
+{"event": "session.started", "session": 1, "frame": 92, "joined": false}
+{"event": "callout", "session": 1, "frame": 97, "kind": "template", "slots": {"track": "Fuji International Speedway"}, "priority": 8, "hold_secs": 0.0, "expiry_secs": 8.0, "pit_lane": "hold", "text": "Fuji International Speedway.", "outcome": "spoken"}

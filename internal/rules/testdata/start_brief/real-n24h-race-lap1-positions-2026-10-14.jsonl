@@ -1,0 +1,2 @@
+{"event": "session.started", "session": 1, "frame": 379, "joined": false}
+{"event": "callout", "session": 1, "frame": 383, "kind": "template", "slots": {"track": "Nurburgring 24h", "laps": 2, "position": 1, "total_cars": 20}, "priority": 8, "hold_secs": 0.0, "expiry_secs": 8.0, "pit_lane": "hold", "text": "Nurburgring twenty-four hour. Two laps. P one of twenty.", "outcome": "spoken"}
