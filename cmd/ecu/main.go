@@ -11,6 +11,12 @@
 // subject token. Live frames go out under the source live only (paddock#106, R8),
 // so any other source stops ecu at start.
 //
+// The rule engine (paddock#89) runs on every frame and its callouts go out on
+// twr.v1.<src>.callout.p0, .p1 or .p2. TWR_ECU_RULES_FILE names the rules file,
+// v1's rules YAML (rules.example.yaml's shape); unset, the rules take v1's
+// defaults. A file that cannot be read, or a setting in it that is wrong, stops
+// ecu at start.
+//
 // `ecu replay PATH` replays a v1 recording instead, under a source of its own, and
 // exits at its end (paddock#35): replay.go.
 package main
@@ -21,6 +27,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -32,6 +39,8 @@ import (
 	"github.com/those-who-run/ecu/internal/live"
 	"github.com/those-who-run/ecu/internal/race"
 	"github.com/those-who-run/ecu/internal/record"
+	"github.com/those-who-run/ecu/internal/rules"
+	_ "github.com/those-who-run/ecu/internal/rules/all" // every rule
 	"github.com/those-who-run/ecu/internal/service"
 	"github.com/those-who-run/salsa"
 )
@@ -98,6 +107,11 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout,
 		return 2
 	}
 	logger := service.NewLogger(stdout, cfg.LogLevel)
+	eng, err := rulesEngine(getenv, logger)
+	if err != nil {
+		_, _ = fmt.Fprintln(stderr, err)
+		return 2
+	}
 	var rec *record.Writer
 	if dir := getenv("TWR_ECU_RECORDINGS_DIR"); dir != "" {
 		if rec, err = record.Open(dir, logger, time.Now); err != nil {
@@ -139,7 +153,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout,
 		defer close(driven)
 		start := src.Start()
 		at := func(r salsa.Received) time.Time { return start.Add(time.Duration(r.T * float64(time.Second))) }
-		_ = drive(driveCtx, src, at, race.New(ulid.Make), pub, rec)
+		_ = drive(driveCtx, src, at, race.New(ulid.Make), eng, pub, rec)
 	}()
 	// The drive ends, with the session it holds, and the source stops, so
 	// nothing writes to the recorder once it closes; then the recorder closes,
@@ -180,7 +194,7 @@ type publisher interface {
 // otherwise. It returns what stopped src, nil at its end: a replay tells a bad
 // recording from an interrupted one by it.
 func drive(ctx context.Context, src salsa.Source, at func(salsa.Received) time.Time, m *race.Machine,
-	pub publisher, rec *record.Writer,
+	eng *rules.Engine, pub publisher, rec *record.Writer,
 ) error {
 	for {
 		r, err := src.Next(ctx)
@@ -195,6 +209,38 @@ func drive(ctx context.Context, src salsa.Source, at func(salsa.Received) time.T
 		if rec != nil {
 			rec.Write(r)
 		}
-		pub.Publish(m.Step(race.Received{Received: r, Time: at(r)}))
+		outs := m.Step(race.Received{Received: r, Time: at(r)})
+		if eng != nil {
+			// The rules read the frame as the machine left it (paddock#89).
+			outs = append(outs, eng.Step(m.Context())...)
+		}
+		pub.Publish(outs)
 	}
+}
+
+// rulesEnv names the rules file.
+const rulesEnv = "TWR_ECU_RULES_FILE"
+
+// rulesEngine is the rule engine with every rule, from the rules file
+// TWR_ECU_RULES_FILE names, or v1's defaults when it is unset.
+func rulesEngine(getenv func(string) string, logger *slog.Logger) (*rules.Engine, error) {
+	cfg := rules.DefaultConfig()
+	if path := getenv(rulesEnv); path != "" {
+		data, err := os.ReadFile(path) //nolint:gosec // the file the operator named
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", rulesEnv, err)
+		}
+		if cfg, err = rules.ParseConfig(data); err != nil {
+			return nil, fmt.Errorf("%s: %w", rulesEnv, err)
+		}
+		if len(cfg.Unknown) > 0 {
+			logger.Warn("the rules file names rules ecu doesn't know: ignored", "file", path, "rules", cfg.Unknown)
+		}
+	}
+	eng, err := rules.New(cfg, logger)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", rulesEnv, err)
+	}
+	logger.Info("rules", "enabled", eng.Rules())
+	return eng, nil
 }

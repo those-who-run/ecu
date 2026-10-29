@@ -244,17 +244,19 @@ func freePort(t testing.TB) int {
 	return ln.Addr().(*net.TCPAddr).Port
 }
 
-// streams are paddock's deploy/nats/streams at c0fe666 (paddock#36), the
-// definitions the bootstrap applies in compose and the cluster.
+// streams are paddock's deploy/nats/streams at c0fe666 (paddock#36), and
+// callouts.json at 08c6580 (paddock#73), the definitions the bootstrap applies in
+// compose and the cluster.
 //
 //go:embed streams/*.json
 var streams embed.FS
 
-// AddStreams creates TELEMETRY and EVENTS.
+// AddStreams creates TELEMETRY, EVENTS and CALLOUTS.
 func AddStreams(t testing.TB, js jetstream.JetStream) {
 	t.Helper()
 	AddStream(t, js, "telemetry")
 	AddStream(t, js, "events")
+	AddStream(t, js, "callouts")
 }
 
 // AddStream creates the stream streams/<name>.json defines.
@@ -273,8 +275,8 @@ func AddStream(t testing.TB, js jetstream.JetStream, name string) {
 	}
 }
 
-// WithStreams starts a server with the streams named, "telemetry" and "events",
-// or both when none is named, for a test that publishes through internal/bus and
+// WithStreams starts a server with the streams named, "telemetry", "events" and
+// "callouts", or all three when none is named, for a test that publishes through internal/bus and
 // reads back with Read and Count.
 func WithStreams(t testing.TB, names ...string) *Server {
 	t.Helper()
@@ -282,7 +284,7 @@ func WithStreams(t testing.TB, names ...string) *Server {
 	nc, js := s.connect()
 	defer nc.Close()
 	if len(names) == 0 {
-		names = []string{"telemetry", "events"}
+		names = []string{"telemetry", "events", "callouts"}
 	}
 	for _, name := range names {
 		AddStream(t, js, name)

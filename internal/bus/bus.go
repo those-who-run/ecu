@@ -6,7 +6,11 @@
 // lap.completed, race.finished and session.ended go on
 // twr.v1.<src>.evt.<sid>.<area>.<what>, which the EVENTS stream captures and
 // deduplicates on Nats-Msg-Id; each is published through
-// JetStream and sent again until EVENTS acknowledges it. Every message carries the
+// JetStream and sent again until EVENTS acknowledges it. The rule engine's
+// callouts (internal/rules, paddock#89) go on twr.v1.<src>.callout.p0, .p1 or .p2,
+// by priority, which the CALLOUTS stream captures, the same way and in the same
+// queue, but a callout is sent again only until its life is over: radio would
+// drop it unspoken (paddock#73's decision). Every message carries the
 // full set of CloudEvents headers, from contracts' ce package. It is the only
 // package that imports nats.go.
 //
@@ -30,6 +34,7 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 
+	"github.com/those-who-run/contracts/callout"
 	"github.com/those-who-run/contracts/ce"
 	"github.com/those-who-run/ecu/internal/race"
 )
@@ -96,14 +101,29 @@ const (
 )
 
 // Stats is what was published and dropped. Events counts the acknowledgements
-// from EVENTS, a duplicate's included. Unflushed is set by Close when the frames
+// from EVENTS, a duplicate's included, and Callouts those from CALLOUTS;
+// DroppedCallouts counts the callouts dropped, as stale before CALLOUTS took
+// them, or for a full queue. Unflushed is set by Close when the frames
 // the client held at the end may not have reached the server: the final flush
 // failed, the connection was down, or the time ran out.
 type Stats struct {
-	Frames, LoFrames, Events                      uint64
-	DroppedFrames, DroppedLoFrames, DroppedEvents uint64
-	Unflushed                                     bool
+	Frames, LoFrames, Events, Callouts                             uint64
+	DroppedFrames, DroppedLoFrames, DroppedEvents, DroppedCallouts uint64
+	Unflushed                                                      bool
 }
+
+// queued is an event or a callout waiting to be sent and acknowledged. A
+// callout's until is when its life is over on this clock: the hand-over's time
+// plus its expires_at less its created_at, so a replay dated in the past still
+// gets its callouts' whole life. An event has none, and is sent until it is
+// acknowledged.
+type queued struct {
+	msg   *nats.Msg
+	until time.Time
+	sent  bool // sent at least once
+}
+
+func (q queued) callout() bool { return !q.until.IsZero() }
 
 // frameMsg is a frame for the publishing goroutine, with whether it goes on .lo
 // too.
@@ -125,7 +145,7 @@ type Publisher struct {
 	wait   time.Duration
 
 	frames chan frameMsg
-	events chan *nats.Msg
+	events chan queued
 	quit   chan struct{}   // closed by Close
 	until  context.Context // Close's deadline, set before quit is closed
 	done   chan struct{}   // the publishing goroutine has ended
@@ -137,9 +157,9 @@ type Publisher struct {
 	sentLo bool
 
 	counters struct {
-		frames, lo, events                      atomic.Uint64
-		droppedFrames, droppedLo, droppedEvents atomic.Uint64
-		unflushed                               atomic.Bool
+		frames, lo, events, callouts                             atomic.Uint64
+		droppedFrames, droppedLo, droppedEvents, droppedCallouts atomic.Uint64
+		unflushed                                                atomic.Bool
 	}
 }
 
@@ -199,7 +219,7 @@ func Connect(cfg Config, logger *slog.Logger, opts Options) (*Publisher, error) 
 	p := &Publisher{
 		nc: nc, conns: d, js: js, src: cfg.Src, logger: logger, limit: opts.QueueSize, wait: opts.ReconnectWait,
 		frames: make(chan frameMsg, opts.FrameBuffer),
-		events: make(chan *nats.Msg, opts.QueueSize),
+		events: make(chan queued, opts.QueueSize),
 		quit:   make(chan struct{}),
 		done:   make(chan struct{}),
 		closed: make(chan struct{}),
@@ -229,9 +249,12 @@ func (p *Publisher) PublishWait(ctx context.Context, outs []race.Output) { p.pub
 // waits.
 func (p *Publisher) publish(wait <-chan struct{}, outs []race.Output) {
 	for _, o := range outs {
-		if o.Frame != nil {
+		switch {
+		case o.Frame != nil:
 			p.frame(o, wait)
-		} else {
+		case o.Callout != nil:
+			p.callout(o, wait)
+		default:
 			p.event(o, wait)
 		}
 	}
@@ -313,9 +336,36 @@ func (p *Publisher) event(o race.Output, wait <-chan struct{}) {
 		sid = "_"
 	}
 	msg := &nats.Msg{Subject: "twr.v1." + p.src + ".evt." + sid + "." + areaWhat(h.Get(ce.TypeHeader)), Header: nats.Header(h), Data: data}
-	if !handOver(p.events, msg, wait) {
+	if !handOver(p.events, queued{msg: msg}, wait) {
 		p.counters.droppedEvents.Add(1)
 		p.logger.Error("event dropped: the queue is full", "id", e.ID, "queue", p.limit)
+	}
+}
+
+// callout publishes a callout on its priority's level (contracts' callout
+// package). Its id, the ce-id and Nats-Msg-Id, is the engine's with the source in
+// front, <src>:, as an event's is, and the message carries it too.
+func (p *Publisher) callout(o race.Output, wait <-chan struct{}) {
+	c := o.Callout
+	c.Id = p.src + ":" + c.GetId()
+	e := o.Event
+	e.ID = c.GetId()
+	subject, err := callout.Subject(p.src, c)
+	var h ce.Header
+	var data []byte
+	if err == nil {
+		h, data, err = ce.Encode(c, e)
+	}
+	if err != nil {
+		p.logger.Error("callout not encoded", "id", e.ID, "err", err)
+		p.counters.droppedCallouts.Add(1)
+		return
+	}
+	life := c.GetExpiresAt().AsTime().Sub(c.GetCreatedAt().AsTime())
+	q := queued{msg: &nats.Msg{Subject: subject, Header: nats.Header(h), Data: data}, until: time.Now().Add(max(life, time.Nanosecond))}
+	if !handOver(p.events, q, wait) {
+		p.counters.droppedCallouts.Add(1)
+		p.logger.Error("callout dropped: the queue is full", "id", e.ID, "queue", p.limit)
 	}
 }
 
@@ -338,7 +388,7 @@ func areaWhat(ceType string) string {
 func (p *Publisher) run() {
 	defer close(p.done)
 	var (
-		queue    []*nats.Msg // events taken, oldest first; queue[0] is in flight or next
+		queue    []queued // events and callouts taken, oldest first; queue[0] is in flight or next
 		inflight jetstream.PubAckFuture
 		retry    *time.Timer
 		retryC   <-chan time.Time
@@ -354,15 +404,25 @@ func (p *Publisher) run() {
 			for range len(p.frames) {
 				p.dropFrame((<-p.frames).lo)
 			}
-			p.counters.droppedEvents.Add(uint64(len(queue) + len(p.events)))
+			for _, q := range append(queue, drain(p.events)...) {
+				p.dropQueued(q)
+			}
 			return
 		}
+		// A callout whose life is over is not sent again: radio would drop it.
+		for inflight == nil && retryC == nil && len(queue) > 0 && queue[0].callout() && queue[0].sent && time.Now().After(queue[0].until) {
+			p.counters.droppedCallouts.Add(1)
+			p.logger.Warn("callout not acknowledged before it went stale: not sent again", "id", queue[0].msg.Header.Get(ce.IDHeader))
+			queue[0] = queued{}
+			queue = queue[1:]
+		}
 		if inflight == nil && retryC == nil && len(queue) > 0 {
-			f, err := p.js.PublishMsgAsync(queue[0])
+			queue[0].sent = true
+			f, err := p.js.PublishMsgAsync(queue[0].msg)
 			if err == nil {
 				inflight = f
 			} else {
-				lastErr = p.notSent(queue[0], err, lastErr)
+				lastErr = p.notSent(queue[0].msg, err, lastErr)
 				retry = time.NewTimer(p.wait)
 				retryC = retry.C
 			}
@@ -389,17 +449,21 @@ func (p *Publisher) run() {
 		case m := <-events:
 			queue = append(queue, m)
 		case <-ok:
-			p.counters.events.Add(1)
-			queue[0] = nil
+			if queue[0].callout() {
+				p.counters.callouts.Add(1)
+			} else {
+				p.counters.events.Add(1)
+			}
+			queue[0] = queued{}
 			queue, inflight, lastErr = queue[1:], nil, ""
 		case err := <-failed:
 			if !warned && (errors.Is(err, jetstream.ErrAsyncPublishTimeout) || errors.Is(err, jetstream.ErrNoStreamResponse)) {
 				warned = true
 				p.logger.Warn("EVENTS did not acknowledge an event: is the stream there? "+
 					"Each event is sent again until it is, and core subscribers see the copies",
-					"id", queue[0].Header.Get(ce.IDHeader), "err", err)
+					"id", queue[0].msg.Header.Get(ce.IDHeader), "err", err)
 			}
-			lastErr = p.notSent(queue[0], err, lastErr)
+			lastErr = p.notSent(queue[0].msg, err, lastErr)
 			inflight = nil
 			retry = time.NewTimer(p.wait)
 			retryC = retry.C
@@ -410,6 +474,23 @@ func (p *Publisher) run() {
 		case <-deadline:
 			// The check at the top drops what is left.
 		}
+	}
+}
+
+// drain empties ch without waiting.
+func drain(ch chan queued) []queued {
+	var out []queued
+	for range len(ch) {
+		out = append(out, <-ch)
+	}
+	return out
+}
+
+func (p *Publisher) dropQueued(q queued) {
+	if q.callout() {
+		p.counters.droppedCallouts.Add(1)
+	} else {
+		p.counters.droppedEvents.Add(1)
 	}
 }
 
@@ -461,9 +542,10 @@ func (p *Publisher) WaitConnected(ctx context.Context) error {
 func (p *Publisher) Stats() Stats {
 	c := &p.counters
 	return Stats{
-		Frames: c.frames.Load(), LoFrames: c.lo.Load(), Events: c.events.Load(),
+		Frames: c.frames.Load(), LoFrames: c.lo.Load(), Events: c.events.Load(), Callouts: c.callouts.Load(),
 		DroppedFrames: c.droppedFrames.Load(), DroppedLoFrames: c.droppedLo.Load(), DroppedEvents: c.droppedEvents.Load(),
-		Unflushed: c.unflushed.Load(),
+		DroppedCallouts: c.droppedCallouts.Load(),
+		Unflushed:       c.unflushed.Load(),
 	}
 }
 
@@ -541,8 +623,9 @@ func (p *Publisher) Gone() <-chan struct{} { return p.gone }
 func (p *Publisher) logTotals(ctx context.Context, final bool) Stats {
 	s := p.Stats()
 	p.logger.InfoContext(ctx, "published",
-		"frames", s.Frames, "lo_frames", s.LoFrames, "events", s.Events,
+		"frames", s.Frames, "lo_frames", s.LoFrames, "events", s.Events, "callouts", s.Callouts,
 		"dropped_frames", s.DroppedFrames, "dropped_lo_frames", s.DroppedLoFrames, "dropped_events", s.DroppedEvents,
+		"dropped_callouts", s.DroppedCallouts,
 		"final", final)
 	return s
 }

@@ -82,6 +82,37 @@ linters:
               desc: the pit detector is pure; no file system (paddock#78)
             - pkg: syscall
               desc: the pit detector is pure; no system calls (paddock#78)
+        # The rule engine and every rule are pure too (paddock#89, R9): the same
+        # list; internal/rules/imports_test.go checks it, and that no rule reads
+        # the clock. rulestest, which only tests import, reads the recordings.
+        rules:
+          files:
+            - "**/internal/rules/**/*.go"
+            - "!**/internal/rules/rulestest/*.go"
+            - "!$test"
+          deny:
+            - pkg: github.com/nats-io
+              desc: the rules are pure; publishing is internal/bus's (paddock#89)
+            - pkg: net
+              desc: the rules are pure; no network (paddock#89)
+            - pkg: os
+              desc: the rules are pure; no file system (paddock#89)
+            - pkg: io/fs
+              desc: the rules are pure; no file system (paddock#89)
+            - pkg: io/ioutil
+              desc: the rules are pure; no file system (paddock#89)
+            - pkg: path/filepath
+              desc: the rules are pure; no file system (paddock#89)
+            - pkg: syscall
+              desc: the rules are pure; no system calls (paddock#89)
+        # rulestest replays recordings for the tests; no program imports it.
+        rulestest:
+          files:
+            - "**/cmd/**/*.go"
+            - "!$test"
+          deny:
+            - pkg: github.com/those-who-run/ecu/internal/rules/rulestest
+              desc: rulestest is for the tests only (paddock#89)
         # internal/bus is the only package that talks to NATS (paddock#34), with
         # internal/bus/bustest, the test server only tests import.
         nats:
