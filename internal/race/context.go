@@ -126,10 +126,15 @@ type ClosedLap struct {
 // 864, a counter jump that closes nothing, and v1's rules counted it. It can post
 // on more than one frame for one lap: a rule keeps the first, as v1's did.
 type PostedLap struct {
-	Lap    int32 // v1's posted_lap: the counter less one
+	// Lap is v1's posted_lap: the counter less one, and 1 at least, so a time
+	// posted while the counter still reads 1 is lap 1's.
+	Lap    int32
 	TimeMs int32 // GT7's last lap time
-	// StartLap is a lap 1 GT7 leaves out of its best: lap 1 of a session with a
-	// lap total, or posted with GT7's best still blank (v1's lap_time start_lap).
+	// StartLap is a lap GT7 leaves out of its best, as race_summary's _start_lap
+	// read it: posted against a frame (Prev) on lap 1 or before, in a session with
+	// a lap total or with GT7's best still blank on this frame. It reads the frame
+	// before, not Lap: a counter jumping from 1 to 3 posts lap 2, which v1 left
+	// out. lap_time's own start_lap is on ClosedLap.Counts.
 	StartLap bool
 }
 
@@ -280,8 +285,11 @@ func (m *Machine) ruleContext(prev, seen, s *state, t time.Time, starting bool, 
 	c.Racing = s.inRace() || racingFrame(seen, s)
 	c.Kind = Kind{Type: kind.kind, Field: kind.field, CarsOnTrack: kind.carsOnTrack}
 	if lapTimePosted(seen, s) {
-		lap := s.lap - 1
-		c.Posted = &PostedLap{Lap: lap, TimeMs: s.lastLapMs, StartLap: lap == 1 && (s.totalLaps > 0 || s.bestLapMs <= 0)}
+		c.Posted = &PostedLap{
+			Lap:      max(s.lap-1, 1),
+			TimeMs:   s.lastLapMs,
+			StartLap: seen.lap <= 1 && (s.totalLaps > 0 || s.bestLapMs <= 0),
+		}
 	}
 	c.TrackChanges, m.trackChanges = m.trackChanges, nil
 	if sess := m.session; sess != nil {
