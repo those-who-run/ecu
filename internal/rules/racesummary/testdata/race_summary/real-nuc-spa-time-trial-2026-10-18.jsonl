@@ -1,0 +1,3 @@
+{"event": "session.started", "session": 1, "frame": 67}
+{"event": "callout", "session": 1, "at": 616, "as_of": 616, "kind": "template_quit", "slots": {"best_lap_ms": 124754, "laps": 2}, "priority": 25, "max_age": 30.0, "hold": 0.0, "pit_lane": "speak", "in_pit_lane": false, "text": "Session done. Two laps. Best lap two oh four point eight.", "outcome": "spoken"}
+{"event": "session.ended", "session": 1, "frame": 616}
