@@ -1,0 +1,2 @@
+{"event": "session.started", "session": 1, "frame": 92}
+{"event": "session.ended", "session": 1, "finished": false, "total_time_ms": null, "best_lap_ms": 120314, "best_lap": 2}

@@ -16,9 +16,10 @@
 // paddock#82), and the session's track from
 // Engine._apply_track (track.go here, paddock#81), fed by internal/track's
 // detector, and the pit stops from Engine._apply_pits (pit.go here, paddock#78), fed
-// by internal/pit's. What else v1's engine reads (replays and demo races held at the
-// start, continuing after a restart, the frozen pause and the timed-race finish) is
-// not here yet.
+// by internal/pit's, and the finish, by the flag or timed, from Engine._timed_finish
+// (finish.go here, paddock#85). What else v1's engine reads (replays and demo races
+// held at the start, continuing after a restart and the frozen pause) is not here
+// yet.
 package race
 
 import (
@@ -88,11 +89,15 @@ const (
 	// WhyMenu is straight back to a menu or the track screen before the flag (v1's
 	// race_ended on a menu or track-screen frame).
 	WhyMenu
+	// WhyTimedFinish is the end of a session after its timed finish (v1's
+	// race_ended once Engine._timed_finish had set finished).
+	WhyTimedFinish
 )
 
 var whyNames = map[Why]string{
 	WhyFinished: "finished", WhyQuit: "quit", WhyRestart: "restart", WhyStart: "start",
 	WhyInputEnded: "input ended", WhyStopped: "stopped", WhyMenu: "menu",
+	WhyTimedFinish: "timed finish",
 }
 
 func (w Why) String() string {
@@ -119,26 +124,28 @@ func (w Why) Reason() eventsv1.EndReason {
 		return eventsv1.EndReason_END_REASON_ENGINEER_STOPPED
 	case WhyMenu:
 		return eventsv1.EndReason_END_REASON_MENU
+	case WhyTimedFinish:
+		return eventsv1.EndReason_END_REASON_TIMED_FINISH
 	default:
 		return eventsv1.EndReason_END_REASON_UNKNOWN
 	}
 }
 
 // Output is a frame or an event, with its CloudEvents id and time: exactly one of
-// Frame, Started, Lap, Track, Kind, PitEntered, PitExited, PitTeleport and Ended
-// is set, each the contracts message of that name. SessionStarted's source is left
-// empty: only the publisher knows the <src> it publishes under, and sets it
-// (internal/bus).
+// Frame, Started, Lap, Track, Kind, PitEntered, PitExited, PitTeleport, Finished
+// and Ended is set, each the contracts message of that name. SessionStarted's
+// source is left empty: only the publisher knows the <src> it publishes under, and
+// sets it (internal/bus).
 type Output struct {
 	// Event is the ce-id (and Nats-Msg-Id), ce-source and ce-time, the id built
 	// as contracts' subjects.yaml says: <run>:frame:<seq> for a frame, and
 	// <sid>:session.started:1, <sid>:lap.completed:<lap> and
 	// <sid>:session.ended:1 for the events, <sid>:session.track:<run>:<seq>
 	// and <sid>:session.kind:<run>:<seq> for a track or kind verdict, with the
-	// seq of the frame it changed on, and <sid>:pit.entered:<entry>,
-	// <sid>:pit.exited:<stop> and <sid>:pit.teleport:<entry> for the pits. An
-	// event's id is the catalogue's without its <src>: the publisher puts
-	// <src>: in front (paddock#279).
+	// seq of the frame it changed on, <sid>:pit.entered:<entry>,
+	// <sid>:pit.exited:<stop> and <sid>:pit.teleport:<entry> for the pits, and
+	// <sid>:race.finished:1 for the finish. An event's id is the catalogue's
+	// without its <src>: the publisher puts <src>: in front (paddock#279).
 	Event ce.Event
 	// Session is the id of the session an event belongs to; "" for a frame.
 	Session string
@@ -153,6 +160,7 @@ type Output struct {
 	PitEntered  *eventsv1.PitEntered
 	PitExited   *eventsv1.PitExited
 	PitTeleport *eventsv1.PitTeleport
+	Finished    *eventsv1.RaceFinished
 
 	// Why is why the session ended, set with Ended; SessionEnded's reason is
 	// Why.Reason().
@@ -178,6 +186,8 @@ func (o Output) Message() proto.Message {
 		return o.PitExited
 	case o.PitTeleport != nil:
 		return o.PitTeleport
+	case o.Finished != nil:
+		return o.Finished
 	default:
 		return o.Ended
 	}
@@ -193,7 +203,7 @@ type Machine struct {
 	prev        *state
 	prevTime    time.Time
 	lastDriving *state // the last IN_RACE frame of this race (v1's Engine.last_driving)
-	finished    bool   // the open session reached the flag (v1's Engine.finished)
+	finish      finish // the race's finish, by the flag or timed (v1's Engine.finished)
 	kinds       kinds  // the session's kind (v1's Engine.kinds)
 	tracks      *track.Detector
 	pits        *pit.Detector
@@ -213,6 +223,8 @@ type session struct {
 	track        *track.Match // the verdict applied to the session, nil for none (v1's Engine.track)
 	kind         *kindVerdict // the kind verdict applied to the session, nil for none (v1's Session.kind)
 	pits         pitCounts
+	timedLaps    []timedLap // the complete laps with a time, in the order they closed
+	gt7BestMs    int32      // GT7's own best lap, 0 for none (v1's Session.gt7_best_ms)
 }
 
 // lapFrames are the frames of the lap in progress (v1's Session.buffer): their seqs,
@@ -245,7 +257,8 @@ func (m *Machine) Run() string { return m.run }
 // Step takes the next packet and returns its frame, then the events it gives rise
 // to, in the order they happened: the end of a session the packet's start closes,
 // the start, a pit entry, exit or entry withdrawn, a change of the session's
-// track, a change of its kind, a lap closed, and the end of the session.
+// track, a change of its kind, a lap closed, the race's finish, and the end of the
+// session.
 func (m *Machine) Step(r Received) []Output {
 	m.seq++
 	s := newState(m.seq, r.T, &r.Packet)
@@ -267,7 +280,7 @@ func (m *Machine) Step(r Received) []Output {
 			m.end(prev, m.prevTime, why)
 		}
 		m.lastDriving = nil
-		m.finished = false
+		m.finish = finish{}
 		m.kinds = kinds{}
 		m.pits.Reset()
 		// The track detector starts over by itself after a menu or a loading screen
@@ -283,6 +296,9 @@ func (m *Machine) Step(r Received) []Output {
 			m.kinds.join()
 		}
 	}
+	// v1's timed finish reads the kind before the detector sees this frame, and
+	// after a start has reset it.
+	kindBefore := m.kinds.verdict()
 	// v1 feeds the detector every frame, after a start has reset it and before the
 	// lap store reads the frame: the start carries the verdict on its first frame,
 	// and a lap the verdict when it ends.
@@ -322,27 +338,30 @@ func (m *Machine) Step(r Received) []Output {
 		m.lastDriving != nil && !restarted {
 		seen = m.lastDriving
 	}
-	if s.phase == phaseFinished {
-		m.finished = true
-	}
 	ended := raceEnded(prev, &s)
 	if m.session != nil {
 		m.observe(seen, &s, r.Time)
-		if ended {
-			m.finalTrack()
-			why := WhyQuit
-			switch {
-			case m.finished:
-				why = WhyFinished
-			case (s.phase == phaseMenu || s.phase == phaseAtTrack) && !timed(m.kinds.kind()):
-				// TODO(paddock#85): a timed session's end at the results is
-				// END_REASON_TIMED_FINISH once ecu reads the timed finish; until
-				// then it stays QUIT, as before contracts v0.2.0, rather than
-				// reading as a driver who left for the menu.
-				why = WhyMenu
-			}
-			m.end(&s, r.Time, why)
+	}
+	// v1's Engine._step decides the finish after the pits and the rules, before the
+	// track, the kind and the lap store see the frame: _timed_finish, then the
+	// FINISHED phase. Nothing those three change is read by it but the kind, which
+	// it takes from before this frame (kindBefore), so deciding it here is the
+	// same. It goes after the lap store so that the final lap's lap.completed comes
+	// first and race.finished's total time and best lap count that lap, which
+	// closes on the flag frame.
+	m.observeFinish(seen, &s, r.Time, kindBefore)
+	if m.session != nil && ended {
+		m.finalTrack()
+		why := WhyQuit
+		switch {
+		case m.finish.kind == eventsv1.FinishKind_FINISH_KIND_FLAG:
+			why = WhyFinished
+		case m.finish.kind == eventsv1.FinishKind_FINISH_KIND_TIMED:
+			why = WhyTimedFinish
+		case s.phase == phaseMenu || s.phase == phaseAtTrack:
+			why = WhyMenu
 		}
+		m.end(&s, r.Time, why)
 	}
 
 	if s.inRace() {
@@ -408,6 +427,9 @@ func (m *Machine) observe(prev, s *state, t time.Time) {
 		if p := s.racePosition(); p != 0 {
 			m.session.lastPosition = p
 		}
+		if s.bestLapMs > 0 {
+			m.session.gt7BestMs = s.bestLapMs
+		}
 	}
 	if lapCompleted(prev, s) {
 		m.closeLap(prev.lap, s, t, true)
@@ -443,6 +465,7 @@ func (m *Machine) closeLap(lap int32, s *state, t time.Time, complete bool) {
 	}
 	if complete && s.lastLapMs > 0 {
 		ev.LapTimeMs = s.lastLapMs
+		sess.timedLaps = append(sess.timedLaps, timedLap{lap: lap, ms: s.lastLapMs})
 	}
 	// Outside a field the position is left out, by the verdict at the lap's end.
 	if p := s.racePosition(); p != 0 && !solo(m.kinds.kind()) {
@@ -482,6 +505,10 @@ func (m *Machine) end(s *state, t time.Time, why Why) {
 		LapsCompleted: sess.completed,
 		FuelUsed:      round3(sess.lapsFuelUsed),
 		SessionType:   kind,
+		Finished:      m.finish.kind != eventsv1.FinishKind_FINISH_KIND_UNSPECIFIED,
+	}
+	if total, ok := sess.totalTimeMs(); ok && summary.Finished {
+		summary.TotalTimeMs = &total
 	}
 	if sess.track != nil {
 		summary.Track = verdict(*sess.track)

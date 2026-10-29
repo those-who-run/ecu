@@ -187,7 +187,7 @@ func TestThePitDetectorIsV1sOnEveryRecording(t *testing.T) {
 
 // pitStopFromV1 is the contracts' PitStop for a stop as v1's PitStop.record()
 // wrote it, as contracts' own test converts it. A stop still open has no position
-// after (contracts v0.2.2), where v1 kept its last.
+// after (contracts v0.2.3), where v1 kept its last.
 func pitStopFromV1(t *testing.T, r map[string]any) *eventsv1.PitStop {
 	t.Helper()
 	i32 := func(k string) int32 { return int32(r[k].(float64)) }
@@ -521,7 +521,7 @@ func (d *pitDrive) add(t float64, lap int16, flags salsa.Flags, kph, x, fuel flo
 	})
 }
 
-// The ids (contracts v0.2.2): pit.entered:<entry> counts every entry, a withdrawn
+// The ids (contracts v0.2.3): pit.entered:<entry> counts every entry, a withdrawn
 // one too, and pit.exited:<stop> counts the stops, so an entry withdrawn (as a
 // reset to track is) and the stop after it have ids of their own.
 func TestAWithdrawnEntryAndTheNextHaveTheirOwnIDs(t *testing.T) {

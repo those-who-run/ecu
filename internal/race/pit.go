@@ -18,7 +18,7 @@ import (
 // session's, and each is a pit.entered, a pit.exited or a pit.teleport.
 
 // pitCounts are the session's pit counts, which the events' ids are built from
-// (contracts v0.2.2): every entry, withdrawn or not, for pit.entered's and
+// (contracts v0.2.3): every entry, withdrawn or not, for pit.entered's and
 // pit.teleport's <entry>, and the stops completed, for pit.exited's <stop>.
 // They are the session's, not the detector's, so a session continued after an
 // ecu restart can carry them on (TODO(paddock#76): start them from the stops
@@ -122,7 +122,7 @@ func (m *Machine) observePits(f *telemetryv1.Frame, t time.Time) {
 // pitStop is the stop as the contracts' PitStop, as v1's PitStop.record() writes
 // it: fuel to 3 decimals, times in seconds to 2 decimals (here in ms), the
 // limiter's speed to 1. A stop still open has no out-lap, lane time or position
-// after (contracts v0.2.2), where v1 recorded its last position.
+// after (contracts v0.2.3), where v1 recorded its last position.
 func pitStop(s pit.Stop) *eventsv1.PitStop {
 	kph := roundN(s.PitLaneKph, 1)
 	out := &eventsv1.PitStop{

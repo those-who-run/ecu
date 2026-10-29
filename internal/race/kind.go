@@ -272,8 +272,3 @@ func (m *Machine) applyKind(s *state, t time.Time) {
 func solo(t eventsv1.SessionType) bool {
 	return t == eventsv1.SessionType_SESSION_TYPE_SOLO_LAPS || t == eventsv1.SessionType_SESSION_TYPE_SOLO_TIMED
 }
-
-// timed says the session runs for a time, not a number of laps.
-func timed(t eventsv1.SessionType) bool {
-	return t == eventsv1.SessionType_SESSION_TYPE_TIMED_FIELD || t == eventsv1.SessionType_SESSION_TYPE_SOLO_TIMED
-}

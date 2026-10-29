@@ -150,7 +150,7 @@ func TestAReplayAtMaxPublishesEveryFrameAndEvent(t *testing.T) {
 	}
 	// Each payload is the race state's for the same packets, laps and lap times
 	// included, apart from the session id, which is random on each run, and the
-	// run id session.track and session.kind carry (contracts v0.2.2).
+	// run id session.track and session.kind carry (contracts v0.2.3).
 	var wantEvents []race.Output
 	for _, o := range want.outs {
 		if o.Frame == nil {

@@ -120,8 +120,10 @@ func TestEverySubjectIsInTheCatalogue(t *testing.T) {
 	for _, msg := range msgs {
 		sent[[2]string{generic(msg), msg.Header.Get(ce.TypeHeader)}] = true
 	}
-	if len(sent) != 9 {
-		t.Errorf("%d kinds of message sent, want 9: frames, .lo and seven events: %v", len(sent), sent)
+	// The replay's eight events include race.finished; pit.teleport is in no
+	// recording, so TestAPitTeleportIsInTheCatalogue checks it.
+	if len(sent) != 10 {
+		t.Errorf("%d kinds of message sent, want 10: frames, .lo and eight events: %v", len(sent), sent)
 	}
 	entries := catalogue(t)
 	for k := range sent {
@@ -199,8 +201,9 @@ func TestEveryIDFollowsTheCatalogue(t *testing.T) {
 		}
 		checked[scheme] = true
 	}
-	if len(checked) != 8 {
-		t.Errorf("checked ids against %d schemes, want 8: the frames' (both subjects share one) and the seven events': %v", len(checked), checked)
+	// pit.teleport's scheme is TestAPitTeleportIsInTheCatalogue's, as above.
+	if len(checked) != 9 {
+		t.Errorf("checked ids against %d schemes, want 9: the frames' (both subjects share one) and the eight events': %v", len(checked), checked)
 	}
 }
 
