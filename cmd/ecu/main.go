@@ -233,6 +233,9 @@ func rulesEngine(getenv func(string) string, logger *slog.Logger) (*rules.Engine
 		if cfg, err = rules.ParseConfig(data); err != nil {
 			return nil, fmt.Errorf("%s: %w", rulesEnv, err)
 		}
+		if len(cfg.Unknown) > 0 {
+			logger.Warn("the rules file names rules ecu doesn't know: ignored", "file", path, "rules", cfg.Unknown)
+		}
 	}
 	eng, err := rules.New(cfg, logger)
 	if err != nil {

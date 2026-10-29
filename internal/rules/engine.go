@@ -10,6 +10,7 @@ import (
 
 	"github.com/those-who-run/contracts/ce"
 	eventsv1 "github.com/those-who-run/contracts/gen/go/twr/events/v1"
+	"github.com/those-who-run/ecu/internal/pit"
 	"github.com/those-who-run/ecu/internal/race"
 )
 
@@ -114,28 +115,33 @@ func (e *Engine) Gauges() map[string]float64 {
 // The pit lane (contracts' PitLane): from the frame of the entry to the frame of
 // the exit, a callout raised is published at once when its rule's pit_lane is
 // speak, held when hold, and dropped, never published, when drop, as v1's
-// Engine._quiet. The held ones are published at the exit, at an entry withdrawn,
-// or at the finish when the race finishes in the lane, as raised then: created_at
-// is the release and expires_at the release plus their life, with no hold_until,
-// and at stays the frame they were raised on (v1's _release). A start forgets
-// them, as v1's did.
+// Engine._quiet, on the flag frame and after it too. The held ones are published
+// at the exit or at an entry withdrawn (the frame's pit.exited or pit.teleport,
+// v1's _apply_pits), first among the frame's callouts, or, once the race has
+// finished in the lane, after the frame's rules have run, so a hold callout
+// raised on the flag frame goes out on it (v1's `if self.finished and
+// self.pit_held`). Released, a callout is as raised then: created_at is the
+// release and expires_at the release plus its life, with no hold_until, and at
+// and id stay those of the frame it was raised on (v1's _release). A session
+// that ends without a finish with callouts held never publishes them, nor does a
+// start: v1 kept them until the next start, which cleared them.
 func (e *Engine) Step(ctx *race.Context) []race.Output {
 	if ctx.Started {
-		e.held = nil
+		e.forget()
 		for _, r := range e.rules {
 			e.reset(r)
 		}
 	}
 	var out []race.Output
-	inLane := ctx.Pits.InPitLane
-	if len(e.held) > 0 && (!inLane || ctx.Finished) {
+	if len(e.held) > 0 && (ctx.PitChange == pit.Exited || ctx.PitChange == pit.Withdrawn) {
 		out = e.release(ctx)
 	}
+	inLane := ctx.Pits.InPitLane
 	for _, r := range e.rules {
 		for i, c := range e.evaluate(r, ctx) {
 			e.stats.Raised[r.name]++
 			msg := e.callout(r, ctx, c, i+1)
-			if inLane && !ctx.Finished {
+			if inLane {
 				switch r.s.PitLane {
 				case eventsv1.PitLane_PIT_LANE_DROP:
 					e.stats.Dropped[r.name]++
@@ -149,7 +155,21 @@ func (e *Engine) Step(ctx *race.Context) []race.Output {
 			out = append(out, output(msg))
 		}
 	}
+	if len(e.held) > 0 && ctx.Finished {
+		out = append(e.release(ctx), out...)
+	}
+	if ctx.EndedEarly != nil {
+		e.forget()
+	}
 	return out
+}
+
+// forget drops the callouts held in the lane, unpublished.
+func (e *Engine) forget() {
+	for _, c := range e.held {
+		e.stats.Dropped[c.GetRule()]++
+	}
+	e.held = nil
 }
 
 // release publishes the held callouts as raised on this frame.
