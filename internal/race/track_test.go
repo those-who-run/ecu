@@ -428,3 +428,35 @@ func TestSpaIsTheCircuitToTheEnd(t *testing.T) {
 		}
 	}
 }
+
+// AC2: the Spa time trial publishes one session.track, the circuit, from the
+// first line crossing, and no swap after it.
+func TestSpaTimeTrialPublishesTheCircuitOnce(t *testing.T) {
+	published := publishedTracks(replay(t, "real-nuc-spa-time-trial-2026-10-18"))
+	if len(published) != 1 {
+		t.Fatalf("%d session.track events, want 1: %v", len(published), published)
+	}
+	tr := published[0].GetTrack()
+	if tr.GetName() != "Circuit de Spa-Francorchamps" || tr.GetFamily() != tr.GetName() ||
+		tr.GetConfidence() != eventsv1.TrackConfidence_TRACK_CONFIDENCE_PROBABLE {
+		t.Errorf("the verdict is %v", tr)
+	}
+}
+
+// AC3: the Gilles Villeneuve race publishes probable at the first crossing, then
+// confirmed at the end of lap 1, and nothing else.
+func TestGillesVilleneuveIsProbableThenConfirmed(t *testing.T) {
+	published := publishedTracks(replay(t, "real-nuc-gilles-villeneuve-race-2026-10-17"))
+	want := []eventsv1.TrackConfidence{
+		eventsv1.TrackConfidence_TRACK_CONFIDENCE_PROBABLE,
+		eventsv1.TrackConfidence_TRACK_CONFIDENCE_CONFIRMED,
+	}
+	if len(published) != len(want) {
+		t.Fatalf("%d session.track events, want probable then confirmed: %v", len(published), published)
+	}
+	for i, p := range published {
+		if tr := p.GetTrack(); tr.GetTrackId() != 100002 || tr.GetConfidence() != want[i] {
+			t.Errorf("session.track %d: %v, want Circuit Gilles Villeneuve %v", i+1, tr, want[i])
+		}
+	}
+}
