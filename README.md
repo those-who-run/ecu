@@ -16,8 +16,8 @@ acceptance criterion, `Part of those-who-run/paddock#N` otherwise
 [`internal/race`](internal/race) is the race state: a pure state machine
 that takes `salsa` packets one at a time and gives, for each, its frame and the
 events it gives rise to, `session.started`, `pit.entered`, `pit.exited`,
-`pit.teleport`, `session.track`, `session.kind`, `lap.completed`, `lap.best`,
-`race.finished` and `session.ended`, as the `contracts` messages. It opens a session, closes a lap
+`pit.teleport`, `race.final_lap`, `race.position`, `session.track`,
+`session.kind`, `lap.completed`, `lap.best`, `race.finished` and `session.ended`, as the `contracts` messages. It opens a session, closes a lap
 and ends a session exactly where v1 did, with v1's rules ported from its
 `state.py`, `engine.py` and `store.py` at v1.0.0 (paddock#33).
 
@@ -439,6 +439,50 @@ lap was, decided once for every rule and subscriber (paddock#83).
   wrote them from v1.0.0 with v1's `lap_time` rule, and the last `lap.best`
   of each session is the summary's best.
 
+## The final lap and the position
+
+[`internal/race/position.go`](internal/race/position.go) publishes the
+decisions of v1's `FinalLapRule` and `PositionRule` (`rules/final_lap.py` and
+`rules/position.py` at v1.0.0) as facts (paddock#84). What is said about them
+is the callouts' (paddock#93, #94).
+
+- **The final lap.** `race.final_lap` once a race at most, on the frame the
+  lap counter reaches the lap total. A timed race has no lap total, so none.
+- **The position.** `race.position` when the position has held a new value for
+  3 s, with the one before it (the last published, or the grid slot) and the
+  frame it settled on as `at`. It is v1's rule with only its 3 s settle: the
+  15 s start grace and the 10 s between calls are the callout's. The race's
+  first 3 s follow the grid slot quietly (GT7 reports the slot a frame or two
+  late), a frame with no position (-1 or 0) is passed over, and there is none
+  without a field: once the kind is known, a field GT7 flags with cars on
+  track (a time trial's ghost is flagged but no field); on a start's first
+  frame, before it, the flag and more than one car (v1's `has_field`).
+- **In the pit lane.** The position is followed but not published, and settles
+  again from the exit, so the first change after it is the net change against
+  the last place published.
+- **Where in a step.** v1's `Engine._step` runs its rules after the pits and
+  before the timed finish, the track, the kind and the lap store, against the
+  same frame the lap store compares with, the kind from before the frame and
+  the pit lane after it. ecu does the same, so both come after a pit entry or
+  exit and before a change of track or kind and the lap the same crossing
+  closes: `race.final_lap` comes before the `lap.completed` of the lap before.
+- **Every settled change, not every call.** A v1 call can name a place held
+  under 3 s: while it waits out its grace or interval, its settle timer runs on
+  through every place that differs from its last call. Each v1 call has a
+  `race.position` at or before it, though not always of the place called: of
+  the six such calls on v1's recordings, four are published a few frames
+  later, and two never are, the place changing again before it held (SUGO
+  restarts: P18 called on frame 234, `race.position` P16 to P19 on 238; SUGO
+  two stops: P13 on 823, P12 to P14 on 827).
+- **Not yet.** `live`'s current position is paddock#88's.
+- **Tests.** On every one of v1's 25 recordings, `race.final_lap` and
+  `race.position` are v1's rules' decisions, frame for frame, as
+  `make_golden.py` in
+  [`internal/race/testdata/final-lap-position/`](internal/race/testdata/final-lap-position)
+  wrote them from v1.0.0 (the position with v1's settings for the event, and
+  v1's calls with `rules.example.yaml`'s), the six v1 opens no session on with
+  every start taken for a drive.
+
 ## Publishing
 
 [`internal/bus`](internal/bus) puts the race state's outputs on NATS
@@ -455,6 +499,8 @@ lap was, decided once for every rule and subscriber (paddock#83).
 | `twr.v1.<src>.evt.<sid>.pit.entered` | the car came into the pit lane | `EVENTS` |
 | `twr.v1.<src>.evt.<sid>.pit.exited` | the car left the pit lane, with its stop | `EVENTS` |
 | `twr.v1.<src>.evt.<sid>.pit.teleport` | a pit entry was no stop, and is withdrawn | `EVENTS` |
+| `twr.v1.<src>.evt.<sid>.race.final_lap` | the final lap of a lap race began | `EVENTS` |
+| `twr.v1.<src>.evt.<sid>.race.position` | the car's position changed and settled for 3 s | `EVENTS` |
 | `twr.v1.<src>.evt.<sid>.lap.completed` | a lap ended | `EVENTS` |
 | `twr.v1.<src>.evt.<sid>.lap.best` | the session's best lap changed | `EVENTS` |
 | `twr.v1.<src>.evt.<sid>.race.finished` | the race reached its finish, by the flag or timed | `EVENTS` |
@@ -471,6 +517,7 @@ lap was, decided once for every rule and subscriber (paddock#83).
   `<src>:<sid>:session.kind:<run>:<seq>` (the run and the frame it changed
   on; the run is the message's `run_id` too), `<src>:<sid>:pit.entered:<entry>`,
   `<src>:<sid>:pit.exited:<stop>`, `<src>:<sid>:pit.teleport:<entry>`,
+  `<src>:<sid>:race.final_lap:1`, `<src>:<sid>:race.position:<run>:<seq>`,
   `<src>:<sid>:lap.completed:<n>`, `<src>:<sid>:lap.best:<n>` (the lap whose
   end changed the best), `<src>:<sid>:race.finished:1` or
   `<src>:<sid>:session.ended:1`, with

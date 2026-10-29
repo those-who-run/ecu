@@ -17,10 +17,11 @@
 // Engine._apply_track (track.go here, paddock#81), fed by internal/track's
 // detector, and the pit stops from Engine._apply_pits (pit.go here, paddock#78), fed
 // by internal/pit's, and the finish, by the flag or timed, from Engine._timed_finish
-// (finish.go here, paddock#85), and the lap model: each lap's pit role and
-// whether it counts for the best, from Engine._step's lap_time rule, and the best,
-// from results.best_lap with contracts v0.2.3's one difference (laps.go here,
-// paddock#83). What else v1's engine reads (replays and demo races
+// (finish.go here, paddock#85), the final lap and the settled position from
+// v1's FinalLapRule and PositionRule (position.go here, paddock#84), and the lap
+// model: each lap's pit role and whether it counts for the best, from
+// Engine._step's lap_time rule, and the best, from results.best_lap with
+// contracts v0.2.3's one difference (laps.go here, paddock#83). What else v1's engine reads (replays and demo races
 // held at the start, continuing after a restart and the frozen pause) is not here
 // yet.
 package race
@@ -136,7 +137,7 @@ func (w Why) Reason() eventsv1.EndReason {
 
 // Output is a frame or an event, with its CloudEvents id and time: exactly one of
 // Frame, Started, Lap, Best, Track, Kind, PitEntered, PitExited, PitTeleport,
-// Finished and Ended is set, each the contracts message of that name. SessionStarted's
+// FinalLap, Position, Finished and Ended is set, each the contracts message of that name. SessionStarted's
 // source is left empty: only the publisher knows the <src> it publishes under, and
 // sets it (internal/bus).
 type Output struct {
@@ -147,8 +148,9 @@ type Output struct {
 	// whose end changed the best, <sid>:session.track:<run>:<seq>
 	// and <sid>:session.kind:<run>:<seq> for a track or kind verdict, with the
 	// seq of the frame it changed on, <sid>:pit.entered:<entry>,
-	// <sid>:pit.exited:<stop> and <sid>:pit.teleport:<entry> for the pits, and
-	// <sid>:race.finished:1 for the finish. An event's id is the catalogue's
+	// <sid>:pit.exited:<stop> and <sid>:pit.teleport:<entry> for the pits,
+	// <sid>:race.final_lap:1 and <sid>:race.position:<run>:<seq> for the final
+	// lap and a settled position, and <sid>:race.finished:1 for the finish. An event's id is the catalogue's
 	// without its <src>: the publisher puts <src>: in front (paddock#279).
 	Event ce.Event
 	// Session is the id of the session an event belongs to; "" for a frame.
@@ -165,6 +167,8 @@ type Output struct {
 	PitEntered  *eventsv1.PitEntered
 	PitExited   *eventsv1.PitExited
 	PitTeleport *eventsv1.PitTeleport
+	FinalLap    *eventsv1.RaceFinalLapStarted
+	Position    *eventsv1.RacePositionChanged
 	Finished    *eventsv1.RaceFinished
 
 	// Why is why the session ended, set with Ended; SessionEnded's reason is
@@ -193,6 +197,10 @@ func (o Output) Message() proto.Message {
 		return o.PitExited
 	case o.PitTeleport != nil:
 		return o.PitTeleport
+	case o.FinalLap != nil:
+		return o.FinalLap
+	case o.Position != nil:
+		return o.Position
 	case o.Finished != nil:
 		return o.Finished
 	default:
@@ -211,6 +219,8 @@ type Machine struct {
 	prevTime    time.Time
 	lastDriving *state // the last IN_RACE frame of this race (v1's Engine.last_driving)
 	finish      finish // the race's finish, by the flag or timed (v1's Engine.finished)
+	finalLap    bool   // the final lap was announced (v1's FinalLapRule.announced)
+	places      places // the settled position (v1's PositionRule)
 	kinds       kinds  // the session's kind (v1's Engine.kinds)
 	tracks      *track.Detector
 	pits        *pit.Detector
@@ -262,9 +272,9 @@ func (m *Machine) Run() string { return m.run }
 
 // Step takes the next packet and returns its frame, then the events it gives rise
 // to, in the order they happened: the end of a session the packet's start closes,
-// the start, a pit entry, exit or entry withdrawn, a change of the session's
-// track, a change of its kind, a lap closed and the best it gave the session, the
-// race's finish, and the end of the session.
+// the start, a pit entry, exit or entry withdrawn, the final lap and a settled
+// position, a change of the session's track, a change of its kind, a lap closed
+// and the best it gave the session, the race's finish, and the end of the session.
 func (m *Machine) Step(r Received) []Output {
 	m.seq++
 	s := newState(m.seq, r.T, &r.Packet)
@@ -287,6 +297,7 @@ func (m *Machine) Step(r Received) []Output {
 		}
 		m.lastDriving = nil
 		m.finish = finish{}
+		m.finalLap, m.places = false, places{}
 		m.kinds = kinds{}
 		m.pits.Reset()
 		// The track detector starts over by itself after a menu or a loading screen
@@ -320,18 +331,6 @@ func (m *Machine) Step(r Received) []Output {
 	// Before the lap store, as v1's Engine._step: the crossing that closes an
 	// in-lap can come on the very frame after the pit cut (paddock#78, R6).
 	m.observePits(m.out[0].Frame, r.Time)
-	// The detector sees every frame, a session open or not; a change of its
-	// decision is the session's to keep or not, before the lap store reads the
-	// frame, as in v1's Engine._step.
-	if match, changed := m.tracks.Observe(m.out[0].Frame); changed && m.session != nil {
-		m.applyTrack(match, &s, r.Time)
-	}
-	// After the track, as in v1's Engine._step: a change of the kind is the open
-	// session's. A start always changes it, from none.
-	if kindChanged && m.session != nil {
-		m.applyKind(&s, r.Time)
-	}
-
 	// Rules and the lap store compare against the last driving frame. A pause or a
 	// loading screen in between hides nothing: GT7 posts a lap on a loading frame
 	// when the car crosses the line in a pit cut-scene (into the pits at Suzuka East
@@ -344,6 +343,23 @@ func (m *Machine) Step(r Received) []Output {
 		m.lastDriving != nil && !restarted {
 		seen = m.lastDriving
 	}
+	// v1's rules run after the pits and before the timed finish, the track, the
+	// kind and the lap store, in Engine._step: the final lap and a settled position
+	// go here, read the pit lane after this frame and the kind before it, and come
+	// before the lap the same crossing closes, as v1 decided them.
+	m.observeRace(seen, &s, r.Time, kindBefore)
+	// The detector sees every frame, a session open or not; a change of its
+	// decision is the session's to keep or not, before the lap store reads the
+	// frame, as in v1's Engine._step.
+	if match, changed := m.tracks.Observe(m.out[0].Frame); changed && m.session != nil {
+		m.applyTrack(match, &s, r.Time)
+	}
+	// After the track, as in v1's Engine._step: a change of the kind is the open
+	// session's. A start always changes it, from none.
+	if kindChanged && m.session != nil {
+		m.applyKind(&s, r.Time)
+	}
+
 	ended := raceEnded(prev, &s)
 	if m.session != nil {
 		m.observe(seen, &s, r.Time)

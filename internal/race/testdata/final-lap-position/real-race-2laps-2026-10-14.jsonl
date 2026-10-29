@@ -1,0 +1,9 @@
+{"event": "session.started", "session": 1, "frame": 1}
+{"event": "session.started", "session": 2, "frame": 141}
+{"event": "race.position", "session": 2, "frame": 153, "previous": 10, "position": 9}
+{"event": "position.call", "session": 2, "frame": 164, "position": 9}
+{"event": "race.final_lap", "session": 2, "frame": 198, "lap": 2}
+{"event": "race.position", "session": 2, "frame": 214, "previous": 9, "position": 8}
+{"event": "position.call", "session": 2, "frame": 214, "position": 8}
+{"event": "race.position", "session": 2, "frame": 254, "previous": 8, "position": 7}
+{"event": "position.call", "session": 2, "frame": 254, "position": 7}

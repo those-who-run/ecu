@@ -1,0 +1,7 @@
+{"event": "session.started", "session": 1, "frame": 1}
+{"event": "race.position", "session": 1, "frame": 211, "previous": 1, "position": 3}
+{"event": "position.call", "session": 1, "frame": 211, "position": 3}
+{"event": "race.position", "session": 1, "frame": 383, "previous": 3, "position": 2}
+{"event": "position.call", "session": 1, "frame": 383, "position": 2}
+{"event": "race.position", "session": 1, "frame": 392, "previous": 2, "position": 1}
+{"event": "position.call", "session": 1, "frame": 406, "position": 1}

@@ -1,0 +1,9 @@
+{"event": "session.started", "session": 1, "frame": 51}
+{"event": "race.position", "session": 1, "frame": 157, "previous": 20, "position": 18}
+{"event": "position.call", "session": 1, "frame": 157, "position": 18}
+{"event": "race.position", "session": 1, "frame": 197, "previous": 18, "position": 17}
+{"event": "position.call", "session": 1, "frame": 197, "position": 17}
+{"event": "race.position", "session": 1, "frame": 219, "previous": 17, "position": 16}
+{"event": "position.call", "session": 1, "frame": 220, "position": 16}
+{"event": "race.position", "session": 1, "frame": 448, "previous": 16, "position": 15}
+{"event": "position.call", "session": 1, "frame": 448, "position": 15}
