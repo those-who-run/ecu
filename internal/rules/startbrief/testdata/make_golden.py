@@ -1,4 +1,4 @@
-"""Write the goldens start_brief_test.go compares with: each callout v1's
+"""Write the goldens startbrief_test.go compares with: each callout v1's
 StartBriefRule raised, as JSON lines (those-who-run/paddock#95).
 
 Made once from v1 at tag v1.0.0 (those-who-run/those-who-run), in v1's own
