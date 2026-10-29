@@ -7,7 +7,7 @@ toolchain go1.27.3
 require (
 	github.com/nats-io/nats.go v1.54.0
 	github.com/oklog/ulid/v2 v2.1.2
-	github.com/those-who-run/contracts v0.2.2
+	github.com/those-who-run/contracts v0.2.3
 	github.com/those-who-run/salsa v0.1.2
 	google.golang.org/protobuf v1.36.12
 )

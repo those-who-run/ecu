@@ -80,14 +80,6 @@ func matches(pattern, subject string) bool {
 	return true
 }
 
-// uncatalogued are subjects ecu publishes that contracts has no entry for yet, and
-// the issue that adds it. The 20 Hz frame is R2 of paddock#34, but its contract,
-// what the dash reads, is paddock#137. When the entry comes, this test fails until
-// it leaves this list.
-var uncatalogued = map[string]string{
-	"twr.v1.<src>.frame.gt7.lo": "paddock#137",
-}
-
 // published is every message a replay of the Suzuka recording (AC1's) puts on
 // twr.v1.parity.>, and the run it was published under.
 func published(t *testing.T) ([]*nats.Msg, string) {
@@ -120,7 +112,8 @@ func published(t *testing.T) ([]*nats.Msg, string) {
 }
 
 // AC6: every subject published in a replay (AC1's) is in subjects.yaml with the
-// ce-type it was sent with (R8).
+// ce-type it was sent with (R8), the 20 Hz frame's too since contracts v0.2.3
+// (paddock#137).
 func TestEverySubjectIsInTheCatalogue(t *testing.T) {
 	msgs, _ := published(t)
 	sent := map[[2]string]bool{} // subject with <sid> for the session id, ce-type
@@ -142,12 +135,8 @@ func TestEverySubjectIsInTheCatalogue(t *testing.T) {
 				}
 			}
 		}
-		_, known := uncatalogued[strings.Replace(subject, "parity", "<src>", 1)]
-		switch {
-		case !found && !known:
+		if !found {
 			t.Errorf("%s (%s) is not in subjects.yaml", subject, ceType)
-		case found && known:
-			t.Errorf("%s is in subjects.yaml now: take it out of uncatalogued", subject)
 		}
 	}
 }
@@ -198,7 +187,7 @@ func TestEveryIDFollowsTheCatalogue(t *testing.T) {
 			}
 		}
 		if scheme == "" {
-			continue // uncatalogued: TestEverySubjectIsInTheCatalogue names it
+			continue // TestEverySubjectIsInTheCatalogue names it
 		}
 		tokens := strings.Split(msg.Subject, ".")
 		values := map[string]string{"src": tokens[2], "run": run}
@@ -211,7 +200,7 @@ func TestEveryIDFollowsTheCatalogue(t *testing.T) {
 		checked[scheme] = true
 	}
 	if len(checked) != 8 {
-		t.Errorf("checked ids against %d schemes, want 8: the frame's and the seven events': %v", len(checked), checked)
+		t.Errorf("checked ids against %d schemes, want 8: the frames' (both subjects share one) and the seven events': %v", len(checked), checked)
 	}
 }
 
