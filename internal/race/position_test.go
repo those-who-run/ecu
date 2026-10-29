@@ -113,8 +113,9 @@ func TestTheFinalLapAndPositionsAreV1sOnEveryRecording(t *testing.T) {
 // superset of calls, not one to one. The place called need not be the last one
 // settled: while v1's call waits out its grace or interval, its settle timer runs
 // on through every place that differs from the last call, so it can call a place
-// held under 3 s (P13 on frame 171 at Suzuka, after P12 settled on frame 164),
-// which race.position gives once it has held, on frame 174.
+// held under 3 s: P13 on frame 171 at Suzuka, after P12 settled on frame 164,
+// which race.position gives once it has held, on frame 174, and P18 on frame
+// 234 of SUGO's restarts, which never holds (race.position goes P16 to P19).
 func TestEveryV1PositionCallHasARacePosition(t *testing.T) {
 	calls := 0
 	for _, name := range v1Recordings {

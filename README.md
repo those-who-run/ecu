@@ -420,9 +420,12 @@ is the callouts' (paddock#93, #94).
   closes: `race.final_lap` comes before the `lap.completed` of the lap before.
 - **Every settled change, not every call.** A v1 call can name a place held
   under 3 s: while it waits out its grace or interval, its settle timer runs on
-  through every place that differs from its last call. `race.position` gives
-  that place once it has held, a few frames later, so each v1 call has a
-  `race.position` at or before it, though not always of the place called.
+  through every place that differs from its last call. Each v1 call has a
+  `race.position` at or before it, though not always of the place called: of
+  the six such calls on v1's recordings, four are published a few frames
+  later, and two never are, the place changing again before it held (SUGO
+  restarts: P18 called on frame 234, `race.position` P16 to P19 on 238; SUGO
+  two stops: P13 on 823, P12 to P14 on 827).
 - **Not yet.** `live`'s current position is paddock#88's.
 - **Tests.** On every one of v1's 25 recordings, `race.final_lap` and
   `race.position` are v1's rules' decisions, frame for frame, as

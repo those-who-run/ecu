@@ -12,7 +12,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -108,9 +107,23 @@ func events(outs []race.Output) []string {
 	return all
 }
 
-// withoutPositions is the events but race.position's.
-func withoutPositions(all []string) []string {
-	return slices.DeleteFunc(all, func(e string) bool { return strings.Contains(e, ":race.position:") })
+// retimed is a Source whose packets carry the recording's T, by packet id, in
+// place of live's, which is the wall clock it received them on. The fake PS5
+// sends far faster than GT7 does, so live's T would squeeze the drive into a
+// second or so, and nothing that waits on the source's clock, such as the 3 s a
+// position holds before race.position (paddock#84), would happen as in the
+// replay. The race state reads only T, so with the recording's it sees the drive.
+type retimed struct {
+	salsa.Source
+	t map[int32]float64 // the recording's T of each packet id, unique in it
+}
+
+func (r *retimed) Next(ctx context.Context) (salsa.Received, error) {
+	p, err := r.Source.Next(ctx)
+	if err == nil {
+		p.T = r.t[p.PacketID]
+	}
+	return p, err
 }
 
 // A fake PS5 sends a v1 recording's packets, encrypted as GT7 sends them, with a
@@ -145,12 +158,16 @@ func TestALiveDriveReachesThePublisherAndIsRecorded(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := &fakePublisher{}
+	ts := make(map[int32]float64, len(in))
+	for _, r := range in {
+		ts[r.PacketID] = r.T
+	}
 	ctx, cancel := context.WithCancel(t.Context())
 	driven := make(chan struct{})
 	go func() {
 		defer close(driven)
 		start := src.Start()
-		_ = drive(ctx, src, func(r salsa.Received) time.Time { return start.Add(time.Duration(r.T * float64(time.Second))) },
+		_ = drive(ctx, &retimed{Source: src, t: ts}, func(r salsa.Received) time.Time { return start.Add(time.Duration(r.T * float64(time.Second))) },
 			machine(), got, rec)
 	}()
 
@@ -201,11 +218,7 @@ func TestALiveDriveReachesThePublisherAndIsRecorded(t *testing.T) {
 	if st := src.Stats(); st.Late != uint64(len(in)/10) || st.Packets != uint64(len(in)) {
 		t.Errorf("source %+v; want %d packets and %d late", st, len(in), len(in)/10)
 	}
-	// The packets go out far faster than GT7 sends them, so live they all arrive
-	// within a second or so of the source's clock: no position holds the 3 s
-	// race.position needs (paddock#84), which the replay's own clock gives it.
-	// Every other event is the replay's.
-	w, g := withoutPositions(events(want.outs)), withoutPositions(events(got.outs))
+	w, g := events(want.outs), events(got.outs)
 	// The replay ends its open session as the input ended, live as ecu stopping.
 	if len(w) == 0 || len(w) != len(g) || strings.Join(w[:len(w)-1], "\n") != strings.Join(g[:len(g)-1], "\n") {
 		t.Fatalf("events differ:\nreplay %v\nlive   %v", w, g)
