@@ -9,8 +9,10 @@
 // It connects to NATS at start, with the server and the source token from --nats
 // and --src (TWR_NATS_URL and TWR_SRC), and refuses a source that is not one
 // subject token. Live frames go out under the source live only (paddock#106, R8),
-// so any other source stops ecu at start; replays, under their own source, are
-// paddock#35.
+// so any other source stops ecu at start.
+//
+// `ecu replay PATH` replays a v1 recording instead, under a source of its own, and
+// exits at its end (paddock#35): replay.go.
 package main
 
 import (
@@ -50,6 +52,9 @@ const (
 var version = "dev"
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "replay" {
+		os.Exit(replay(context.Background(), os.Args[2:], os.Getenv, os.Stdin, os.Stdout, os.Stderr))
+	}
 	os.Exit(run(context.Background(), os.Args[1:], os.Getenv, os.Stdout, os.Stderr))
 }
 
@@ -134,7 +139,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout,
 		defer close(driven)
 		start := src.Start()
 		at := func(r salsa.Received) time.Time { return start.Add(time.Duration(r.T * float64(time.Second))) }
-		drive(driveCtx, src, at, race.New(ulid.Make), pub, rec)
+		_ = drive(driveCtx, src, at, race.New(ulid.Make), pub, rec)
 	}()
 	// The drive ends, with the session it holds, and the source stops, so
 	// nothing writes to the recorder once it closes; then the recorder closes,
@@ -172,19 +177,20 @@ type publisher interface {
 // gives, recording the packet first when rec is set, until src ends or ctx is done.
 // at gives a packet's wall-clock time. At the end the open session ends: as the
 // input ended (EndOfInput) at the end of a recording, as ecu stopping (Stop)
-// otherwise.
+// otherwise. It returns what stopped src, nil at its end: a replay tells a bad
+// recording from an interrupted one by it.
 func drive(ctx context.Context, src salsa.Source, at func(salsa.Received) time.Time, m *race.Machine,
 	pub publisher, rec *record.Writer,
-) {
+) error {
 	for {
 		r, err := src.Next(ctx)
 		if errors.Is(err, io.EOF) {
 			pub.Publish(m.EndOfInput())
-			return
+			return nil
 		}
 		if err != nil {
 			pub.Publish(m.Stop())
-			return
+			return err
 		}
 		if rec != nil {
 			rec.Write(r)

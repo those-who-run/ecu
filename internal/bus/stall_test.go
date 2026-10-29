@@ -175,9 +175,9 @@ func TestEventsStayInOrderAcrossAReconnect(t *testing.T) {
 	for n := int32(1); n <= 300; n++ {
 		switch n {
 		case 50:
-			r.srv.stop()
+			r.srv.Stop()
 		case 150:
-			r.srv.start() // the publisher finds it again within 20 ms, while laps keep coming
+			r.srv.Start() // the publisher finds it again within 20 ms, while laps keep coming
 		}
 		r.pub.Publish(all[n-1 : n])
 		time.Sleep(time.Millisecond)
@@ -295,7 +295,7 @@ func TestAFullEventQueueDropsAndCounts(t *testing.T) {
 		t.Fatal(err)
 	}
 	r.nc.Close()
-	r.srv.stop()
+	r.srv.Stop()
 	waitFor(t, "lost connection", func() bool { return !r.pub.nc.IsConnected() })
 	var slowest time.Duration
 	for i, o := range laps(20) {
@@ -312,7 +312,7 @@ func TestAFullEventQueueDropsAndCounts(t *testing.T) {
 	if n := strings.Count(r.logs.String(), "event dropped: the queue is full"); n != 12 {
 		t.Errorf("%d drops logged, want 12", n)
 	}
-	r.srv.start()
+	r.srv.Start()
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
 	if s := r.pub.Close(ctx); s.Events != 8 {
