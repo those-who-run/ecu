@@ -269,6 +269,29 @@ func TestTheSameEventsTwiceAreStoredOnce(t *testing.T) {
 	}
 }
 
+// EVENTS keeps every event of a replay: none shares an id with another, which
+// EVENTS would drop as a duplicate. SUGO's race (2026-10-18) holds a verdict as
+// the session opens and crosses the line on the same frame, a second track
+// change there that is published as one session.track (paddock#81).
+func TestEveryEventOfAReplayIsInEvents(t *testing.T) {
+	r := newRig(t, "parity")
+	m := newMachine()
+	events := sessionEvents(step(m, r.pub, packets(t, "real-nuc-sugo-two-stops-2026-10-18")))
+	end := m.EndOfInput()
+	r.pub.Publish(end)
+	events = append(events, sessionEvents(end)...)
+	r.close(t)
+	got := r.read(t, "EVENTS", len(events))
+	if len(got) != len(events) {
+		t.Fatalf("EVENTS holds %d events, want all %d", len(got), len(events))
+	}
+	for i, msg := range got {
+		if id, want := header(msg).Get(ce.IDHeader), "parity:"+events[i].Event.ID; id != want {
+			t.Errorf("event %d is %s, want %s", i+1, id, want)
+		}
+	}
+}
+
 // AC3: the .lo subject carries no two frames less than 50 ms of frame time apart.
 func TestTheLoSubjectIsAtMost20Hz(t *testing.T) {
 	r := newRig(t, "parity")

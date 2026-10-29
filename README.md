@@ -30,9 +30,9 @@ and ends a session exactly where v1 did, with v1's rules ported from its
 - **End reasons.** At the flag, quit (a loading screen with the lap counter
   reset), back to a menu or the track screen (`END_REASON_MENU`, contracts
   v0.2.0), restarted, the next session started, the input ended (`EndOfInput`,
-  the end of a recording) and ecu stopped (`Stop`). A timed race's finish
-  still ends as back to the menu: `END_REASON_TIMED_FINISH` comes with the
-  timed finish itself.
+  the end of a recording) and ecu stopped (`Stop`). A timed session that goes
+  back to a menu still ends as quit, as before v0.2.0, until ecu reads the
+  timed finish (`END_REASON_TIMED_FINISH`, paddock#85).
 
 - **No clock, no NATS, no files.** Each packet comes with the time ecu received
   it, which becomes its frame's `ce-time`; a session's `started_at` is its
@@ -107,7 +107,10 @@ v1.0.0, in [`internal/race/track.go`](internal/race/track.go).
   name, the circuit (`family`) when only that is known, the evidence, and the
   best 8 candidates with their fit (rounded to 3 decimals) and whether their
   line was crossed. The detector keeps v1's whole list; the cap of 8 is
-  applied as it is published. `at` is the frame's seq.
+  applied as it is published. `at` is the frame's seq, and a frame publishes
+  one verdict at most, its last: when the session opens on a verdict and the
+  line is crossed on that same frame, v1 logged two changes, and two events
+  would share an id, which `EVENTS` drops as a duplicate.
 - **At the end.** `session.ended`'s summary carries the session's track:
   when the race ends (the flag, a quit, back to the menu), the detector's
   final candidates and fit replace it when they are the same decision and the
@@ -116,7 +119,8 @@ v1.0.0, in [`internal/race/track.go`](internal/race/track.go).
   an ecu restart, which starts with the track it had, is paddock#76's.
 - **Tests.** On every one of v1's 25 recordings, the `session.track` events
   and each summary's track are v1's: where v1's engine applied a verdict, the
-  same verdict, its first 8 candidates and its evidence, as
+  same verdict (the last of a frame's), its first 8 candidates and its
+  evidence, as
   `make_golden.py` in [`internal/race/testdata/track/`](internal/race/testdata/track)
   wrote them from v1.0.0. On the six v1 opens no session on (it drops them as a
   replay or a GT7 demo, paddock#74), each verdict published is checked against

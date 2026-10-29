@@ -114,7 +114,23 @@ func readTrackGolden(t *testing.T, name string) []trackLine {
 	if err := sc.Err(); err != nil {
 		t.Fatal(err)
 	}
-	return lines
+	return lastPerFrame(lines)
+}
+
+// lastPerFrame keeps a session's last verdict change on each frame: ecu publishes
+// one session.track a frame, where v1 logged each change, so a verdict held as the
+// session opens and the line crossed on that frame are one event.
+func lastPerFrame(lines []trackLine) []trackLine {
+	var out []trackLine
+	for _, l := range lines {
+		if n := len(out); n > 0 && l.Event == "session.track" && out[n-1].Event == "session.track" &&
+			out[n-1].Session == l.Session && out[n-1].Frame == l.Frame {
+			out[n-1] = l
+			continue
+		}
+		out = append(out, l)
+	}
+	return out
 }
 
 var confidenceNames = map[eventsv1.TrackConfidence]string{

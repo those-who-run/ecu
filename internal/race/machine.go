@@ -302,7 +302,11 @@ func (m *Machine) Step(r Received) []Output {
 			switch {
 			case m.finished:
 				why = WhyFinished
-			case s.phase == phaseMenu || s.phase == phaseAtTrack:
+			case (s.phase == phaseMenu || s.phase == phaseAtTrack) && !timed(m.kinds.kind()):
+				// TODO(paddock#85): a timed session's end at the results is
+				// END_REASON_TIMED_FINISH once ecu reads the timed finish; until
+				// then it stays QUIT, as before contracts v0.2.0, rather than
+				// reading as a driver who left for the menu.
 				why = WhyMenu
 			}
 			m.end(&s, r.Time, why)

@@ -55,13 +55,24 @@ func (m *Machine) applyTrack(match track.Match, s *state, t time.Time) {
 	}
 	sess.track = &match
 	seq := strconv.FormatUint(uint64(s.seq), 10)
-	m.out = append(m.out, Output{
+	out := Output{
 		Event:   m.event(sess.id+":session.track:"+m.run+":"+seq, t),
 		Session: sess.id,
 		Track: &eventsv1.SessionTrackChanged{
 			SessionId: sess.id, Track: verdict(match), At: s.seq,
 		},
-	})
+	}
+	// Two changes on one frame (the verdict held as the session opens, then the
+	// line crossed on that same frame) would share an id, and EVENTS would drop
+	// the second as a duplicate: the frame publishes one, its last verdict. v1
+	// logged both.
+	for i, o := range m.out {
+		if o.Track != nil && o.Session == sess.id && o.Track.GetAt() == s.seq {
+			m.out[i] = out
+			return
+		}
+	}
+	m.out = append(m.out, out)
 }
 
 // finalTrack is v1's track at the race end: the detector's final candidates and
