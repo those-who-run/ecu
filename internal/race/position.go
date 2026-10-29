@@ -90,13 +90,14 @@ func (m *Machine) observeRace(prev, s *state, t time.Time, kind kindVerdict) {
 	// FinalLapRule: the lap counter reaching the lap total, once a race. A timed
 	// race has no lap total.
 	if !m.finalLap && s.totalLaps > 0 && lapCompleted(prev, s) && s.lap == s.totalLaps {
-		m.finalLap = true
+		m.finalLap, m.ctx.FinalLap = true, true
 		if m.session != nil {
 			m.publishFinalLap(s, t)
 		}
 	}
 	if previous, ok := m.places.observe(s, hasField(kind, s), m.pits.InPitLane()); ok && m.session != nil {
 		m.publishPosition(previous, s, t)
+		m.ctx.Settled = m.out[len(m.out)-1].Position
 	}
 }
 

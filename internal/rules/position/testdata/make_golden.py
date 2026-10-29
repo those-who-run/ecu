@@ -1,4 +1,4 @@
-"""Write the goldens the position rule's tests compare with: every callout v1's
+"""Write the goldens golden_test.go compares with: every callout v1's
 PositionRule raised, as JSON lines (those-who-run/paddock#94).
 
 Made once from v1 at tag v1.0.0 (those-who-run/those-who-run), in v1's own
