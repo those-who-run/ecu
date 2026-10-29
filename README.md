@@ -332,14 +332,14 @@ frame and publishes the session's entries, exits and withdrawn entries, as v1's
 - **Ids.** `<sid>:pit.entered:<entry>` counts every entry in the session,
   withdrawn ones too, `<sid>:pit.teleport:<entry>` is the entry it
   withdraws, and `<sid>:pit.exited:<stop>` counts the stops (contracts
-  v0.2.2). The counts are
+  v0.2.3). The counts are
   the session's, for paddock#76 to carry across an ecu restart. A frame
   changes the pits once at most, so it gives one pit event at most.
 - **At the end.** `session.ended`'s summary carries the stints and the stops,
   a stop still open last, without an out-lap, a lane time or a position after
   (Spa, quit from the box).
 - **Not yet.** Pit roles on `lap.completed` are paddock#83's. The summary
-  has no teleports: v1's `summary.json` stored none, and contracts v0.2.2's
+  has no teleports: v1's `summary.json` stored none, and contracts v0.2.3's
   `SessionSummary` has no field for them.
 - **Tests.** On every one of v1's 25 recordings, the detector's changes are
   v1's, field for field, and the `pit.entered`, `pit.exited` and
