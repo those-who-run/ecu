@@ -1,0 +1,10 @@
+{"session": 1, "frame": 383, "rule": "start_brief", "kind": "template", "priority": 8, "pit_lane": "hold", "outcome": "spoken"}
+{"session": 1, "frame": 468, "rule": "position", "kind": "template_lost_lead", "priority": 12, "pit_lane": "drop", "outcome": "spoken"}
+{"session": 1, "frame": 488, "rule": "position", "kind": "template_gained_podium", "priority": 12, "pit_lane": "drop", "outcome": "spoken"}
+{"session": 1, "frame": 528, "rule": "position", "kind": "template_gained_lead", "priority": 12, "pit_lane": "drop", "outcome": "spoken"}
+{"session": 1, "frame": 554, "rule": "position", "kind": "template_lost_lead", "priority": 12, "pit_lane": "drop", "outcome": "spoken"}
+{"session": 1, "frame": 773, "rule": "position", "kind": "template_gained_lead", "priority": 12, "pit_lane": "drop", "outcome": "spoken"}
+{"session": 1, "frame": 883, "rule": "position", "kind": "template_lost_lead", "priority": 12, "pit_lane": "drop", "outcome": "spoken"}
+{"session": 1, "frame": 1059, "rule": "position", "kind": "template_gained_lead", "priority": 12, "pit_lane": "drop", "outcome": "spoken"}
+{"session": 1, "frame": 1385, "rule": "lap_time", "kind": "delta_first", "priority": 20, "pit_lane": "hold", "outcome": "spoken"}
+{"session": 1, "frame": 1385, "rule": "final_lap", "kind": "template", "priority": 10, "pit_lane": "hold", "outcome": "spoken"}

@@ -27,7 +27,7 @@ func TestMain(m *testing.M) {
 // ends.
 func startNATS(t *testing.T) *bustest.Server { return bustest.NewServer(t) }
 
-// addStreams creates TELEMETRY and EVENTS, the definitions the bootstrap applies
+// addStreams creates TELEMETRY, EVENTS and CALLOUTS, the definitions the bootstrap applies
 // in compose and the cluster.
 func addStreams(t *testing.T, js jetstream.JetStream) { bustest.AddStreams(t, js) }
 
