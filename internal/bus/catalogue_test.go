@@ -80,14 +80,6 @@ func matches(pattern, subject string) bool {
 	return true
 }
 
-// uncatalogued are subjects ecu publishes that contracts has no entry for yet, and
-// the issue that adds it. The 20 Hz frame is R2 of paddock#34, but its contract,
-// what the dash reads, is paddock#137. When the entry comes, this test fails until
-// it leaves this list.
-var uncatalogued = map[string]string{
-	"twr.v1.<src>.frame.gt7.lo": "paddock#137",
-}
-
 // published is every message a replay of the Suzuka recording (AC1's) puts on
 // twr.v1.parity.>, and the run it was published under.
 func published(t *testing.T) ([]*nats.Msg, string) {
@@ -120,13 +112,16 @@ func published(t *testing.T) ([]*nats.Msg, string) {
 }
 
 // AC6: every subject published in a replay (AC1's) is in subjects.yaml with the
-// ce-type it was sent with (R8).
+// ce-type it was sent with (R8), the 20 Hz frame's too since contracts v0.2.3
+// (paddock#137).
 func TestEverySubjectIsInTheCatalogue(t *testing.T) {
 	msgs, _ := published(t)
 	sent := map[[2]string]bool{} // subject with <sid> for the session id, ce-type
 	for _, msg := range msgs {
 		sent[[2]string{generic(msg), msg.Header.Get(ce.TypeHeader)}] = true
 	}
+	// The replay's eight events include race.finished; pit.teleport is in no
+	// recording, so TestAPitTeleportIsInTheCatalogue checks it.
 	if len(sent) != 10 {
 		t.Errorf("%d kinds of message sent, want 10: frames, .lo and eight events: %v", len(sent), sent)
 	}
@@ -142,12 +137,8 @@ func TestEverySubjectIsInTheCatalogue(t *testing.T) {
 				}
 			}
 		}
-		_, known := uncatalogued[strings.Replace(subject, "parity", "<src>", 1)]
-		switch {
-		case !found && !known:
+		if !found {
 			t.Errorf("%s (%s) is not in subjects.yaml", subject, ceType)
-		case found && known:
-			t.Errorf("%s is in subjects.yaml now: take it out of uncatalogued", subject)
 		}
 	}
 }
@@ -198,7 +189,7 @@ func TestEveryIDFollowsTheCatalogue(t *testing.T) {
 			}
 		}
 		if scheme == "" {
-			continue // uncatalogued: TestEverySubjectIsInTheCatalogue names it
+			continue // TestEverySubjectIsInTheCatalogue names it
 		}
 		tokens := strings.Split(msg.Subject, ".")
 		values := map[string]string{"src": tokens[2], "run": run}
@@ -210,8 +201,9 @@ func TestEveryIDFollowsTheCatalogue(t *testing.T) {
 		}
 		checked[scheme] = true
 	}
+	// pit.teleport's scheme is TestAPitTeleportIsInTheCatalogue's, as above.
 	if len(checked) != 9 {
-		t.Errorf("checked ids against %d schemes, want 9: the frame's and the eight events': %v", len(checked), checked)
+		t.Errorf("checked ids against %d schemes, want 9: the frames' (both subjects share one) and the eight events': %v", len(checked), checked)
 	}
 }
 
@@ -295,6 +287,53 @@ func TestAnEventWithNoSessionGoesOnEvtUnderscore(t *testing.T) {
 	id := msg.Header.Get(ce.IDHeader)
 	if scheme == "" || !followsScheme(scheme, id, map[string]string{"src": "parity", "sid": run}) {
 		t.Errorf("id %q, want the scheme %q with the run as <sid>", id, scheme)
+	}
+	if s := r.close(t); s.Events != 1 {
+		t.Errorf("stats %+v, want the event acknowledged", s)
+	}
+}
+
+// paddock#79: no recording has a teleport, so pit.teleport is checked by hand: its
+// subject and ce-type are in the catalogue, and its id follows the catalogue's
+// <src>:<sid>:pit.teleport:<entry>.
+func TestAPitTeleportIsInTheCatalogue(t *testing.T) {
+	r := newRig(t, "parity")
+	const sid = "01JBUSSESSION0000000000000"
+	sub, err := r.nc.SubscribeSync("twr.v1.parity.evt." + sid + ".>")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.nc.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	r.pub.Publish([]race.Output{{
+		Event:       ce.Event{ID: sid + ":pit.teleport:2", Source: race.Source, Time: epoch},
+		Session:     sid,
+		PitTeleport: &eventsv1.PitTeleport{SessionId: sid, Entry: 2, Lap: 3},
+	}})
+	msg, err := sub.NextMsg(5 * time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "twr.v1.parity.evt." + sid + ".pit.teleport"; msg.Subject != want {
+		t.Errorf("subject %s, want %s", msg.Subject, want)
+	}
+	var found bool
+	for _, e := range catalogue(t) {
+		if !matches(e.pattern, msg.Subject) {
+			continue
+		}
+		found = true
+		if got := msg.Header.Get(ce.TypeHeader); got != e.ceType {
+			t.Errorf("ce-type %s; subjects.yaml says %s", got, e.ceType)
+		}
+		if id := msg.Header.Get(ce.IDHeader); !followsScheme(e.msgID, id, map[string]string{"src": "parity", "sid": sid}) ||
+			id != "parity:"+sid+":pit.teleport:2" {
+			t.Errorf("id %q, want the scheme %q with entry 2", id, e.msgID)
+		}
+	}
+	if !found {
+		t.Errorf("%s is not in subjects.yaml", msg.Subject)
 	}
 	if s := r.close(t); s.Events != 1 {
 		t.Errorf("stats %+v, want the event acknowledged", s)

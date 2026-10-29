@@ -132,19 +132,19 @@ func (w Why) Reason() eventsv1.EndReason {
 }
 
 // Output is a frame or an event, with its CloudEvents id and time: exactly one of
-// Frame, Started, Lap, Track, Kind, PitEntered, PitExited, Finished and Ended is
-// set, each
-// the contracts message of that name. SessionStarted's source is left empty: only
-// the publisher knows the <src> it publishes under, and sets it (internal/bus).
+// Frame, Started, Lap, Track, Kind, PitEntered, PitExited, PitTeleport, Finished
+// and Ended is set, each the contracts message of that name. SessionStarted's
+// source is left empty: only the publisher knows the <src> it publishes under, and
+// sets it (internal/bus).
 type Output struct {
 	// Event is the ce-id (and Nats-Msg-Id), ce-source and ce-time, the id built
 	// as contracts' subjects.yaml says: <run>:frame:<seq> for a frame, and
 	// <sid>:session.started:1, <sid>:lap.completed:<lap> and
 	// <sid>:session.ended:1 for the events, <sid>:session.track:<run>:<seq>
 	// and <sid>:session.kind:<run>:<seq> for a track or kind verdict, with the
-	// seq of the frame it changed on, and <sid>:pit.entered:<entry> and
-	// <sid>:pit.exited:<stop> for the pits, and <sid>:race.finished:1 for the
-	// finish. An event's id is the catalogue's
+	// seq of the frame it changed on, <sid>:pit.entered:<entry>,
+	// <sid>:pit.exited:<stop> and <sid>:pit.teleport:<entry> for the pits, and
+	// <sid>:race.finished:1 for the finish. An event's id is the catalogue's
 	// without its <src>: the publisher puts <src>: in front (paddock#279).
 	Event ce.Event
 	// Session is the id of the session an event belongs to; "" for a frame.
@@ -157,9 +157,10 @@ type Output struct {
 	Kind    *eventsv1.SessionKindChanged
 	Ended   *eventsv1.SessionEnded
 
-	PitEntered *eventsv1.PitEntered
-	PitExited  *eventsv1.PitExited
-	Finished   *eventsv1.RaceFinished
+	PitEntered  *eventsv1.PitEntered
+	PitExited   *eventsv1.PitExited
+	PitTeleport *eventsv1.PitTeleport
+	Finished    *eventsv1.RaceFinished
 
 	// Why is why the session ended, set with Ended; SessionEnded's reason is
 	// Why.Reason().
@@ -183,6 +184,8 @@ func (o Output) Message() proto.Message {
 		return o.PitEntered
 	case o.PitExited != nil:
 		return o.PitExited
+	case o.PitTeleport != nil:
+		return o.PitTeleport
 	case o.Finished != nil:
 		return o.Finished
 	default:
@@ -253,8 +256,9 @@ func (m *Machine) Run() string { return m.run }
 
 // Step takes the next packet and returns its frame, then the events it gives rise
 // to, in the order they happened: the end of a session the packet's start closes,
-// the start, a pit entry or exit, a change of the session's track, a change of
-// its kind, a lap closed, the race's finish, and the end of the session.
+// the start, a pit entry, exit or entry withdrawn, a change of the session's
+// track, a change of its kind, a lap closed, the race's finish, and the end of the
+// session.
 func (m *Machine) Step(r Received) []Output {
 	m.seq++
 	s := newState(m.seq, r.T, &r.Packet)

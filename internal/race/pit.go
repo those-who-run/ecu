@@ -14,31 +14,33 @@ import (
 
 // The session's pit stops (paddock#78): v1's Engine._apply_pits, from engine.py at
 // v1.0.0, fed by internal/pit's detector. The detector sees every frame and is
-// reset on each start, as v1's is; its entries and exits are the session's, and
-// each is a pit.entered or a pit.exited.
+// reset on each start, as v1's is; its entries, exits and withdrawn entries are the
+// session's, and each is a pit.entered, a pit.exited or a pit.teleport.
 
 // pitCounts are the session's pit counts, which the events' ids are built from
-// (contracts v0.2.2): every entry, withdrawn or not, for pit.entered's <entry>,
-// and the stops completed, for pit.exited's <stop>. They are the session's, not
-// the detector's, so a session continued after an ecu restart can carry them on
-// (TODO(paddock#76): start them from the stops before the restart). They only
-// go up: when the detector resets inside a session (the lap counter goes back
-// without a restart the machine sees), the ids carry on, but the summary's
-// stops come from the detector and number from 1 again, so PitExited's
-// stop.stop and the summary's can disagree. v1's summary does the same;
-// paddock#76 settles it with the restore.
+// (contracts v0.2.3): every entry, withdrawn or not, for pit.entered's and
+// pit.teleport's <entry>, and the stops completed, for pit.exited's <stop>.
+// They are the session's, not the detector's, so a session continued after an
+// ecu restart can carry them on (TODO(paddock#76): start them from the stops
+// before the restart). They only go up: when the detector resets inside a
+// session (the lap counter goes back without a restart the machine sees), the
+// ids carry on, but the summary's stops come from the detector and number from
+// 1 again, so PitExited's stop.stop and the summary's can disagree. v1's
+// summary does the same; paddock#76 settles it with the restore.
 type pitCounts struct {
 	entries int32 // every entry, the open one included
 	stops   int32 // the stops completed
-	// The open entry's number and its PitEntered's times, for its PitExited.
-	entry     int32
-	enteredT  float64
-	enteredAt time.Time
+	// The open entry's number and its PitEntered's times and seq, for its
+	// PitExited or PitTeleport.
+	entry      int32
+	enteredT   float64
+	enteredAt  time.Time
+	enteredSeq uint32
 }
 
 // observePits feeds the detector the frame f, received at t, and publishes an
-// entry or an exit while a session is open. A frame changes the pits at most
-// once, so it gives at most one pit event.
+// entry, an exit or an entry withdrawn while a session is open. A frame changes
+// the pits at most once, so it gives at most one pit event.
 func (m *Machine) observePits(f *telemetryv1.Frame, t time.Time) {
 	change := m.pits.Observe(f)
 	sess := m.session
@@ -51,7 +53,7 @@ func (m *Machine) observePits(f *telemetryv1.Frame, t time.Time) {
 	case pit.Entered:
 		stop := status.Stops[len(status.Stops)-1]
 		pits.entries++
-		pits.entry, pits.enteredT, pits.enteredAt = pits.entries, stop.EntryT, t
+		pits.entry, pits.enteredT, pits.enteredAt, pits.enteredSeq = pits.entries, stop.EntryT, t, f.GetSeq()
 		ev := &eventsv1.PitEntered{
 			SessionId:  sess.id,
 			Entry:      pits.entries,
@@ -93,15 +95,34 @@ func (m *Machine) observePits(f *telemetryv1.Frame, t time.Time) {
 			PitExited: ev,
 		})
 	case pit.Withdrawn:
-		// TODO(paddock#79): publish pit.teleport, which withdraws the entry. The
-		// entry keeps its number and the stop number goes back, as v1's does.
+		// The entry was no stop (paddock#79): the detector's status is back to
+		// what it was before it, so the stop count stays and the next entry
+		// takes the stop number again, as v1's does. The entry keeps its number.
+		jump := status.Teleports[len(status.Teleports)-1]
+		// TODO(paddock#76): leave entry_at out when the entry was published by
+		// an earlier ecu run, whose seqs this run's do not continue.
+		at := pits.enteredSeq
+		ev := &eventsv1.PitTeleport{
+			SessionId:  sess.id,
+			Entry:      pits.entry,
+			EntryAt:    &at,
+			Lap:        jump.Lap,
+			Evidence:   jump.Evidence,
+			At:         f.GetSeq(),
+			WithdrawnT: jump.T,
+		}
+		m.out = append(m.out, Output{
+			Event:       m.event(sess.id+":pit.teleport:"+strconv.Itoa(int(pits.entry)), t),
+			Session:     sess.id,
+			PitTeleport: ev,
+		})
 	}
 }
 
 // pitStop is the stop as the contracts' PitStop, as v1's PitStop.record() writes
 // it: fuel to 3 decimals, times in seconds to 2 decimals (here in ms), the
 // limiter's speed to 1. A stop still open has no out-lap, lane time or position
-// after (contracts v0.2.2), where v1 recorded its last position.
+// after (contracts v0.2.3), where v1 recorded its last position.
 func pitStop(s pit.Stop) *eventsv1.PitStop {
 	kph := roundN(s.PitLaneKph, 1)
 	out := &eventsv1.PitStop{
