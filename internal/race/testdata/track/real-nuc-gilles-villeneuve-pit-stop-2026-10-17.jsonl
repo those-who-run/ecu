@@ -1,0 +1,5 @@
+{"event": "session.started", "session": 1, "frame": 1}
+{"event": "session.track", "session": 1, "frame": 1, "track": {"track_id": null, "name": null, "confidence": "ambiguous", "family": null, "candidates": [1264, 100002, 1240, 9999, 777, 776, 4, 1163], "evidence": "no finish line within 1000 m of where the car has been and none crossed yet; 33 layouts contain the path"}}
+{"event": "session.track", "session": 1, "frame": 194, "track": {"track_id": 100002, "name": "Circuit Gilles Villeneuve", "confidence": "probable", "family": null, "candidates": [100002], "evidence": "finish line crossed in the right direction, no full lap yet"}}
+{"event": "session.track", "session": 1, "frame": 876, "track": {"track_id": 100002, "name": "Circuit Gilles Villeneuve", "confidence": "confirmed", "family": null, "candidates": [100002], "evidence": "finish line crossed, a full lap fits the layout (1.00)"}}
+{"event": "session.ended", "session": 1, "frame": 883, "track": {"track_id": 100002, "name": "Circuit Gilles Villeneuve", "confidence": "confirmed", "family": null, "candidates": [100002], "evidence": "finish line crossed, a full lap fits the layout (1.00)"}}

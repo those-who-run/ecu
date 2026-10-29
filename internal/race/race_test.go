@@ -553,3 +553,31 @@ func TestTheEndOfTheInputAndStoppingEndTheSession(t *testing.T) {
 		}
 	}
 }
+
+// contracts v0.2.0 tells a quit through a loading screen at lap 0 (QUIT) from
+// going straight back to a menu or the track screen (MENU); before it, both were
+// QUIT.
+func TestAQuitAndBackToTheMenuAreToldApart(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		want []Why
+	}{
+		{"real-quali-restart-quit-2026-10-14", []Why{WhyRestart, WhyQuit}},
+		{"real-nuc-spa-pit-cut-quit-2026-10-18", []Why{WhyQuit}},
+		{"real-nuc-spa-time-trial-2026-10-18", []Why{WhyMenu}},
+		{"real-race-2laps-2026-10-14", []Why{WhyMenu, WhyFinished}},
+	} {
+		var got []Why
+		for _, o := range replay(t, c.name) {
+			if o.Ended != nil {
+				got = append(got, o.Why)
+				if o.Ended.GetReason() != o.Why.Reason() {
+					t.Errorf("%s: reason %v for %v", c.name, o.Ended.GetReason(), o.Why)
+				}
+			}
+		}
+		if !slices.Equal(got, c.want) {
+			t.Errorf("%s: ends %v, want %v", c.name, got, c.want)
+		}
+	}
+}

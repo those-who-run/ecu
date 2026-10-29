@@ -1,0 +1,10 @@
+{"event": "session.started", "session": 1, "frame": 30}
+{"event": "session.track", "session": 1, "frame": 30, "track": {"track_id": null, "name": null, "confidence": "ambiguous", "family": null, "candidates": [349, 348], "evidence": "2 layouts near the start still fit, line not yet crossed"}}
+{"event": "session.track", "session": 1, "frame": 71, "track": {"track_id": 348, "name": "Nurburgring 24h", "confidence": "probable", "family": null, "candidates": [348], "evidence": "only layout containing the path after 2.5 km, line not yet crossed"}}
+{"event": "session.track", "session": 1, "frame": 297, "track": {"track_id": 348, "name": "Nurburgring 24h", "confidence": "confirmed", "family": null, "candidates": [348], "evidence": "finish line crossed, a full lap fits the layout (0.91)"}}
+{"event": "session.ended", "session": 1, "frame": 301, "track": {"track_id": 348, "name": "Nurburgring 24h", "confidence": "confirmed", "family": null, "candidates": [348], "evidence": "finish line crossed, a full lap fits the layout (0.91)"}}
+{"event": "session.started", "session": 2, "frame": 301}
+{"event": "session.track", "session": 2, "frame": 301, "track": {"track_id": null, "name": null, "confidence": "ambiguous", "family": null, "candidates": [349, 348], "evidence": "2 layouts near the start still fit, line not yet crossed"}}
+{"event": "session.track", "session": 2, "frame": 319, "track": {"track_id": 348, "name": "Nurburgring 24h", "confidence": "probable", "family": null, "candidates": [348], "evidence": "only layout containing the path after 0.8 km, line not yet crossed"}}
+{"event": "session.track", "session": 2, "frame": 532, "track": {"track_id": 348, "name": "Nurburgring 24h", "confidence": "confirmed", "family": null, "candidates": [348], "evidence": "finish line crossed, a full lap fits the layout (0.89)"}}
+{"event": "session.ended", "session": 2, "frame": 774, "track": {"track_id": 348, "name": "Nurburgring 24h", "confidence": "confirmed", "family": null, "candidates": [348], "evidence": "finish line crossed, a full lap fits the layout (0.89)"}}

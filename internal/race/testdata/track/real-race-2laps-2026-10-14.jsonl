@@ -1,0 +1,6 @@
+{"event": "session.started", "session": 1, "frame": 1}
+{"event": "session.track", "session": 1, "frame": 1, "track": {"track_id": null, "name": null, "confidence": "ambiguous", "family": null, "candidates": [354, 471, 444, 357, 1225, 846, 793, 791], "evidence": "no finish line within 1000 m of where the car has been and none crossed yet; 91 layouts contain the path"}}
+{"event": "session.ended", "session": 1, "frame": 75, "track": {"track_id": null, "name": null, "confidence": "ambiguous", "family": null, "candidates": [354, 471, 444, 357, 1225, 846, 793, 791], "evidence": "83 layouts near the start still fit, line not yet crossed"}}
+{"event": "session.started", "session": 2, "frame": 141}
+{"event": "session.track", "session": 2, "frame": 141, "track": {"track_id": null, "name": null, "confidence": "ambiguous", "family": null, "candidates": [354, 471, 444, 357, 1225, 846, 793, 791], "evidence": "83 layouts near the start still fit, line not yet crossed"}}
+{"event": "session.ended", "session": 2, "frame": 263, "track": {"track_id": null, "name": null, "confidence": "ambiguous", "family": null, "candidates": [354, 471, 444, 357, 1225, 846, 793, 791], "evidence": "83 layouts near the start still fit, line not yet crossed"}}

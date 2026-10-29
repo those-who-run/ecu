@@ -15,8 +15,8 @@ acceptance criterion, `Part of those-who-run/paddock#N` otherwise
 
 [`internal/race`](internal/race) is the race state: a pure state machine
 that takes `salsa` packets one at a time and gives, for each, its frame and the
-events it gives rise to, `session.started`, `lap.completed` and
-`session.ended`, as the `contracts` messages. It opens a session, closes a lap
+events it gives rise to, `session.started`, `session.track`, `lap.completed`
+and `session.ended`, as the `contracts` messages. It opens a session, closes a lap
 and ends a session exactly where v1 did, with v1's rules ported from its
 `state.py`, `engine.py` and `store.py` at v1.0.0 (paddock#33).
 
@@ -27,8 +27,12 @@ and ends a session exactly where v1 did, with v1's rules ported from its
   final one, which can differ (paddock#34). Outside a field, `position` and
   `final_position` are left out, where v1 stored GT7's 1; `finishing_position`
   is set only for a lap race that ended at the flag.
-- **End reasons.** At the flag, quit, restarted, the next session started, the
-  input ended (`EndOfInput`, the end of a recording) and ecu stopped (`Stop`).
+- **End reasons.** At the flag, quit (a loading screen with the lap counter
+  reset), back to a menu or the track screen (`END_REASON_MENU`, contracts
+  v0.2.0), restarted, the next session started, the input ended (`EndOfInput`,
+  the end of a recording) and ecu stopped (`Stop`). A timed race's finish
+  still ends as back to the menu: `END_REASON_TIMED_FINISH` comes with the
+  timed finish itself.
 
 - **No clock, no NATS, no files.** Each packet comes with the time ecu received
   it, which becomes its frame's `ce-time`; a session's `started_at` is its
@@ -55,8 +59,8 @@ and ends a session exactly where v1 did, with v1's rules ported from its
 
 GT7's telemetry carries no track id. [`internal/track`](internal/track) is the
 track table and v1's track detector, ported rule for rule from its
-`tracks.py` and `trackdetect.py` at v1.0.0 (paddock#80): a pure library that
-nothing calls yet. Publishing the verdict is paddock#81.
+`tracks.py` and `trackdetect.py` at v1.0.0 (paddock#80): a pure library the
+race state feeds every frame ([The session's track](#the-sessions-track)).
 
 - **The table.** v1's `tracks.csv`, unchanged and embedded in the binary: 108
   layouts, 105 with a finish line, its direction and a lap box, from gt-telem
@@ -80,6 +84,43 @@ nothing calls yet. Publishing the verdict is paddock#81.
   them from v1.0.0. The 18 recordings `salsa` doesn't carry are copied into
   [`internal/track/testdata/v1/`](internal/track/testdata/v1) with their
   provenance and checksums.
+
+## The session's track
+
+The detector's answer moves frame by frame; the session keeps one, stable
+enough to speak and store, and publishes `session.track` each time it changes
+(paddock#81), with v1's rules from `Engine._apply_track` in `engine.py` at
+v1.0.0, in [`internal/race/track.go`](internal/race/track.go).
+
+- **Fed by the race state.** Every frame goes to the detector, a session open
+  or not. A restart (the car teleported back to the grid) resets it; a menu or
+  a loading screen at lap 0 resets it by itself, so a rolling start keeps what
+  it saw before the line. A session joined part way tells it so (`Join`).
+- **Never downgraded on a blip.** The session's verdict changes only for one
+  that ranks higher (confidence, then naming a layout), or when the layout it
+  holds has been ruled out by the detector. A change of candidates or wording
+  alone publishes nothing.
+- **At the session's open.** A verdict the detector already has when a
+  session opens (a rolling start crosses the line before lap 1) is applied at
+  once, on the session's first frame.
+- **The verdict.** `SessionTrackChanged`: the confidence, the layout's id and
+  name, the circuit (`family`) when only that is known, the evidence, and the
+  best 8 candidates with their fit (rounded to 3 decimals) and whether their
+  line was crossed. The detector keeps v1's whole list; the cap of 8 is
+  applied as it is published. `at` is the frame's seq.
+- **At the end.** `session.ended`'s summary carries the session's track:
+  when the race ends (the flag, a quit, back to the menu), the detector's
+  final candidates and fit replace it when they are the same decision and the
+  same circuit, as v1's "final candidates and fit".
+- **Not yet carried.** `carried` is always false: a session continued after
+  an ecu restart, which starts with the track it had, is paddock#76's.
+- **Tests.** On every one of v1's 25 recordings, the `session.track` events
+  and each summary's track are v1's: where v1's engine applied a verdict, the
+  same verdict, its first 8 candidates and its evidence, as
+  `make_golden.py` in [`internal/race/testdata/track/`](internal/race/testdata/track)
+  wrote them from v1.0.0. On the six v1 opens no session on (it drops them as a
+  replay or a GT7 demo, paddock#74), each verdict published is checked against
+  v1's detector instead.
 
 ## Listening to the PS5
 
@@ -227,6 +268,7 @@ one line per session printed at the end.
 | `twr.v1.<src>.frame.gt7` | every frame | `TELEMETRY` |
 | `twr.v1.<src>.frame.gt7.lo` | the same frames, at most one per 50 ms of frame time (20 Hz) | none |
 | `twr.v1.<src>.evt.<sid>.session.started` | a session began | `EVENTS` |
+| `twr.v1.<src>.evt.<sid>.session.track` | the session's track verdict changed | `EVENTS` |
 | `twr.v1.<src>.evt.<sid>.lap.completed` | a lap ended | `EVENTS` |
 | `twr.v1.<src>.evt.<sid>.session.ended` | a session ended | `EVENTS` |
 
@@ -235,9 +277,11 @@ one line per session printed at the end.
   `ce-specversion`, `ce-id`, `ce-type`, `ce-source` (`/twr/ecu/gt7`), `ce-time`
   (when ecu received the packet) and `ce-datacontenttype`, and `Nats-Msg-Id`
   equal to `ce-id`. The ids follow the `msg_id` schemes of `contracts`'
-  `subjects.yaml` (v0.1.5, paddock#279): a frame's is `<run>:frame:<seq>`, and
-  an event's is `<src>:<sid>:session.started:1`, `<src>:<sid>:lap.completed:<n>`
-  or `<src>:<sid>:session.ended:1`, with the subject's `<src>`, so two replays
+  `subjects.yaml` (v0.2.0, paddock#279): a frame's is `<run>:frame:<seq>`, and
+  an event's is `<src>:<sid>:session.started:1`,
+  `<src>:<sid>:session.track:<run>:<seq>` (the run and the frame it changed
+  on), `<src>:<sid>:lap.completed:<n>` or `<src>:<sid>:session.ended:1`, with
+  the subject's `<src>`, so two replays
   under different sources are not deduplicated against each other. An event
   published with no session open would go on `evt._`, with `<run>` in
   `<sid>`'s place; the race state sends none yet. A test checks every id

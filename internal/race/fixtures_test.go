@@ -6,6 +6,7 @@ import (
 	"io"
 	"math"
 	"math/rand/v2"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -51,10 +52,19 @@ func testIDs() IDs {
 	return NewIDs(func() time.Time { return epoch }, rand.NewChaCha8([32]byte{'e', 'c', 'u'}))
 }
 
-// packets is every packet of a recording, with its wall-clock time.
+// trackFixtures are the v1 recordings salsa doesn't carry, which internal/track
+// keeps (its testdata/v1/README.md says where each comes from).
+var trackFixtures = filepath.Join("..", "track", "testdata", "v1")
+
+// packets is every packet of a recording, with its wall-clock time: one of
+// salsa's, else one of internal/track's.
 func packets(tb testing.TB, name string) []Received {
 	tb.Helper()
-	src, err := salsa.OpenRecording(filepath.Join(fixtures(tb), name+".jsonl.gz"))
+	path := filepath.Join(trackFixtures, name+".jsonl.gz")
+	if _, err := os.Stat(path); err != nil {
+		path = filepath.Join(fixtures(tb), name+".jsonl.gz")
+	}
+	src, err := salsa.OpenRecording(path)
 	if err != nil {
 		tb.Fatal(err)
 	}

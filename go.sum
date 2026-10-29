@@ -11,8 +11,8 @@ github.com/nats-io/nuid v1.0.1/go.mod h1:19wcPz3Ph3q0Jbyiqsd0kePYG7A95tJPxeL+1OS
 github.com/oklog/ulid/v2 v2.1.2 h1:IEclFb9JNvzYA6MW2SCxbLzcHTVsfqm3PrqGQJH5zec=
 github.com/oklog/ulid/v2 v2.1.2/go.mod h1:rcEKHmBBKfef9DhnvX7y1HZBYxjXb0cP5ExxNsTT1QQ=
 github.com/pborman/getopt v0.0.0-20170112200414-7148bc3a4c30/go.mod h1:85jBQOZwpVEaDAr341tbn15RS4fCAsIst0qp7i8ex1o=
-github.com/those-who-run/contracts v0.1.5 h1:vRtFvbffVNKxv/57GkLx42iI99QiHe3sUTkpeuSXFQc=
-github.com/those-who-run/contracts v0.1.5/go.mod h1:ZPXjzDZ9mpoHRLzIflBuqg68l9zIvxzqSD/iPzM5900=
+github.com/those-who-run/contracts v0.2.0 h1:G/cbq4cmpbj3gPw5k6xzs7xmR+FnQ1okow9x7//vf5c=
+github.com/those-who-run/contracts v0.2.0/go.mod h1:ZPXjzDZ9mpoHRLzIflBuqg68l9zIvxzqSD/iPzM5900=
 github.com/those-who-run/salsa v0.1.2 h1:WCrIt2PbpimMUx7NiZi65og9BFc/6EwhCqGgAuj2aE0=
 github.com/those-who-run/salsa v0.1.2/go.mod h1:BZYvNQ7Eo9UOvwST4hgCKyhkh2cOZvAIJm6B2T+q1pg=
 go.yaml.in/yaml/v3 v3.0.5 h1:N6y/pJk8buWs9NY5ERU2HSMfm+IuD/OtfdAnq6kESPw=

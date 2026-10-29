@@ -1,0 +1,4 @@
+{"event": "session.started", "session": 1, "frame": 1}
+{"event": "session.track", "session": 1, "frame": 1, "track": {"track_id": null, "name": null, "confidence": "ambiguous", "family": null, "candidates": [790, 846, 442, 795, 1231, 1226, 356, 449], "evidence": "no finish line within 1000 m of where the car has been and none crossed yet; 50 layouts contain the path"}}
+{"event": "session.track", "session": 1, "frame": 242, "track": {"track_id": 10, "name": "Suzuka Circuit", "confidence": "probable", "family": null, "candidates": [10], "evidence": "finish line crossed in the right direction, no full lap yet"}}
+{"event": "session.ended", "session": 1, "frame": 338, "track": {"track_id": 10, "name": "Suzuka Circuit", "confidence": "probable", "family": null, "candidates": [10], "evidence": "finish line crossed in the right direction, no full lap yet"}}

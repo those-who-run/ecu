@@ -1,0 +1,4 @@
+{"event": "session.started", "session": 1, "frame": 1}
+{"event": "session.track", "session": 1, "frame": 1, "track": {"track_id": null, "name": null, "confidence": "ambiguous", "family": null, "candidates": [790, 123, 598, 846, 442, 795, 51, 747], "evidence": "24 layouts near the start still fit, line not yet crossed"}}
+{"event": "session.track", "session": 1, "frame": 118, "track": {"track_id": 442, "name": "Suzuka Circuit East Course", "confidence": "confirmed", "family": null, "candidates": [442], "evidence": "finish line crossed, a full lap fits the layout (0.98)"}}
+{"event": "session.ended", "session": 1, "frame": 118, "track": {"track_id": 442, "name": "Suzuka Circuit East Course", "confidence": "confirmed", "family": null, "candidates": [442], "evidence": "finish line crossed, a full lap fits the layout (0.98)"}}
