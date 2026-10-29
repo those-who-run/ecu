@@ -59,7 +59,7 @@ func (m *Machine) applyTrack(match track.Match, s *state, t time.Time) {
 		Event:   m.event(sess.id+":session.track:"+m.run+":"+seq, t),
 		Session: sess.id,
 		Track: &eventsv1.SessionTrackChanged{
-			SessionId: sess.id, Track: verdict(match), At: s.seq,
+			SessionId: sess.id, Track: verdict(match), At: s.seq, RunId: m.run,
 		},
 	}
 	// Two changes on one frame (the verdict held as the session opens, then the

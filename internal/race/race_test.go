@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -587,7 +588,9 @@ func TestAQuitAndBackToTheMenuAreToldApart(t *testing.T) {
 
 // Every event id is unique across a replay, events of every kind: EVENTS drops a
 // second event with an id it holds as a duplicate. Two changes of the track on
-// one frame are one session.track (seven of v1's recordings have them).
+// one frame are one session.track (seven of v1's recordings have them), and the
+// kind changes at most once a frame (session.kind, paddock#82). Every recording
+// publishes both.
 func TestEveryEventIDIsUnique(t *testing.T) {
 	for _, name := range v1Recordings {
 		seen := map[string]bool{}
@@ -599,6 +602,11 @@ func TestEveryEventIDIsUnique(t *testing.T) {
 				t.Errorf("%s: %s published twice", name, o.Event.ID)
 			}
 			seen[o.Event.ID] = true
+		}
+		for _, what := range []string{":session.track:", ":session.kind:"} {
+			if !slices.ContainsFunc(slices.Collect(maps.Keys(seen)), func(id string) bool { return strings.Contains(id, what) }) {
+				t.Errorf("%s: no %s event", name, strings.Trim(what, ":"))
+			}
 		}
 	}
 }

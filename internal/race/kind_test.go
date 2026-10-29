@@ -1,7 +1,16 @@
 package race
 
 import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"slices"
+	"strconv"
+	"strings"
 	"testing"
+
+	"google.golang.org/protobuf/proto"
 
 	eventsv1 "github.com/those-who-run/contracts/gen/go/twr/events/v1"
 	"github.com/those-who-run/salsa"
@@ -224,5 +233,314 @@ func TestEachStartJudgesTheKindAfresh(t *testing.T) {
 	want := []eventsv1.SessionType{eventsv1.SessionType_SESSION_TYPE_LAP_RACE, eventsv1.SessionType_SESSION_TYPE_SOLO_TIMED}
 	if len(starts) != 2 || starts[0] != want[0] || starts[1] != want[1] {
 		t.Errorf("starts %v, want %v", starts, want)
+	}
+}
+
+// kindLine is a line of a kind golden (testdata/kind/make_golden.py): a session
+// opened, its kind changed, or it ended with the kind it stored.
+type kindLine struct {
+	Event   string      `json:"event"`
+	Session int         `json:"session"`
+	Frame   uint32      `json:"frame"`
+	Kind    *goldenKind `json:"kind"`
+}
+
+// goldenKind is v1's SessionKind.record(), as summary.json stores it.
+type goldenKind struct {
+	Kind        string `json:"kind"`
+	TotalLaps   int32  `json:"total_laps"`
+	Field       bool   `json:"field"`
+	FuelUse     *bool  `json:"fuel_use"`
+	CarsOnTrack bool   `json:"cars_on_track"`
+	Start       string `json:"start"`
+	Evidence    string `json:"evidence"`
+}
+
+// show is a line as the test compares it. The end's frame is left out: v1 counted
+// the frame it was on when it ended a session, ecu gives the session's last.
+func (l kindLine) show() string {
+	if l.Event == "session.started" {
+		return fmt.Sprintf("%s %d frame %d", l.Event, l.Session, l.Frame)
+	}
+	frame := fmt.Sprintf(" frame %d", l.Frame)
+	if l.Event == "session.ended" {
+		frame = ""
+	}
+	k := "no kind"
+	if g := l.Kind; g != nil {
+		fuel := "null"
+		if g.FuelUse != nil {
+			fuel = strconv.FormatBool(*g.FuelUse)
+		}
+		k = fmt.Sprintf("%s laps %d field %t fuel %s cars_on_track %t start %s %q",
+			g.Kind, g.TotalLaps, g.Field, fuel, g.CarsOnTrack, g.Start, g.Evidence)
+	}
+	return fmt.Sprintf("%s %d%s %s", l.Event, l.Session, frame, k)
+}
+
+var (
+	kindNames = map[eventsv1.SessionType]string{
+		eventsv1.SessionType_SESSION_TYPE_UNKNOWN:     "unknown",
+		eventsv1.SessionType_SESSION_TYPE_LAP_RACE:    "lap_race",
+		eventsv1.SessionType_SESSION_TYPE_SOLO_LAPS:   "solo_laps",
+		eventsv1.SessionType_SESSION_TYPE_TIMED_FIELD: "timed_field",
+		eventsv1.SessionType_SESSION_TYPE_SOLO_TIMED:  "solo_timed",
+	}
+	startNames = map[eventsv1.StartType]string{
+		eventsv1.StartType_START_TYPE_UNKNOWN: "unknown",
+		eventsv1.StartType_START_TYPE_GRID:    "grid",
+		eventsv1.StartType_START_TYPE_ROLLING: "rolling",
+		eventsv1.StartType_START_TYPE_FLYING:  "flying",
+	}
+)
+
+// asGoldenKind is a published kind as a golden's.
+func asGoldenKind(k *eventsv1.SessionKind) *goldenKind {
+	if k == nil {
+		return nil
+	}
+	g := &goldenKind{
+		Kind: kindNames[k.GetSessionType()], TotalLaps: k.GetTotalLaps(), Field: k.GetField(),
+		CarsOnTrack: k.GetCarsOnTrack(), Start: startNames[k.GetStart()], Evidence: k.GetEvidence(),
+	}
+	switch k.GetFuelUse() {
+	case eventsv1.FuelUse_FUEL_USE_ON:
+		g.FuelUse = new(true)
+	case eventsv1.FuelUse_FUEL_USE_OFF:
+		g.FuelUse = new(false)
+	}
+	return g
+}
+
+// kindLines are the outputs as a golden's lines: each start, each published kind
+// and each end with its summary's kind.
+func kindLines(out []Output) []kindLine {
+	var lines []kindLine
+	n := 0
+	for _, o := range out {
+		switch {
+		case o.Started != nil:
+			n++
+			lines = append(lines, kindLine{Event: "session.started", Session: n, Frame: o.Started.GetFirstSeq()})
+		case o.Kind != nil:
+			lines = append(lines, kindLine{Event: "session.kind", Session: n, Frame: o.Kind.GetAt(), Kind: asGoldenKind(o.Kind.GetKind())})
+		case o.Ended != nil:
+			lines = append(lines, kindLine{Event: "session.ended", Session: n, Kind: asGoldenKind(o.Ended.GetSummary().GetKind())})
+		}
+	}
+	return lines
+}
+
+func readKindGolden(t *testing.T, name string) []kindLine {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join("testdata", "kind", name+".jsonl")) //nolint:gosec // a golden of the tests
+	if err != nil {
+		t.Fatal(err)
+	}
+	var lines []kindLine
+	for line := range strings.Lines(string(data)) {
+		var l kindLine
+		if err := json.Unmarshal([]byte(line), &l); err != nil {
+			t.Fatal(err)
+		}
+		lines = append(lines, l)
+	}
+	return lines
+}
+
+func showKinds(lines []kindLine) []string {
+	s := make([]string, len(lines))
+	for i, l := range lines {
+		s[i] = l.show()
+	}
+	return s
+}
+
+// R1, R2, AC3: on every one of v1's recordings, ecu publishes session.kind where
+// v1's engine applied a new kind to the session (v1's "session ..." log line), with
+// v1's verdict and its evidence word for word, and each session.ended's summary
+// keeps the kind v1 stored for the session. The recordings v1 opens no session on
+// (discarded) are held to v1's engine with its DriverCheck taking every start for
+// a drive (make_golden.py --drive), as ecu does until paddock#74.
+func TestSessionKindIsV1sOnEveryRecording(t *testing.T) {
+	for _, name := range v1Recordings {
+		t.Run(name, func(t *testing.T) {
+			got, want := showKinds(kindLines(replay(t, name))), showKinds(readKindGolden(t, name))
+			if len(want) == 0 {
+				t.Fatal("an empty golden")
+			}
+			if !slices.Equal(got, want) {
+				t.Errorf("got\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+			}
+		})
+	}
+}
+
+// AC1: the last session.kind of each session is the kind and start v1's
+// tests/fixtures/FIXTURES.yaml names for it (for the demos v1 ignores, what it says
+// the detector reads). FIXTURES.yaml reads the start of a session ecu and v1's
+// engine join part way as v1's detector fed from the recording's first frame
+// would; joined, the start was not seen, so it is unknown (R4), as v1's engine
+// stores it.
+func TestTheLastKindOfEachSessionIsFixturesYAMLs(t *testing.T) {
+	for name, want := range map[string][]string{
+		"real-race-2laps-2026-10-14":                     {"solo_timed (flying)", "lap_race (rolling)"},
+		"real-quali-restart-quit-2026-10-14":             {"timed_field (flying)", "timed_field (flying)"},
+		"real-n24h-race-lap1-positions-2026-10-14":       {"lap_race (rolling)"},
+		"real-nuc-unknown-track-2026-10-15":              {"solo_timed (flying)"},
+		"real-nuc-suzuka-east-2026-10-15":                {"solo_laps (flying)"},
+		"real-nuc-suzuka-no-stop-2026-10-15":             {"lap_race (rolling)"},
+		"real-nuc-suzuka-pit-stop-2026-10-15":            {"lap_race (rolling)"},
+		"real-nuc-sugo-timed-2026-10-15":                 {"solo_timed (flying)"},
+		"real-nuc-fuji-timed-2026-10-15":                 {"solo_timed (flying)"},
+		"real-nuc-tokyo-east-race-2026-10-15":            {"lap_race (rolling)"},
+		"real-nuc-nordschleife-rolling-start-2026-10-15": {"lap_race (rolling)"},
+		"real-nuc-laguna-seca-race-2026-10-15":           {"lap_race (rolling)"},
+		"real-nuc-tsukuba-brz-drift-2026-10-15":          {"solo_laps (flying)"},
+		"real-nuc-suzuka-timed-race-2026-10-16":          {"timed_field (flying)"},
+		"real-nuc-willow-springs-pit-stop-2026-10-17":    {"lap_race (rolling)"},
+		"real-nuc-gilles-villeneuve-race-2026-10-17":     {"lap_race (rolling)"},
+		"real-nuc-gilles-villeneuve-pit-stop-2026-10-17": {"lap_race (rolling)"},
+		"real-nuc-sugo-two-stops-2026-10-18":             {"lap_race (rolling)"},
+		"real-nuc-sugo-restarts-2026-10-18":              {"lap_race (rolling)", "lap_race (rolling)", "lap_race (rolling)"},
+		"real-nuc-suzuka-joined-mid-race-2026-10-18":     {"timed_field (start not seen)"},
+		"real-nuc-suzuka-before-restart-2026-10-18":      {"timed_field (flying)"},
+		"real-nuc-spa-pit-cut-quit-2026-10-18":           {"timed_field (flying)"},
+		"real-nuc-spa-time-trial-2026-10-18":             {"solo_timed (flying)"},
+	} {
+		var got []string
+		joined := false
+		var last *eventsv1.SessionKind
+		for _, o := range replay(t, name) {
+			switch {
+			case o.Started != nil:
+				joined, last = o.Started.GetJoinedPartWay(), nil
+			case o.Kind != nil:
+				last = o.Kind.GetKind()
+			case o.Ended != nil:
+				if !proto.Equal(last, o.Ended.GetSummary().GetKind()) {
+					t.Errorf("%s: the summary's kind %v, want the last session.kind %v", name, o.Ended.GetSummary().GetKind(), last)
+				}
+				start := startNames[last.GetStart()]
+				if joined {
+					if start != "unknown" {
+						t.Errorf("%s: joined part way, the start is %s, want unknown", name, start)
+					}
+					// FIXTURES.yaml's start, which the engine did not see.
+					if i := len(got); i < len(want) {
+						start = strings.TrimSuffix(want[i][strings.Index(want[i], "(")+1:], ")")
+					}
+				}
+				got = append(got, kindNames[last.GetSessionType()]+" ("+start+")")
+			}
+		}
+		if !slices.Equal(got, want) {
+			t.Errorf("%s: %v, want %v", name, got, want)
+		}
+	}
+}
+
+// AC2: Fuji's time trial is solo timed with no field throughout, despite the
+// ghost.
+func TestFujiIsSoloTimedDespiteTheGhost(t *testing.T) {
+	var n int
+	for _, o := range replay(t, "real-nuc-fuji-timed-2026-10-15") {
+		if o.Kind == nil {
+			continue
+		}
+		n++
+		if k := o.Kind.GetKind(); k.GetSessionType() != eventsv1.SessionType_SESSION_TYPE_SOLO_TIMED || k.GetField() {
+			t.Errorf("frame %d: %v, want solo timed with no field", o.Kind.GetAt(), k)
+		}
+	}
+	if n == 0 {
+		t.Error("no session.kind")
+	}
+}
+
+// R1: no grid start has been recorded yet, so this one is made up: the car under
+// 30 km/h through the first 18 packets is a grid start; over it, rolling in a lap
+// race. A change of the evidence alone (the cars and the speed it names) is not a
+// change of the decision. With no tank, fuel use is off at once.
+func TestTheStartAndWhatCountsAsAChange(t *testing.T) {
+	for _, c := range []struct {
+		kph  float64
+		want eventsv1.StartType
+	}{
+		{0, eventsv1.StartType_START_TYPE_GRID},
+		{29, eventsv1.StartType_START_TYPE_GRID},
+		{30, eventsv1.StartType_START_TYPE_ROLLING},
+	} {
+		var k kinds
+		var changes int
+		for p := range int32(startWindow + 5) {
+			s := racing(5, 16, 3)
+			s.packetID, s.t, s.speedKph = 1000+p, float64(p)/60, min(c.kph, float64(p)*5)
+			if k.observe(s) {
+				changes++
+			}
+		}
+		v := k.verdict()
+		if v.start != c.want || v.fuelUse != eventsv1.FuelUse_FUEL_USE_OFF || changes != 2 {
+			t.Errorf("%v km/h: %v, %d changes; want %v, fuel use off at once, then the start", c.kph, v, changes, c.want)
+		}
+	}
+
+	var k kinds
+	k.observe(racing(5, 16, 3))
+	evidence := k.verdict().evidence
+	if k.observe(racing(5, 15, 3)) || k.verdict().evidence == evidence {
+		t.Errorf("one car fewer: the evidence %q, and published; want new evidence, not published", k.verdict().evidence)
+	}
+}
+
+// R4: a session joined part way leaves the start unknown, whatever the speed.
+func TestAJoinedSessionsStartIsUnknown(t *testing.T) {
+	var k kinds
+	k.join()
+	for p := range int32(startWindow + 1) {
+		s := racing(5, 16, 3)
+		s.packetID, s.speedKph = p, 120
+		k.observe(s)
+	}
+	if v := k.verdict(); v.start != eventsv1.StartType_START_TYPE_UNKNOWN || !strings.Contains(v.evidence, "joined part way") {
+		t.Errorf("joined: %v, want the start unknown", v)
+	}
+}
+
+// R2, R3: session.kind carries the run, the frame and the session, with the
+// catalogue's id <sid>:session.kind:<run>:<seq> (the publisher puts <src>: in
+// front), at most one a frame for a session, and field true for a lap race and a
+// timed field only.
+func TestSessionKindCarriesTheRunAndTheFrame(t *testing.T) {
+	var n int
+	for _, name := range v1Recordings {
+		m := New(testIDs())
+		perFrame := map[string]bool{}
+		for _, r := range packets(t, name) {
+			for _, o := range m.Step(r) {
+				k := o.Kind
+				if k == nil {
+					continue
+				}
+				n++
+				at := strconv.FormatUint(uint64(k.GetAt()), 10)
+				if k.GetRunId() != m.Run() || k.GetSessionId() != o.Session ||
+					o.Event.ID != o.Session+":session.kind:"+m.Run()+":"+at || o.Event.Source != Source {
+					t.Errorf("%s: %s %v", name, o.Event.ID, k)
+				}
+				if perFrame[o.Session+at] {
+					t.Errorf("%s: two session.kind on frame %s", name, at)
+				}
+				perFrame[o.Session+at] = true
+				st := k.GetKind().GetSessionType()
+				if field := st == eventsv1.SessionType_SESSION_TYPE_LAP_RACE || st == eventsv1.SessionType_SESSION_TYPE_TIMED_FIELD; k.GetKind().GetField() != field {
+					t.Errorf("%s: frame %s: field %t for %v", name, at, k.GetKind().GetField(), st)
+				}
+			}
+		}
+	}
+	if n == 0 {
+		t.Error("no session.kind")
 	}
 }

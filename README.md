@@ -15,16 +15,15 @@ acceptance criterion, `Part of those-who-run/paddock#N` otherwise
 
 [`internal/race`](internal/race) is the race state: a pure state machine
 that takes `salsa` packets one at a time and gives, for each, its frame and the
-events it gives rise to, `session.started`, `session.track`, `lap.completed`
-and `session.ended`, as the `contracts` messages. It opens a session, closes a lap
+events it gives rise to, `session.started`, `session.track`, `session.kind`,
+`lap.completed` and `session.ended`, as the `contracts` messages. It opens a session, closes a lap
 and ends a session exactly where v1 did, with v1's rules ported from its
 `state.py`, `engine.py` and `store.py` at v1.0.0 (paddock#33).
 
-- **Session type.** v1's `SessionDetector` (`sessionkind.py`), cut to the
-  kind: a lap race, solo laps, a timed session with a field, or solo timed,
-  from the lap total and the field of cars. `session.started` carries the
-  verdict on the session's first frame, and `session.ended`'s summary the
-  final one, which can differ (paddock#34). Outside a field, `position` and
+- **Session type.** The session's kind ([The session's kind](#the-sessions-kind)):
+  a lap race, solo laps, a timed session with a field, or solo timed.
+  `session.started` carries the verdict on the session's first frame, and
+  `session.ended`'s summary the final one, which can differ (paddock#34). Outside a field, `position` and
   `final_position` are left out, where v1 stored GT7's 1; `finishing_position`
   is set only for a lap race that ended at the flag.
 - **End reasons.** At the flag, quit (a loading screen with the lap counter
@@ -125,6 +124,41 @@ v1.0.0, in [`internal/race/track.go`](internal/race/track.go).
   wrote them from v1.0.0. On the six v1 opens no session on (it drops them as a
   replay or a GT7 demo, paddock#74), each verdict published is checked against
   v1's detector instead.
+
+## The session's kind
+
+GT7 sends no mode. [`internal/race/kind.go`](internal/race/kind.go) is v1's
+`SessionDetector` (`sessionkind.py` at v1.0.0), ported as it is, and publishes
+`session.kind` each time its decision changes (paddock#82), as v1's
+`Engine._apply_kind` applied it.
+
+- **The kind.** A lap total and two or more cars is a lap race, a lap total
+  and one car solo laps; no lap total and three or more cars a timed field
+  (qualifying or a timed race), one car solo timed (a time trial or
+  practice). Two cars make a timed field only once the driver has been
+  anything but first, so a ghost doesn't. `total_cars` of -1 (around the
+  results, and a whole time trial) says nothing. `field` is true for a lap
+  race and a timed field.
+- **Fuel use.** On once the level drops 0.05 below the highest seen while
+  racing; off after 20 s of driving at 20 km/h or more without a drop, or at
+  once with no tank.
+- **The start.** The fastest the car goes in the first 18 packets of racing:
+  under 30 km/h is a grid start, else rolling in a lap race and flying
+  otherwise. A session joined part way leaves it unknown.
+- **What counts as a change.** The kind, fuel use, GT7's cars-on-track flag or
+  the start. The evidence sentence rides along, but a change of its wording
+  alone publishes nothing. Each start resets the detector, so the session's
+  first frame always publishes one. The detector is fed every racing frame,
+  so a lap total GT7 posts a moment after the start still counts.
+- **The event.** `SessionKindChanged`: the verdict as `SessionKind`, the
+  frame's seq as `at` and the run's id as `run_id`. The detector decides at
+  most once a frame, so a frame publishes one at most. `session.ended`'s
+  summary carries the last one as `kind`.
+- **Tests.** On every one of v1's 25 recordings, the `session.kind` events
+  and each summary's kind are v1's, evidence word for word, as `make_golden.py`
+  in [`internal/race/testdata/kind/`](internal/race/testdata/kind) wrote them
+  from v1.0.0. The six v1 opens no session on (paddock#74) are held to v1's
+  engine with its replay and demo check taking every start for a drive.
 
 ## Listening to the PS5
 
@@ -273,6 +307,7 @@ one line per session printed at the end.
 | `twr.v1.<src>.frame.gt7.lo` | the same frames, at most one per 50 ms of frame time (20 Hz) | none |
 | `twr.v1.<src>.evt.<sid>.session.started` | a session began | `EVENTS` |
 | `twr.v1.<src>.evt.<sid>.session.track` | the session's track verdict changed | `EVENTS` |
+| `twr.v1.<src>.evt.<sid>.session.kind` | the session's kind verdict changed | `EVENTS` |
 | `twr.v1.<src>.evt.<sid>.lap.completed` | a lap ended | `EVENTS` |
 | `twr.v1.<src>.evt.<sid>.session.ended` | a session ended | `EVENTS` |
 
@@ -283,7 +318,8 @@ one line per session printed at the end.
   equal to `ce-id`. The ids follow the `msg_id` schemes of `contracts`'
   `subjects.yaml` (v0.2.0, paddock#279): a frame's is `<run>:frame:<seq>`, and
   an event's is `<src>:<sid>:session.started:1`,
-  `<src>:<sid>:session.track:<run>:<seq>` (the run and the frame it changed
+  `<src>:<sid>:session.track:<run>:<seq>` and
+  `<src>:<sid>:session.kind:<run>:<seq>` (the run and the frame it changed
   on), `<src>:<sid>:lap.completed:<n>` or `<src>:<sid>:session.ended:1`, with
   the subject's `<src>`, so two replays
   under different sources are not deduplicated against each other. An event

@@ -1,0 +1,4 @@
+{"event": "session.started", "session": 1, "frame": 1}
+{"event": "session.kind", "session": 1, "frame": 1, "kind": {"kind": "solo_laps", "total_laps": 1, "field": false, "fuel_use": null, "cars_on_track": true, "start": "unknown", "evidence": "1 laps, 1 cars; fuel use not known yet"}}
+{"event": "session.kind", "session": 1, "frame": 2, "kind": {"kind": "solo_laps", "total_laps": 1, "field": false, "fuel_use": true, "cars_on_track": true, "start": "flying", "evidence": "1 laps, 1 cars; fuel use on; flying start at 130 km/h"}}
+{"event": "session.ended", "session": 1, "frame": 118, "kind": {"kind": "solo_laps", "total_laps": 1, "field": false, "fuel_use": true, "cars_on_track": true, "start": "flying", "evidence": "1 laps, 1 cars; fuel use on; flying start at 130 km/h"}}

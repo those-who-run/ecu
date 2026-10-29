@@ -19,6 +19,8 @@ const (
 // the fields they and the lap bookkeeping use.
 type state struct {
 	seq       uint32
+	t         float64 // the packet's time on the source's clock, in seconds
+	packetID  int32
 	phase     telemetryv1.Phase
 	lap       int32 // GT7's current lap
 	totalLaps int32
@@ -27,6 +29,11 @@ type state struct {
 	position  int32 // GT7's race position, -1 outside a race
 	totalCars int32 // GT7's count of cars, -1 in a time trial and around the results
 	carCode   int32
+
+	// What the session's kind reads (kind.go).
+	fuelCapacity float64
+	speedKph     float64
+	carsOnTrack  bool // GT7's cars-on-track flag
 }
 
 func (s *state) inRace() bool { return s.phase == phaseInRace }
@@ -40,10 +47,12 @@ func (s *state) racePosition() int32 {
 	return 0
 }
 
-func newState(seq uint32, p *salsa.Packet) state {
+func newState(seq uint32, t float64, p *salsa.Packet) state {
 	lap, total := int32(p.CurrentLap), int32(p.TotalLaps)
 	return state{
 		seq:       seq,
+		t:         t,
+		packetID:  p.PacketID,
 		phase:     derivePhase(lap, total, p.Flags.Paused(), p.Flags.Loading()),
 		lap:       lap,
 		totalLaps: total,
@@ -52,6 +61,10 @@ func newState(seq uint32, p *salsa.Packet) state {
 		position:  int32(p.RacePosition),
 		totalCars: int32(p.TotalCars),
 		carCode:   p.CarCode,
+
+		fuelCapacity: float64(p.FuelCapacity),
+		speedKph:     p.SpeedKPH(),
+		carsOnTrack:  p.Flags.CarsOnTrack(),
 	}
 }
 

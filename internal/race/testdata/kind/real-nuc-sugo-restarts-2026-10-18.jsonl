@@ -1,0 +1,13 @@
+{"event": "session.started", "session": 1, "frame": 46}
+{"event": "session.kind", "session": 1, "frame": 46, "kind": {"kind": "lap_race", "total_laps": 2, "field": true, "fuel_use": null, "cars_on_track": true, "start": "unknown", "evidence": "2 laps, 20 cars; fuel use not known yet"}}
+{"event": "session.kind", "session": 1, "frame": 48, "kind": {"kind": "lap_race", "total_laps": 2, "field": true, "fuel_use": true, "cars_on_track": true, "start": "rolling", "evidence": "2 laps, 20 cars; fuel use on; rolling start at 158 km/h"}}
+{"event": "session.ended", "session": 1, "frame": 641, "kind": {"kind": "lap_race", "total_laps": 2, "field": true, "fuel_use": true, "cars_on_track": true, "start": "rolling", "evidence": "2 laps, 20 cars; fuel use on; rolling start at 158 km/h"}}
+{"event": "session.started", "session": 2, "frame": 668}
+{"event": "session.kind", "session": 2, "frame": 668, "kind": {"kind": "lap_race", "total_laps": 2, "field": true, "fuel_use": null, "cars_on_track": true, "start": "unknown", "evidence": "2 laps, 20 cars; fuel use not known yet"}}
+{"event": "session.kind", "session": 2, "frame": 670, "kind": {"kind": "lap_race", "total_laps": 2, "field": true, "fuel_use": true, "cars_on_track": true, "start": "rolling", "evidence": "2 laps, 20 cars; fuel use on; rolling start at 155 km/h"}}
+{"event": "session.ended", "session": 2, "frame": 773, "kind": {"kind": "lap_race", "total_laps": 2, "field": true, "fuel_use": true, "cars_on_track": true, "start": "rolling", "evidence": "2 laps, 20 cars; fuel use on; rolling start at 155 km/h"}}
+{"event": "session.started", "session": 3, "frame": 790}
+{"event": "session.kind", "session": 3, "frame": 790, "kind": {"kind": "lap_race", "total_laps": 2, "field": true, "fuel_use": null, "cars_on_track": true, "start": "unknown", "evidence": "2 laps, 20 cars; fuel use not known yet"}}
+{"event": "session.kind", "session": 3, "frame": 792, "kind": {"kind": "lap_race", "total_laps": 2, "field": true, "fuel_use": null, "cars_on_track": true, "start": "rolling", "evidence": "2 laps, 20 cars; fuel use not known yet; rolling start at 147 km/h"}}
+{"event": "session.kind", "session": 3, "frame": 794, "kind": {"kind": "lap_race", "total_laps": 2, "field": true, "fuel_use": true, "cars_on_track": true, "start": "rolling", "evidence": "2 laps, 20 cars; fuel use on; rolling start at 147 km/h"}}
+{"event": "session.ended", "session": 3, "frame": 1151, "kind": {"kind": "lap_race", "total_laps": 2, "field": true, "fuel_use": true, "cars_on_track": true, "start": "rolling", "evidence": "2 laps, 20 cars; fuel use on; rolling start at 147 km/h"}}
