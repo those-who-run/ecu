@@ -1,55 +1,16 @@
 package laptime
 
 import (
-	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
-	"math"
-	"math/rand/v2"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
-	"time"
 
-	"github.com/those-who-run/salsa"
-
-	"github.com/those-who-run/ecu/internal/race"
-	"github.com/those-who-run/ecu/internal/rules"
+	"github.com/those-who-run/ecu/internal/rules/rulestest"
 )
-
-// v1Recordings are v1's 25 recordings, as internal/race's tests name them.
-var v1Recordings = []string{
-	"real-race-2laps-2026-10-14",
-	"real-quali-restart-quit-2026-10-14",
-	"real-n24h-race-lap1-positions-2026-10-14",
-	"real-nuc-unknown-track-2026-10-15",
-	"real-nuc-suzuka-east-2026-10-15",
-	"real-nuc-suzuka-no-stop-2026-10-15",
-	"real-nuc-suzuka-pit-stop-2026-10-15",
-	"real-nuc-sugo-timed-2026-10-15",
-	"real-nuc-fuji-timed-2026-10-15",
-	"real-nuc-tokyo-east-race-2026-10-15",
-	"real-nuc-nordschleife-rolling-start-2026-10-15",
-	"real-nuc-laguna-seca-race-2026-10-15",
-	"real-nuc-tsukuba-brz-drift-2026-10-15",
-	"real-nuc-suzuka-timed-race-2026-10-16",
-	"real-nuc-willow-springs-pit-stop-2026-10-17",
-	"real-nuc-gilles-villeneuve-race-2026-10-17",
-	"real-nuc-gilles-villeneuve-pit-stop-2026-10-17",
-	"real-nuc-sugo-two-stops-2026-10-18",
-	"real-nuc-sugo-replay-2026-10-18",
-	"real-nuc-laguna-seca-demo-2026-10-18",
-	"real-nuc-sugo-restarts-2026-10-18",
-	"real-nuc-suzuka-joined-mid-race-2026-10-18",
-	"real-nuc-suzuka-before-restart-2026-10-18",
-	"real-nuc-spa-pit-cut-quit-2026-10-18",
-	"real-nuc-spa-time-trial-2026-10-18",
-}
 
 // accepted are v1's calls ecu doesn't make, by recording and frame, each with the
 // decision behind it.
@@ -123,31 +84,23 @@ func readGolden(t *testing.T, name string) []string {
 var pitLanes = map[string]string{"PIT_LANE_SPEAK": "speak", "PIT_LANE_HOLD": "hold", "PIT_LANE_DROP": "drop"}
 
 // replayed is the rule's callouts on a recording, through the race state and the
-// engine with v1's defaults, as lines to compare.
+// engine with v1's defaults (rulestest.Replay), as lines to compare.
 func replayed(t *testing.T, name string) []string {
 	t.Helper()
-	engine, err := rules.New(rules.DefaultConfig(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := engine.Rules(); !slices.Equal(got, []string{Name}) {
-		t.Fatalf("the engine runs %v, want only %s", got, Name)
-	}
-	m := race.New(race.NewIDs(func() time.Time { return epoch }, rand.NewChaCha8([32]byte{'e', 'c', 'u'})))
 	sessions := map[string]int{}
+	var frame uint32
 	var out []string
-	for _, r := range packets(t, name) {
-		for _, o := range m.Step(r) {
-			if o.Started != nil {
-				sessions[o.Session] = len(sessions) + 1
-			}
-		}
-		ctx := m.Context()
-		for _, o := range engine.Step(ctx) {
+	for _, o := range rulestest.Replay(t, name) {
+		switch {
+		case o.Frame != nil:
+			frame = o.Frame.GetSeq()
+		case o.Started != nil:
+			sessions[o.Session] = len(sessions) + 1
+		case o.Callout != nil && o.Callout.GetRule() == Name:
 			c := o.Callout
 			var released uint32
-			if c.GetAt() != ctx.Cur.Seq {
-				released = ctx.Cur.Seq
+			if c.GetAt() != frame {
+				released = frame
 			}
 			var hold int64
 			if c.GetHoldUntil() != nil {
@@ -159,7 +112,6 @@ func replayed(t *testing.T, name string) []string {
 				s.GetLap(), s.GetLapTimeMs(), s.DeltaMs, hold, expiry, pitLanes[c.GetPitLane().String()]))
 		}
 	}
-	m.EndOfInput()
 	return out
 }
 
@@ -168,7 +120,7 @@ func replayed(t *testing.T, name string) []string {
 // priority, hold, expiry and pit lane, held in the lane to the frame v1 released
 // them, but for the accepted differences.
 func TestEveryLapCallIsV1sOnEveryRecording(t *testing.T) {
-	for _, name := range v1Recordings {
+	for _, name := range rulestest.Recordings {
 		t.Run(name, func(t *testing.T) {
 			got, want := replayed(t, name), readGolden(t, name)
 			if !slices.Equal(got, want) {
@@ -186,47 +138,5 @@ func TestTheWillowSpringsInLapIsCalled(t *testing.T) {
 		return strings.HasPrefix(l, "session 1 frame 204: "+KindInLap+" p20 lap 6 96562 ")
 	}) {
 		t.Errorf("no call of the in-lap, lap 6, on frame 204 in\n%s", strings.Join(got, "\n"))
-	}
-}
-
-// The recordings, as internal/race's tests read them: salsa's testdata/v1, else
-// internal/track's.
-
-// epoch is the wall-clock time of each recording's first frame; later frames are
-// that plus their t.
-var epoch = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-
-func packets(tb testing.TB, name string) []race.Received {
-	tb.Helper()
-	path := filepath.Join("..", "..", "track", "testdata", "v1", name+".jsonl.gz")
-	if _, err := os.Stat(path); err != nil {
-		// go test puts its own toolchain's go first on PATH.
-		dir, err := exec.CommandContext(context.Background(), "go", "list", "-m", "-f", "{{.Dir}}",
-			"github.com/those-who-run/salsa").Output()
-		if err != nil {
-			tb.Fatal(err)
-		}
-		path = filepath.Join(strings.TrimSpace(string(dir)), "testdata", "v1", name+".jsonl.gz")
-	}
-	src, err := salsa.OpenRecording(path)
-	if err != nil {
-		tb.Fatal(err)
-	}
-	defer func() { _ = src.Close() }()
-	var all []race.Received
-	for {
-		r, err := src.Next(tb.Context())
-		if errors.Is(err, io.EOF) {
-			return all
-		}
-		if err != nil {
-			tb.Fatal(err)
-		}
-		t0 := r.T
-		if len(all) > 0 {
-			t0 = all[0].T
-		}
-		at := epoch.Add(time.Duration(math.Round((r.T - t0) * float64(time.Second))))
-		all = append(all, race.Received{Received: r, Time: at})
 	}
 }

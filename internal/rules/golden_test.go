@@ -40,7 +40,14 @@ func (l goldenLine) show() string {
 
 // accepted are v1's callouts ecu does not raise on purpose, by recording and the
 // line's show(), with the decision that says so. Each rule's port adds its own.
-var accepted = map[string]map[string]string{}
+var accepted = map[string]map[string]string{
+	"real-nuc-sugo-replay-2026-10-18": {
+		// GT7 jumps the lap counter from 4 to 13 on the way to the results: v1 called
+		// "lap twelve" with no lap closed behind it, and ecu's lap_time, which calls
+		// the closed lap, says nothing (paddock#91).
+		"session 1 frame 864 lap_time delta_slower p20 hold": "https://github.com/those-who-run/paddock/issues/83#issuecomment-6504879235",
+	},
+}
 
 func readGolden(t *testing.T, name string) []goldenLine {
 	t.Helper()
