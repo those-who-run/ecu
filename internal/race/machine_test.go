@@ -44,7 +44,7 @@ func (d *drive) add(lap int16, flags salsa.Flags, fuel float32, lastLapMs int32,
 func events(out []Output) []Output {
 	var evs []Output
 	for _, o := range out {
-		if o.Frame == nil && o.Track == nil && o.PitEntered == nil && o.PitExited == nil {
+		if o.Frame == nil && o.Track == nil && o.Kind == nil && o.PitEntered == nil && o.PitExited == nil {
 			evs = append(evs, o)
 		}
 	}

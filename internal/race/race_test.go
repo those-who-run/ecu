@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -587,9 +588,10 @@ func TestAQuitAndBackToTheMenuAreToldApart(t *testing.T) {
 
 // Every event id is unique across a replay, events of every kind: EVENTS drops a
 // second event with an id it holds as a duplicate. Two changes of the track on
-// one frame are one session.track (seven of v1's recordings have them). The pit
-// stops' recordings publish pit.entered and pit.exited, SUGO's two of each, and
-// Spa's an entry alone.
+// one frame are one session.track (seven of v1's recordings have them), and the
+// kind changes at most once a frame (session.kind, paddock#82). Every recording
+// publishes both. The pit stops' recordings publish pit.entered and pit.exited,
+// SUGO's two of each, and Spa's an entry alone.
 func TestEveryEventIDIsUnique(t *testing.T) {
 	pits := map[string]int{
 		"real-nuc-suzuka-pit-stop-2026-10-15":            2,
@@ -613,6 +615,11 @@ func TestEveryEventIDIsUnique(t *testing.T) {
 				t.Errorf("%s: %s published twice", name, o.Event.ID)
 			}
 			seen[o.Event.ID] = true
+		}
+		for _, what := range []string{":session.track:", ":session.kind:"} {
+			if !slices.ContainsFunc(slices.Collect(maps.Keys(seen)), func(id string) bool { return strings.Contains(id, what) }) {
+				t.Errorf("%s: no %s event", name, strings.Trim(what, ":"))
+			}
 		}
 		if pit != pits[name] {
 			t.Errorf("%s: %d pit events, want %d", name, pit, pits[name])

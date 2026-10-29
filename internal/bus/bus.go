@@ -1,8 +1,8 @@
 // Package bus is ecu's NATS adapter (paddock#34): it puts the race state's
 // outputs on the bus. Each frame is a core publish on twr.v1.<src>.frame.gt7, which
 // the TELEMETRY stream captures, and at most 20 a second of frame time go on
-// twr.v1.<src>.frame.gt7.lo too. session.started, session.track, lap.completed,
-// pit.entered, pit.exited and session.ended go on
+// twr.v1.<src>.frame.gt7.lo too. session.started, session.track, session.kind,
+// pit.entered, pit.exited, lap.completed and session.ended go on
 // twr.v1.<src>.evt.<sid>.<area>.<what>, which the EVENTS stream captures and
 // deduplicates on Nats-Msg-Id; each is published through
 // JetStream and sent again until EVENTS acknowledges it. Every message carries the
@@ -289,7 +289,7 @@ func (p *Publisher) dropFrame(lo bool) {
 // <area>.<what> comes from its ce-type, and an event with no session open goes on
 // evt._, its id then starting <src>:<run>: as the race state gives it.
 func (p *Publisher) event(o race.Output, wait <-chan struct{}) {
-	if o.Started == nil && o.Lap == nil && o.Track == nil && o.Ended == nil &&
+	if o.Started == nil && o.Lap == nil && o.Track == nil && o.Kind == nil && o.Ended == nil &&
 		o.PitEntered == nil && o.PitExited == nil {
 		return
 	}
