@@ -105,6 +105,14 @@ linters:
               desc: the rules are pure; no file system (paddock#89)
             - pkg: syscall
               desc: the rules are pure; no system calls (paddock#89)
+        # rulestest replays recordings for the tests; no program imports it.
+        rulestest:
+          files:
+            - "**/cmd/**/*.go"
+            - "!$test"
+          deny:
+            - pkg: github.com/those-who-run/ecu/internal/rules/rulestest
+              desc: rulestest is for the tests only (paddock#89)
         # internal/bus is the only package that talks to NATS (paddock#34), with
         # internal/bus/bustest, the test server only tests import.
         nats:

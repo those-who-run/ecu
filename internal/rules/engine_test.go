@@ -239,7 +239,11 @@ func TestThePitLaneSpeaksHoldsAndDrops(t *testing.T) {
 	e := testEngine(t, nil, "lap_time", raise, "fuel", raise, "position", raise)
 	var got [][]*eventsv1.Callout
 	for seq, lane := range []bool{false, true, true, false} {
-		got = append(got, callouts(e.Step(frame(uint32(seq+1), lane))))
+		f := frame(uint32(seq+1), lane)
+		if seq == 3 {
+			f.PitChange = pit.Exited
+		}
+		got = append(got, callouts(e.Step(f)))
 	}
 	rulesOf := func(cs []*eventsv1.Callout) string {
 		var names []string
@@ -348,4 +352,63 @@ func salsaDir(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return filepath.Join(strings.TrimSpace(string(out)), "testdata", "v1")
+}
+
+// A session that ends in the lane without a finish never publishes what was
+// held, neither on its last frame nor once no session is open (the pits then
+// read as out of the lane): v1 released only on a pit change with a session
+// open, and its next start cleared them.
+func TestASessionEndedInTheLaneNeverReleases(t *testing.T) {
+	raise := &stub{raise: func(ctx *race.Context) []Callout {
+		if ctx.Cur.Seq == 1 {
+			return []Callout{{Kind: "template_in_lap"}}
+		}
+		return nil
+	}}
+	e := testEngine(t, nil, "lap_time", raise)
+	_ = e.Step(frame(1, true))
+	quit := frame(2, true)
+	quit.EndedEarly = &race.View{Seq: 1}
+	menu := frame(3, false)
+	menu.Session, menu.Racing = "", false
+	for _, f := range []*race.Context{quit, menu, frame(4, false)} {
+		if got := callouts(e.Step(f)); len(got) != 0 {
+			t.Errorf("frame %d: %v released after the session ended", f.Cur.Seq, got)
+		}
+	}
+	if d := e.Stats().Dropped["lap_time"]; d != 1 {
+		t.Errorf("%d dropped, want the held one", d)
+	}
+	// Out of the lane with no exit, the session still open: still held, as v1.
+	_ = e.Step(frame(1, true))
+	if got := callouts(e.Step(frame(5, false))); len(got) != 0 {
+		t.Errorf("released with no pit change: %v", got)
+	}
+}
+
+// On the flag frame in the lane, and after it, the pit lane still applies: a
+// drop callout is dropped, and a hold one is released on the same frame, after
+// the rules, as raised then with no hold_until (v1's _quiet, then its release
+// once finished).
+func TestThePitLaneAppliesAtTheFlag(t *testing.T) {
+	raise := &stub{raise: func(ctx *race.Context) []Callout {
+		if ctx.Cur.Seq == 2 {
+			return []Callout{{Kind: "k"}}
+		}
+		return nil
+	}}
+	e := testEngine(t, nil, "position", raise, "lap_time", raise)
+	_ = e.Step(frame(1, true))
+	flag := frame(2, true)
+	flag.Finished = true
+	got := callouts(e.Step(flag))
+	if len(got) != 1 || got[0].GetRule() != "lap_time" {
+		t.Fatalf("at the flag in the lane: %v, want lap_time's alone", got)
+	}
+	if got[0].GetHoldUntil() != nil || !got[0].GetCreatedAt().AsTime().Equal(flag.Time) {
+		t.Errorf("released at the flag: %v", got[0])
+	}
+	if d := e.Stats().Dropped["position"]; d != 1 {
+		t.Errorf("position: %d dropped, want 1", d)
+	}
 }
