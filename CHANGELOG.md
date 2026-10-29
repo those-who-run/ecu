@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.8](https://github.com/those-who-run/ecu/compare/v0.1.7...v0.1.8) (2026-10-29)
+
+
+### Features
+
+* **rules:** race_summary, the summary at the finish and on leaving a solo session ([#41](https://github.com/those-who-run/ecu/issues/41)) ([66fa783](https://github.com/those-who-run/ecu/commit/66fa783955bb06c53c91a5f7a107401c9af98dfc))
+* **rules:** the fuel rule and the fuel model ([#40](https://github.com/those-who-run/ecu/issues/40)) ([946abf5](https://github.com/those-who-run/ecu/commit/946abf5e5d9595f8fdac0640a41f1ae21eb8cbe5))
+* **rules:** the lap_time rule ([#38](https://github.com/those-who-run/ecu/issues/38)) ([aa9dd5a](https://github.com/those-who-run/ecu/commit/aa9dd5a0d1f205ff9d8c2d6a949b51b307a338af))
+* **rules:** the position rule (places gained and lost) ([#37](https://github.com/those-who-run/ecu/issues/37)) ([a4c190f](https://github.com/those-who-run/ecu/commit/a4c190f7fdc193de2accfc5c76580a2f6cdb5b3f))
+* **rules:** the rule engine and callouts on the bus (final_lap) ([#42](https://github.com/those-who-run/ecu/issues/42)) ([bc600cb](https://github.com/those-who-run/ecu/commit/bc600cb26f299e8076044a7968286926e6b4f1ef))
+* **rules:** the start brief (start_brief) ([#39](https://github.com/those-who-run/ecu/issues/39)) ([1922013](https://github.com/those-who-run/ecu/commit/19220138f9f155e0b3f4d7d21281b91bdc1de5ff))
+
 ## [0.1.7](https://github.com/those-who-run/ecu/compare/v0.1.6...v0.1.7) (2026-10-29)
 
 
