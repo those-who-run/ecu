@@ -200,6 +200,7 @@ overflowed, the heartbeats sent and failed, and the listener's restarts.
 | `TWR_ECU_PS5_IP` | none: required | The PS5's IP address, where the heartbeat goes. |
 | `TWR_ECU_HEARTBEAT_SECS` | `2` | Seconds between heartbeats, from 0.01 to 3,600. |
 | `TWR_ECU_RECORDINGS_DIR` | unset: no recording | The directory each drive is recorded in ([Recording](#recording)). |
+| `TWR_ECU_RULES_FILE` | unset: v1's defaults | The rules file, v1's rules YAML ([The callouts](#the-callouts)); `ecu replay` reads it too. |
 
 The ports: UDP 33740 in (the PS5 sends there, to the address the heartbeat
 came from), and UDP out to the PS5's 33739. In a pod, 33740/UDP needs a
@@ -483,6 +484,45 @@ is the callouts' (paddock#93, #94).
   v1's calls with `rules.example.yaml`'s), the six v1 opens no session on with
   every start taken for a drive.
 
+## The callouts
+
+[`internal/rules`](internal/rules) is the rule engine (paddock#89): v1's
+built-in rules run in v1's order on every frame, against one read-only
+`race.Context` the machine fills on each step, and what they raise is published
+as contracts' `Callout` on `twr.v1.<src>.callout.p0`, `.p1` or `.p2`, by
+priority (p0 under 10, p1 10 to 19, p2 20 and over). ecu decides each
+callout's kind and slots, priority, hold, expiry and pit-lane policy; radio
+only phrases and speaks it. Its [README](internal/rules/README.md) says how
+the context stands for v1's hooks, what the engine stamps, and how to add a
+rule.
+
+- **Rules.** `final_lap` (paddock#93) so far; the others (#91 to #98) are
+  each a package under `internal/rules`.
+- **Where in the step.** The context holds each value as v1's rules saw it in
+  `Engine._step` (after the pits, before the timed finish, the track, the kind
+  and the lap store), plus the lap closed, the finish and the end of the
+  session from later in the step, so the engine runs once `Step` returns.
+- **The rules file.** `TWR_ECU_RULES_FILE`, v1's rules YAML: v1's
+  `rules.example.yaml` loads unchanged. ecu reads `queue.max_age_seconds` and
+  each rule's `enabled`, `priority`, `max_age_seconds`, `hold_secs`,
+  `pit_lane` and own thresholds, and ignores the templates, the script and the
+  voice, which are radio's. A `pit_lane` other than `speak`, `hold` or `drop`,
+  or a value of the wrong type, stops ecu at start.
+- **Times.** `created_at` is when ecu received the frame (the replay's clock
+  in a replay); `expires_at` is always set, `created_at` plus the rule's
+  `max_age_seconds` or the queue's 8 s; `hold_until` is `created_at` plus
+  `hold_secs`. The id is `<src>:<run>:callout:<seq>:<rule>:<n>`, so a replay
+  with the same run id repeats its ids.
+- **The pit lane.** From the entry's frame to the exit's, a callout of a
+  `speak` rule is published, a `drop` one never is, and a `hold` one is
+  published at the exit, an entry withdrawn, or the finish in the lane, as
+  raised then (contracts' `PitLane`).
+- **A rule that panics** is recovered, logged with its name and counted, and
+  the other rules carry on.
+- **Tests.** `internal/rules/testdata/callouts` holds every callout v1.0.0
+  raised on each of the 25 recordings, written by its `make_golden.py`; the
+  callouts of every registered rule are compared with it.
+
 ## Publishing
 
 [`internal/bus`](internal/bus) puts the race state's outputs on NATS
@@ -505,6 +545,7 @@ is the callouts' (paddock#93, #94).
 | `twr.v1.<src>.evt.<sid>.lap.best` | the session's best lap changed | `EVENTS` |
 | `twr.v1.<src>.evt.<sid>.race.finished` | the race reached its finish, by the flag or timed | `EVENTS` |
 | `twr.v1.<src>.evt.<sid>.session.ended` | a session ended | `EVENTS` |
+| `twr.v1.<src>.callout.p0`, `.p1`, `.p2` | a callout, on its priority's level ([The callouts](#the-callouts)) | `CALLOUTS` |
 
 - **Messages.** Each is the `contracts` message in protobuf
   JSON, with every CloudEvents header from `contracts`' `ce` package:
@@ -543,6 +584,14 @@ is the callouts' (paddock#93, #94).
   hand-over to it; beyond that an event is dropped, counted and logged as an
   error, and the step does not wait. At the end ecu waits up to 5 s for the
   queue, and no longer.
+- **Callouts** go the same way as events, in the same queue, into
+  `CALLOUTS`, with the id `<src>:<run>:callout:<seq>:<rule>:<n>` in the
+  message, `ce-id` and `Nats-Msg-Id`. A callout that is not acknowledged is
+  sent again only until its life is over (`expires_at` less `created_at`,
+  counted from when the step handed it on, so a replay dated in the past still
+  gets it): then it is dropped, counted and logged, since radio would drop it
+  unspoken (paddock#73's decision). `ecu replay` exits 2 when a callout was
+  dropped.
 - **Copies.** A copy sent again that `EVENTS` already stored is dropped there
   within its 2 min duplicate window. A copy can still be stored twice in two
   cases: an acknowledgement is lost and the connection then stays down for more
@@ -562,14 +611,14 @@ is the callouts' (paddock#93, #94).
   space, stops ecu at start, and so does anything but `live` when it listens to
   the PS5 ([Listening to the PS5](#listening-to-the-ps5)); `ecu replay` refuses
   `live` instead ([Replay](#replay)). ecu logs the server (without credentials) and the
-  source at start, and the frames, 20 Hz frames and events published and
-  dropped at the end, with `"final": true`. When a write still
+  source at start, and the frames, 20 Hz frames, events and callouts published
+  and dropped at the end, with `"final": true`. When a write still
   holds the publisher once the 5 s are up, that line has `"final": false`,
   ecu closes the connection under the write so it gives up at once, and waits
   up to 3 s more for the line with the final totals.
 - **Tests.** The tests run the `nats-server` release paddock pins, downloaded
   once into the user's cache and checked against its sha256 (or the binary
-  `TWR_TEST_NATS_SERVER` names), with the `TELEMETRY` and `EVENTS` definitions
+  `TWR_TEST_NATS_SERVER` names), with the `TELEMETRY`, `EVENTS` and `CALLOUTS` definitions
   of paddock's `deploy/nats/streams` in
   [`internal/bus/bustest/streams`](internal/bus/bustest/streams), in
   [`internal/bus/bustest`](internal/bus/bustest), which `cmd/ecu`'s replay

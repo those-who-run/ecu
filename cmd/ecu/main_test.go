@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"log/slog"
 	"net"
 	"os"
 	"path/filepath"
@@ -10,6 +11,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/those-who-run/ecu/internal/service"
 )
 
 func env(vars map[string]string) func(string) string {
@@ -195,7 +198,7 @@ func TestLogsWhereItPublishes(t *testing.T) {
 	for _, want := range []string{
 		`"msg":"publishing","nats":"nats://127.0.0.1:1","src":"live"`,
 		`"msg":"published","frames":0,`,
-		`"dropped_events":0,"final":true}`,
+		`"dropped_events":0,"dropped_callouts":0,"final":true}`,
 		`"msg":"listening to the PS5","ps5":"127.0.0.1","heartbeat_port":33739,"listen":"127.0.0.1:0","heartbeat_secs":2}`,
 		`"msg":"recording","dir":"` + dir + `"`,
 		`"msg":"stopped listening to the PS5","packets":0,`,
@@ -245,5 +248,29 @@ func TestLiveModeIsConfiguredAtStart(t *testing.T) {
 		if strings.Contains(stdout.String(), "publishing") {
 			t.Errorf("%v: connected before refusing: %q", c.args, stdout.String())
 		}
+	}
+}
+
+// AC3 of paddock#89: TWR_ECU_RULES_FILE names the rules file, and a pit_lane
+// other than speak, hold or drop, or a file that can't be read, stops ecu at
+// start; v1's rules.example.yaml loads.
+func TestTheRulesFileIsReadAtStart(t *testing.T) {
+	dir := t.TempDir()
+	whisper := filepath.Join(dir, "whisper.yaml")
+	if err := os.WriteFile(whisper, []byte("rules:\n  position:\n    pit_lane: whisper\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{whisper, filepath.Join(dir, "missing.yaml")} {
+		var stderr bytes.Buffer
+		code := run(t.Context(), nil, liveEnv(map[string]string{"TWR_ECU_RULES_FILE": path}), &bytes.Buffer{}, &stderr)
+		if code != 2 || !strings.Contains(stderr.String(), "TWR_ECU_RULES_FILE") {
+			t.Errorf("%s: exit %d, stderr %q; want 2 naming TWR_ECU_RULES_FILE", path, code, stderr.String())
+		}
+	}
+	var logs bytes.Buffer
+	eng, err := rulesEngine(env(map[string]string{"TWR_ECU_RULES_FILE": filepath.Join("..", "..", "internal", "rules", "testdata", "rules.example.yaml")}),
+		service.NewLogger(&logs, slog.LevelInfo))
+	if err != nil || len(eng.Rules()) == 0 || !strings.Contains(logs.String(), `"msg":"rules"`) {
+		t.Errorf("v1's example: %v, %v, %s", eng, err, logs.String())
 	}
 }

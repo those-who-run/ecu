@@ -1,0 +1,124 @@
+# Those Who Run rules. Every value here overrides a built-in default, so a
+# file with only the keys you want to change is fine.
+#
+# Phrases come from the bundled script (src/those_who_run/data/script.yaml):
+# several variants per callout, picked at random, never the same twice running.
+# The templates below are commented out because a template set here replaces
+# the script's list for that key. Uncomment one to pin a single phrase, or give
+# a list of your own. `script: false` falls back to these single phrases.
+# A template left blank (null) uses the built-in single phrase; to silence a
+# callout, set `enabled: false` on its rule. A template must be text or a list
+# of text: anything else is rejected at start-up.
+script: true
+voice:
+  length_scale: 0.9     # < 1 speaks faster
+  # noise_scale: 0.5     # variation in the voice
+  # noise_w_scale: 0.5   # variation in the timing
+  sentence_pause_secs: 0.35   # silence between sentences ("Lap two. <pause> one oh four...")
+queue:
+  max_age_seconds: 8    # callouts older than this are dropped instead of spoken late;
+                        # any rule can set its own max_age_seconds
+rules:
+  lap_time:
+    enabled: true
+    priority: 20
+    # template: "Lap {lap}. {time}. {delta}"
+    # delta_faster: "{delta} under best"
+    # delta_slower: "{delta} over best"
+    # delta_equal: "equal to best"
+    delta_first: ""
+    small_delta_ms: 300     # delta_slower_small under this, delta_slower_large over large_delta_ms
+    large_delta_ms: 2000
+    small_gap_ms: 200       # template_new_best_small for a new best by less than this
+    # template_new_best: "Lap {lap}. {time}. New best by {gap}."   # replaces the plain phrase
+    new_best_priority: 11   # {gap} is the bare margin, {delta} the delta_faster wording
+    # A lap that holds a pit stop gets no delta and no coaching tag:
+    # template_in_lap: "In lap, {time}."     # the lap the car entered the pits on
+    # template_out_lap: "Out lap, {time}."   # the lap it left them on
+    # template_pit_lap: "Pit lap, {time}."   # both on one lap
+    # Between pit entry and exit: speak, hold (until the exit) or drop. Every
+    # rule takes it; fuel and race_summary speak, position drops, the rest hold.
+    pit_lane: hold          # a lap call due where the lane crosses the line waits for the exit
+  fuel:
+    enabled: true
+    priority: 15
+    critical_priority: 5
+    thresholds_laps: [10, 5, 3, 2, 1]
+    rolling_laps: 3
+    refuel_epsilon: 0.5
+    round_up_laps: 0.25    # within this of the next whole lap, the count is rounded up
+    # template: "Fuel. {laps} remaining."
+    # template_short: "Fuel. Just under {laps}."   # a count that was rounded up
+    # template_critical: "Fuel critical. Less than one lap."
+    pit_window: true       # "Box next lap." at pit_laps laps of fuel, "Pit this lap." under it,
+    pit_laps: 2            # ... once per stint each, when the race needs more than that
+    pit_priority: 5
+    # template_pit_next: "Box next lap."
+    # template_pit: "Pit this lap."
+    tight_margin_laps: 0.5  # the fuel covers the race by less than this: one call a stint
+    # template_tight: "Fuel to the flag, just. Save a little."
+    # template_last_lap_enough: "Fuel is fine to the end."   # the final lap, after a warning
+    pit_lane: speak        # its calls are about the stop
+  final_lap:
+    enabled: true
+    priority: 10
+    # template: "Final lap."
+  position:
+    enabled: true          # races only; GT7 updates the position field live
+    priority: 12
+    settle_secs: 3         # wait for a burst of place changes to settle
+    min_interval_secs: 10
+    start_grace_secs: 15   # quiet while the field sorts itself out after the start
+    hold_secs: 1           # queued this long first: a pit entry seen meanwhile drops the call
+    pit_lane: drop         # the order before the stop; the net change follows the exit
+    # template_gained: "Up to {position}."
+    # template_lost: "Down to {position}."
+  start_brief:
+    enabled: true
+    priority: 8
+    settle_secs: 2           # the grid slot takes a frame or two to settle
+    announce_track: true     # say the track on its own once it is known after the brief
+    late_track_first_lap_only: true   # ... but only while the first lap is being driven
+    min_confidence: probable # or confirmed
+    # template_track: "{track}."
+    # template_laps: "{laps}."
+    # template_laps_to_go: "{laps} to go."   # engineer started mid-race
+    # template_timed: "Timed race."          # also what qualifying looks like to GT7
+    # template_position: "P {p} of {total}."
+    # The engineer started part way through a session (#265): no grid slot.
+    # template_joined: "Back with you. Lap {lap}."
+    # template_joined_position: "P {p}."
+  race_summary:
+    enabled: true
+    priority: 25             # after the final lap time, posted on the same frame
+    max_age_seconds: 30      # waits behind the final lap time instead of being dropped
+    # template: "Chequered flag. {position} {best}"   # no fuel: the results card has it
+    # template_position: "Finished {position}."
+    # template_best: "Best lap {time}."
+    # Leaving a session that has no flag: time trial, practice, solo laps. Add
+    # lap_race to hear a summary on retiring too.
+    quit_kinds: [solo_timed, solo_laps]
+    quit_min_laps: 1
+    # template_quit: "Session done. {laps}. {best}"
+    pit_lane: speak          # the flag can fall in a lane that crosses the line
+  temps:
+    enabled: true
+    priority: 14
+    sustain_secs: 5          # above the threshold this long before it counts (spins are brief)
+    cooldown_secs: 60        # at most one warning per check in this window
+    hysteresis_c: 10         # re-arm only once this far back under the threshold
+    tyre_hot_c: 120          # per corner; null or 0 disables any threshold
+    tyre_cold_c: 50          # once, two seconds into the race ("Tyres cold.")
+    cold_settle_secs: 2
+    water_hot_c: 110         # water and oil have not moved off 85/110 in any recording yet
+    oil_hot_c: 130
+    # template_tyre_hot: "{corners} hot."   # "Front left tyre", "Front left and rear left tyres", "All tyres"
+    # template_tyres_cold: "Tyres cold."
+    # template_water: "Water temperature high."
+    # template_oil: "Oil temperature high."
+  telemetry:               # packets stop mid-session (live only; a menu going quiet is normal)
+    enabled: true
+    priority: 5
+    phases: [in_race, paused]   # what the last frame must have been for silence to count
+    # template_lost: "Lost telemetry."
+    # template_back: "Telemetry back."
