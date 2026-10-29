@@ -162,7 +162,7 @@ func TestAReplayLandsInTheStreams(t *testing.T) {
 	if len(evs) != len(events) {
 		t.Fatalf("EVENTS holds %d events, want %d", len(evs), len(events))
 	}
-	var started, laps, tracks, ended int
+	var started, laps, tracks, entered, exited, ended int
 	for i, msg := range evs {
 		want := events[i]
 		var gotMsg proto.Message
@@ -177,6 +177,12 @@ func TestAReplayLandsInTheStreams(t *testing.T) {
 		case want.Track != nil:
 			tracks++
 			gotMsg, what, id = &eventsv1.SessionTrackChanged{}, "session.track", "session.track:"+m.Run()+":"+strconv.Itoa(int(want.Track.GetAt()))
+		case want.PitEntered != nil:
+			entered++
+			gotMsg, what, id = &eventsv1.PitEntered{}, "pit.entered", "pit.entered:"+strconv.Itoa(int(want.PitEntered.GetEntry()))
+		case want.PitExited != nil:
+			exited++
+			gotMsg, what, id = &eventsv1.PitExited{}, "pit.exited", "pit.exited:"+strconv.Itoa(int(want.PitExited.GetStop().GetStop()))
 		case want.Ended != nil:
 			ended++
 			gotMsg, what, id = &eventsv1.SessionEnded{}, "session.ended", "session.ended:1"
@@ -193,8 +199,9 @@ func TestAReplayLandsInTheStreams(t *testing.T) {
 		}
 		checkHeaders(t, header(msg), e, want.Event, "parity:"+want.Session+":"+id)
 	}
-	if started != 1 || laps != 6 || tracks == 0 || ended != 1 {
-		t.Errorf("%d starts, %d laps, %d tracks, %d ends; want 1, 6 (the race's laps), some and 1", started, laps, tracks, ended)
+	if started != 1 || laps != 6 || tracks == 0 || entered != 1 || exited != 1 || ended != 1 {
+		t.Errorf("%d starts, %d laps, %d tracks, %d pit entries, %d pit exits, %d ends; want 1, 6 (the race's laps), some, 1, 1 and 1",
+			started, laps, tracks, entered, exited, ended)
 	}
 
 	// The start's source is the subject's <src> (ecu#11's review), and its
@@ -426,6 +433,10 @@ func TestAServerStoppedMidReplay(t *testing.T) {
 			id = "lap.completed:" + strconv.Itoa(int(o.Lap.GetLap()))
 		case o.Track != nil:
 			id = "session.track:" + m.Run() + ":" + strconv.Itoa(int(o.Track.GetAt()))
+		case o.PitEntered != nil:
+			id = "pit.entered:" + strconv.Itoa(int(o.PitEntered.GetEntry()))
+		case o.PitExited != nil:
+			id = "pit.exited:" + strconv.Itoa(int(o.PitExited.GetStop().GetStop()))
 		default:
 			id = "session.ended:1"
 		}

@@ -14,8 +14,9 @@
 // _flush_lap and end_session in store.py, and the session's kind from
 // SessionDetector in sessionkind.py (kind.go here), and the session's track from
 // Engine._apply_track (track.go here, paddock#81), fed by internal/track's
-// detector. What else v1's engine reads (replays and demo races held at the start,
-// continuing after a restart, the frozen pause, the timed-race finish and pits) is
+// detector, and the pit stops from Engine._apply_pits (pit.go here, paddock#78), fed
+// by internal/pit's. What else v1's engine reads (replays and demo races held at the
+// start, continuing after a restart, the frozen pause and the timed-race finish) is
 // not here yet.
 package race
 
@@ -31,6 +32,7 @@ import (
 	"github.com/those-who-run/contracts/ce"
 	eventsv1 "github.com/those-who-run/contracts/gen/go/twr/events/v1"
 	telemetryv1 "github.com/those-who-run/contracts/gen/go/twr/telemetry/v1"
+	"github.com/those-who-run/ecu/internal/pit"
 	"github.com/those-who-run/ecu/internal/track"
 	"github.com/those-who-run/salsa"
 )
@@ -122,17 +124,18 @@ func (w Why) Reason() eventsv1.EndReason {
 }
 
 // Output is a frame or an event, with its CloudEvents id and time: exactly one of
-// Frame, Started, Lap, Track and Ended is set, each the contracts message of that
-// name. SessionStarted's source is left empty: only the publisher knows the <src> it
+// Frame, Started, Lap, Track, PitEntered, PitExited and Ended is set, each the
+// contracts message of that name. SessionStarted's source is left empty: only the publisher knows the <src> it
 // publishes under, and sets it (internal/bus).
 type Output struct {
 	// Event is the ce-id (and Nats-Msg-Id), ce-source and ce-time, the id built
 	// as contracts' subjects.yaml says: <run>:frame:<seq> for a frame, and
 	// <sid>:session.started:1, <sid>:lap.completed:<lap> and
-	// <sid>:session.ended:1 for the events, and <sid>:session.track:<run>:<seq>
-	// for a track verdict, with the seq of the frame it changed on. An event's id
-	// is the catalogue's without its <src>: the publisher puts <src>: in front
-	// (paddock#279).
+	// <sid>:session.ended:1 for the events, <sid>:session.track:<run>:<seq>
+	// for a track verdict, with the seq of the frame it changed on, and
+	// <sid>:pit.entered:<entry> and <sid>:pit.exited:<stop> for the pits. An
+	// event's id is the catalogue's without its <src>: the publisher puts <src>:
+	// in front (paddock#279).
 	Event ce.Event
 	// Session is the id of the session an event belongs to; "" for a frame.
 	Session string
@@ -142,6 +145,9 @@ type Output struct {
 	Lap     *eventsv1.LapCompleted
 	Track   *eventsv1.SessionTrackChanged
 	Ended   *eventsv1.SessionEnded
+
+	PitEntered *eventsv1.PitEntered
+	PitExited  *eventsv1.PitExited
 
 	// Why is why the session ended, set with Ended; SessionEnded's reason is
 	// Why.Reason().
@@ -159,6 +165,10 @@ func (o Output) Message() proto.Message {
 		return o.Lap
 	case o.Track != nil:
 		return o.Track
+	case o.PitEntered != nil:
+		return o.PitEntered
+	case o.PitExited != nil:
+		return o.PitExited
 	default:
 		return o.Ended
 	}
@@ -177,6 +187,7 @@ type Machine struct {
 	finished    bool   // the open session reached the flag (v1's Engine.finished)
 	kinds       kinds  // the session's kind (v1's Engine.kinds)
 	tracks      *track.Detector
+	pits        *pit.Detector
 	session     *session
 
 	out []Output
@@ -191,6 +202,7 @@ type session struct {
 	lapsFuelUsed float64      // the sum of each lap's fuel used, in the order they closed
 	lastPosition int32        // the last race position seen, 0 for none
 	track        *track.Match // the verdict applied to the session, nil for none (v1's Engine.track)
+	pits         pitCounts
 }
 
 // lapFrames are the frames of the lap in progress (v1's Session.buffer): their seqs,
@@ -214,7 +226,7 @@ func (b *lapFrames) add(s *state) {
 // New is a machine with no session open. It mints its run id from ids, then each
 // session's id as the session starts.
 func New(ids IDs) *Machine {
-	return &Machine{ids: ids, run: ids().String(), tracks: track.New(nil, track.Config{})}
+	return &Machine{ids: ids, run: ids().String(), tracks: track.New(nil, track.Config{}), pits: pit.New()}
 }
 
 // Run is the machine's run id, a ULID: the <run> in each frame's id.
@@ -222,8 +234,8 @@ func (m *Machine) Run() string { return m.run }
 
 // Step takes the next packet and returns its frame, then the events it gives rise
 // to, in the order they happened: the end of a session the packet's start closes,
-// the start, a change of the session's track, a lap closed, and the end of the
-// session.
+// the start, a pit entry or exit, a change of the session's track, a lap closed,
+// and the end of the session.
 func (m *Machine) Step(r Received) []Output {
 	m.seq++
 	s := newState(m.seq, &r.Packet)
@@ -247,6 +259,7 @@ func (m *Machine) Step(r Received) []Output {
 		m.lastDriving = nil
 		m.finished = false
 		m.kinds = kinds{}
+		m.pits.Reset()
 		// The track detector starts over by itself after a menu or a loading screen
 		// at lap 0, so only a restart, which teleports the car back to the grid with
 		// neither, resets it here, as v1's engine does: a rolling start keeps what
@@ -271,6 +284,9 @@ func (m *Machine) Step(r Received) []Output {
 			m.applyTrack(match, &s, r.Time)
 		}
 	}
+	// Before the lap store, as v1's Engine._step: the crossing that closes an
+	// in-lap can come on the very frame after the pit cut (paddock#78, R6).
+	m.observePits(m.out[0].Frame, r.Time)
 	// The detector sees every frame, a session open or not; a change of its
 	// decision is the session's to keep or not, before the lap store reads the
 	// frame, as in v1's Engine._step.
@@ -454,6 +470,7 @@ func (m *Machine) end(s *state, t time.Time, why Why) {
 	if sess.track != nil {
 		summary.Track = verdict(*sess.track)
 	}
+	pitSummary(summary, m.pits.Status())
 	if final != 0 && !solo(kind) {
 		summary.FinalPosition = &final
 		if why == WhyFinished && kind == eventsv1.SessionType_SESSION_TYPE_LAP_RACE {

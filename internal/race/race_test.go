@@ -587,18 +587,35 @@ func TestAQuitAndBackToTheMenuAreToldApart(t *testing.T) {
 
 // Every event id is unique across a replay, events of every kind: EVENTS drops a
 // second event with an id it holds as a duplicate. Two changes of the track on
-// one frame are one session.track (seven of v1's recordings have them).
+// one frame are one session.track (seven of v1's recordings have them). The pit
+// stops' recordings publish pit.entered and pit.exited, SUGO's two of each, and
+// Spa's an entry alone.
 func TestEveryEventIDIsUnique(t *testing.T) {
+	pits := map[string]int{
+		"real-nuc-suzuka-pit-stop-2026-10-15":            2,
+		"real-nuc-willow-springs-pit-stop-2026-10-17":    2,
+		"real-nuc-gilles-villeneuve-pit-stop-2026-10-17": 2,
+		"real-nuc-sugo-two-stops-2026-10-18":             4,
+		"real-nuc-suzuka-before-restart-2026-10-18":      2,
+		"real-nuc-spa-pit-cut-quit-2026-10-18":           1,
+	}
 	for _, name := range v1Recordings {
 		seen := map[string]bool{}
+		var pit int
 		for _, o := range replay(t, name) {
 			if o.Frame != nil {
 				continue
+			}
+			if o.PitEntered != nil || o.PitExited != nil {
+				pit++
 			}
 			if seen[o.Event.ID] {
 				t.Errorf("%s: %s published twice", name, o.Event.ID)
 			}
 			seen[o.Event.ID] = true
+		}
+		if pit != pits[name] {
+			t.Errorf("%s: %d pit events, want %d", name, pit, pits[name])
 		}
 	}
 }

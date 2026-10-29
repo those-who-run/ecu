@@ -38,12 +38,13 @@ func (d *drive) add(lap int16, flags salsa.Flags, fuel float32, lastLapMs int32,
 	})
 }
 
-// events is the session and lap events of the outputs: neither the frames nor the
-// track's verdicts, which track_test.go checks.
+// events is the session and lap events of the outputs: not the frames, the
+// track's verdicts or the pits, which track_test.go and pit_test.go check (a
+// loading frame that keeps the lap counter is a pit entry).
 func events(out []Output) []Output {
 	var evs []Output
 	for _, o := range out {
-		if o.Frame == nil && o.Track == nil {
+		if o.Frame == nil && o.Track == nil && o.PitEntered == nil && o.PitExited == nil {
 			evs = append(evs, o)
 		}
 	}

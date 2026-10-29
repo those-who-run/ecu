@@ -62,6 +62,26 @@ linters:
               desc: the track detector is pure; no file system (paddock#80)
             - pkg: syscall
               desc: the track detector is pure; no system calls (paddock#80)
+        # The pit detector is a pure library too (paddock#78): the same list.
+        pit:
+          files:
+            - "**/internal/pit/*.go"
+            - "!$test"
+          deny:
+            - pkg: github.com/nats-io
+              desc: the pit detector is pure; publishing is the caller's (paddock#78)
+            - pkg: net
+              desc: the pit detector is pure; no network (paddock#78)
+            - pkg: os
+              desc: the pit detector is pure; no file system (paddock#78)
+            - pkg: io/fs
+              desc: the pit detector is pure; no file system (paddock#78)
+            - pkg: io/ioutil
+              desc: the pit detector is pure; no file system (paddock#78)
+            - pkg: path/filepath
+              desc: the pit detector is pure; no file system (paddock#78)
+            - pkg: syscall
+              desc: the pit detector is pure; no system calls (paddock#78)
         # internal/bus is the only package that talks to NATS (paddock#34), with
         # internal/bus/bustest, the test server only tests import.
         nats:
