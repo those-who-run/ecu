@@ -67,7 +67,7 @@ of the end of the step, so a rule sees it on the same frame v1's did.
 | `on_bridge(phase)` | `ctx.Bridged`: `PHASE_LOADING` or `PHASE_PAUSED` when `Prev` bridged such frames |
 | evaluate is called (`in_race or racing_frame(seen, state)`) | `ctx.Racing` |
 | `lap_completed`, `lap_time_posted`, `racing_frame` | `race.LapCompleted(ctx.Prev, &ctx.Cur)` and the others |
-| `posted_lap` with the time, deduped by the rule | `ctx.Posted` (`Lap`, `TimeMs`, `StartLap`): every frame a time posts, closed lap or not (SUGO replay frame 864). The rule keeps the first per lap, as v1's did |
+| `posted_lap` with the time, deduped by the rule, and race_summary's `_start_lap` | `ctx.Posted` (`Lap`, `TimeMs`, `StartLap`): every frame a time posts, closed lap or not (SUGO replay frame 864). The rule keeps the first per lap, as v1's did |
 | `self.joined` | `ctx.Joined` |
 | `self.session` / `on_session` | `ctx.Kind` (`Type`, `Field`, `CarsOnTrack`): the kind **before** this frame |
 | `has_field(state)` | `ctx.HasField()`, or `ctx.HasFieldOn(v)` for another frame (the timed finish's crossing) |
