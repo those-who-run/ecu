@@ -1,0 +1,16 @@
+{"session": 1, "frame": 48, "rule": "start_brief", "kind": "template", "priority": 8, "pit_lane": "hold", "outcome": "spoken"}
+{"session": 1, "frame": 88, "rule": "position", "kind": "template_gained", "priority": 12, "pit_lane": "drop", "outcome": "spoken"}
+{"session": 1, "frame": 111, "rule": "position", "kind": "template_gained", "priority": 12, "pit_lane": "drop", "outcome": "spoken"}
+{"session": 1, "frame": 177, "rule": "lap_time", "kind": "delta_first", "priority": 20, "pit_lane": "hold", "outcome": "spoken"}
+{"session": 1, "frame": 248, "rule": "position", "kind": "template_gained", "priority": 12, "pit_lane": "drop", "outcome": "spoken"}
+{"session": 1, "frame": 320, "rule": "lap_time", "kind": "delta_first", "priority": 20, "pit_lane": "hold", "outcome": "spoken"}
+{"session": 1, "frame": 387, "rule": "position", "kind": "template_gained", "priority": 12, "pit_lane": "drop", "outcome": "spoken"}
+{"session": 1, "frame": 410, "rule": "position", "kind": "template_gained", "priority": 12, "pit_lane": "drop", "outcome": "spoken"}
+{"session": 1, "frame": 461, "rule": "lap_time", "kind": "delta_equal", "priority": 20, "pit_lane": "hold", "outcome": "spoken"}
+{"session": 1, "frame": 502, "rule": "position", "kind": "template_gained", "priority": 12, "pit_lane": "drop", "outcome": "spoken"}
+{"session": 1, "frame": 571, "rule": "position", "kind": "template_gained_podium", "priority": 12, "pit_lane": "drop", "outcome": "spoken"}
+{"session": 1, "frame": 597, "rule": "position", "kind": "template_gained_podium", "priority": 12, "pit_lane": "drop", "outcome": "spoken"}
+{"session": 1, "frame": 605, "rule": "lap_time", "kind": "delta_slower_small", "priority": 20, "pit_lane": "hold", "outcome": "spoken"}
+{"session": 1, "frame": 678, "rule": "position", "kind": "template_gained_lead", "priority": 12, "pit_lane": "drop", "outcome": "spoken"}
+{"session": 1, "frame": 745, "rule": "lap_time", "kind": "delta_slower", "priority": 20, "pit_lane": "hold", "outcome": "spoken"}
+{"session": 1, "frame": 752, "rule": "race_summary", "kind": "template_position_win", "priority": 25, "pit_lane": "speak", "outcome": "spoken"}

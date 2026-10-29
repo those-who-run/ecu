@@ -137,7 +137,8 @@ func (w Why) Reason() eventsv1.EndReason {
 
 // Output is a frame or an event, with its CloudEvents id and time: exactly one of
 // Frame, Started, Lap, Best, Track, Kind, PitEntered, PitExited, PitTeleport,
-// FinalLap, Position, Finished and Ended is set, each the contracts message of that name. SessionStarted's
+// FinalLap, Position, Finished, Ended and Callout is set, each the contracts message of that name
+// (Callout is the rule engine's, internal/rules). SessionStarted's
 // source is left empty: only the publisher knows the <src> it publishes under, and
 // sets it (internal/bus).
 type Output struct {

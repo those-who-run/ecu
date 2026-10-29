@@ -118,6 +118,11 @@ func replay(ctx context.Context, args []string, getenv func(string) string, stdi
 	defer func() { _ = rec.Close() }()
 
 	logger := service.NewLogger(stdout, cfg.LogLevel)
+	eng, err := rulesEngine(getenv, logger)
+	if err != nil {
+		_, _ = fmt.Fprintln(stderr, "ecu replay:", err)
+		return exitNATS
+	}
 	pub, err := bus.Connect(busCfg, logger, replayOptions)
 	if err == nil {
 		wait, cancel := context.WithTimeout(ctx, connectTimeout)
@@ -136,7 +141,7 @@ func replay(ctx context.Context, args []string, getenv func(string) string, stdi
 	logger.InfoContext(ctx, "replaying", "recording", path, "src", busCfg.Src, "speed", *speed, "clock", start.Format(time.RFC3339Nano))
 
 	paced := &pacer{src: rec, speed: factor, clock: start}
-	failed := drive(ctx, paced, paced.at, race.New(ulid.Make), waiting{ctx, pub}, nil)
+	failed := drive(ctx, paced, paced.at, race.New(ulid.Make), eng, waiting{ctx, pub}, nil)
 
 	logger.InfoContext(ctx, "replayed: flushing", "packets", paced.n)
 
@@ -169,9 +174,9 @@ func replay(ctx context.Context, args []string, getenv func(string) string, stdi
 	case !final:
 		_, _ = fmt.Fprintln(stderr, "ecu replay: NATS still held the publisher at the end: what it took is not known")
 		return exitNATS
-	case s.DroppedFrames > 0 || s.DroppedEvents > 0:
-		_, _ = fmt.Fprintf(stderr, "ecu replay: NATS did not take everything: %d frames and %d events dropped\n",
-			s.DroppedFrames, s.DroppedEvents)
+	case s.DroppedFrames > 0 || s.DroppedEvents > 0 || s.DroppedCallouts > 0:
+		_, _ = fmt.Fprintf(stderr, "ecu replay: NATS did not take everything: %d frames, %d events and %d callouts dropped\n",
+			s.DroppedFrames, s.DroppedEvents, s.DroppedCallouts)
 		return exitNATS
 	case s.Unflushed:
 		_, _ = fmt.Fprintln(stderr, "ecu replay: the last frames may not have reached NATS: the final flush failed")

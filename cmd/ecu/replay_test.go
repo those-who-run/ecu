@@ -87,7 +87,7 @@ func TestAReplayAtMaxPublishesEveryFrameAndEvent(t *testing.T) {
 	want := &fakePublisher{}
 	// Dated as the replay dates them, so the payloads' times match too.
 	dated := &pacer{clock: defaultClock, t0: in[0].T}
-	_ = drive(t.Context(), &slice{all: in}, dated.at, machine(), want, nil)
+	_ = drive(t.Context(), &slice{all: in}, dated.at, machine(), nil, want, nil)
 	// An event the session can have more than once a frame apart, such as
 	// session.track, ends its id in <run>:<seq>: the run is compared as <run>,
 	// the direct run's here and the replay's (its frames') in the stream.
@@ -182,7 +182,7 @@ func TestAReplayAtMaxPublishesEveryFrameAndEvent(t *testing.T) {
 	if at := ceTime(t, first); !at.Equal(defaultClock) {
 		t.Errorf("the first frame is at %v, want %v", at, defaultClock)
 	}
-	for _, line := range []string{`"msg":"replaying"`, `"dropped_frames":0`, `"dropped_events":0,"final":true`} {
+	for _, line := range []string{`"msg":"replaying"`, `"dropped_frames":0`, `"dropped_events":0,"dropped_callouts":0,"final":true`} {
 		if !strings.Contains(got.stdout, line) {
 			t.Errorf("log has no %s: %s", line, got.stdout)
 		}
@@ -403,7 +403,7 @@ func TestEventsNotTakenExitTwo(t *testing.T) {
 	replayGrace = 300 * time.Millisecond
 	t.Cleanup(func() { replayGrace = 30 * time.Second })
 	got := runReplay(t, nil, "--speed", "max", "--src", "parity", "--nats", srv.URL(), recordingPath(t, suzuka))
-	if got.code != 2 || !strings.Contains(got.stderr, "events dropped") {
+	if got.code != 2 || !strings.Contains(got.stderr, "20 events and") {
 		t.Errorf("exit %d, stderr %q; want 2 and the events dropped", got.code, got.stderr)
 	}
 }

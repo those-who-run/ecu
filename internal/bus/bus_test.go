@@ -11,6 +11,7 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/those-who-run/contracts/ce"
 	eventsv1 "github.com/those-who-run/contracts/gen/go/twr/events/v1"
@@ -254,7 +255,7 @@ func TestAReplayLandsInTheStreams(t *testing.T) {
 	for _, want := range []string{
 		`"msg":"publishing","nats":"` + r.srv.URL() + `","src":"parity"`,
 		`"msg":"published","frames":874,"lo_frames":` + strconv.FormatUint(stats.LoFrames, 10) +
-			`,"events":` + strconv.Itoa(len(events)) + `,"dropped_frames":0,"dropped_lo_frames":0,"dropped_events":0`,
+			`,"events":` + strconv.Itoa(len(events)) + `,"callouts":0,"dropped_frames":0,"dropped_lo_frames":0,"dropped_events":0,"dropped_callouts":0`,
 	} {
 		if !strings.Contains(log, want) {
 			t.Errorf("log has no %s:\n%s", want, log)
@@ -508,5 +509,87 @@ func BenchmarkEncodeFrame(b *testing.B) {
 		if _, _, err := ce.Encode(o.Frame, o.Event); err != nil {
 			b.Fatal(err)
 		}
+	}
+}
+
+// R6 and AC5 of paddock#89: a callout goes on its priority's level (5 on .p0, 12
+// on .p1, 20 on .p2), into CALLOUTS, with the source in front of its id, in the
+// message, the ce-id and Nats-Msg-Id, so the same callout twice is stored once.
+func TestCalloutsGoOnTheirLevel(t *testing.T) {
+	r := newRig(t, "parity")
+	created := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	mk := func(id string, priority int32) race.Output {
+		c := &eventsv1.Callout{
+			Id: "run:callout:1:" + id + ":1", Rule: id, Kind: "template", Priority: priority, At: 1, RunId: "run",
+			CreatedAt: timestamppb.New(created), ExpiresAt: timestamppb.New(created.Add(8 * time.Second)),
+		}
+		return race.Output{Event: ce.Event{ID: c.GetId(), Source: race.Source, Time: created}, Callout: c}
+	}
+	r.pub.Publish([]race.Output{mk("a", 5), mk("b", 12), mk("c", 20)})
+	r.pub.Publish([]race.Output{mk("a", 5)}) // sent again: the same id
+	s := r.close(t)
+	got := r.srv.Read("CALLOUTS", 0)
+	if len(got) != 3 {
+		t.Fatalf("CALLOUTS holds %d, want 3", len(got))
+	}
+	for i, want := range []string{"p0", "p1", "p2"} {
+		m := got[i]
+		if m.Subject != "twr.v1.parity.callout."+want {
+			t.Errorf("callout %d on %s, want .%s", i, m.Subject, want)
+		}
+		var c eventsv1.Callout
+		if err := ce.Unmarshal(m.Data, &c); err != nil {
+			t.Fatal(err)
+		}
+		id := "parity:run:callout:1:" + c.GetRule() + ":1"
+		h := ce.Header(m.Header)
+		if c.GetId() != id || h.Get(ce.IDHeader) != id || nats.Header(m.Header).Get("Nats-Msg-Id") != id {
+			t.Errorf("callout %d: id %s, ce-id %s; want %s", i, c.GetId(), h.Get(ce.IDHeader), id)
+		}
+		if h.Get(ce.TypeHeader) != "run.thosewho.callout.raised.v1" {
+			t.Errorf("ce-type %s", h.Get(ce.TypeHeader))
+		}
+	}
+	if s.Callouts != 4 || s.DroppedCallouts != 0 {
+		t.Errorf("stats %+v", s)
+	}
+}
+
+// paddock#73's decision: a callout CALLOUTS does not acknowledge is sent again
+// only until its life is over, then dropped and counted; an event is sent again
+// until it is acknowledged.
+func TestAStaleCalloutIsNotSentAgain(t *testing.T) {
+	srv := startNATS(t)
+	nc, err := nats.Connect(srv.URL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(nc.Close)
+	js, err := jetstream.New(nc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bustest.AddStream(t, js, "events") // no CALLOUTS: nothing acknowledges a callout
+	logs := &logs{}
+	pub, err := Connect(Config{URL: srv.URL(), Src: "parity"}, logs.logger(),
+		Options{ReconnectWait: 20 * time.Millisecond, ackTimeout: 50 * time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the publisher's connection", pub.nc.IsConnected)
+	created := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC) // long past: the life is what counts
+	c := &eventsv1.Callout{
+		Id: "run:callout:1:x:1", Rule: "x", Kind: "k", Priority: 5, At: 1,
+		CreatedAt: timestamppb.New(created), ExpiresAt: timestamppb.New(created.Add(300 * time.Millisecond)),
+	}
+	pub.Publish([]race.Output{{Event: ce.Event{ID: c.GetId(), Source: race.Source, Time: created}, Callout: c}})
+	waitFor(t, "the stale callout dropped", func() bool { return pub.Stats().DroppedCallouts == 1 })
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	if s := pub.Close(ctx); s.Callouts != 0 || s.DroppedCallouts != 1 {
+		t.Errorf("stats %+v", s)
+	}
+	if !strings.Contains(logs.String(), "not sent again") {
+		t.Errorf("not logged: %s", logs.String())
 	}
 }

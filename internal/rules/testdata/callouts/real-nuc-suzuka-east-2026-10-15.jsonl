@@ -1,0 +1,2 @@
+{"session": 1, "frame": 5, "rule": "start_brief", "kind": "template", "priority": 8, "pit_lane": "hold", "outcome": "spoken"}
+{"session": 1, "frame": 118, "rule": "race_summary", "kind": "template", "priority": 25, "pit_lane": "speak", "outcome": "spoken"}
