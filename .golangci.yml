@@ -105,6 +105,26 @@ linters:
               desc: the rules are pure; no file system (paddock#89)
             - pkg: syscall
               desc: the rules are pure; no system calls (paddock#89)
+        # The fuel model is a pure library too (paddock#92): the same list.
+        fuel:
+          files:
+            - "**/internal/fuel/*.go"
+            - "!$test"
+          deny:
+            - pkg: github.com/nats-io
+              desc: the fuel model is pure; publishing is the caller's (paddock#92)
+            - pkg: net
+              desc: the fuel model is pure; no network (paddock#92)
+            - pkg: os
+              desc: the fuel model is pure; no file system (paddock#92)
+            - pkg: io/fs
+              desc: the fuel model is pure; no file system (paddock#92)
+            - pkg: io/ioutil
+              desc: the fuel model is pure; no file system (paddock#92)
+            - pkg: path/filepath
+              desc: the fuel model is pure; no file system (paddock#92)
+            - pkg: syscall
+              desc: the fuel model is pure; no system calls (paddock#92)
         # rulestest replays recordings for the tests; no program imports it.
         rulestest:
           files:

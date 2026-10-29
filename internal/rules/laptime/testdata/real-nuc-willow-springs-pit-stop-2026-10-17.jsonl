@@ -1,0 +1,4 @@
+{"event": "session.started", "session": 1, "frame": 1}
+{"event": "callout", "session": 1, "frame": 204, "kind": "template_in_lap", "slots": {"lap": 6, "lap_time_ms": 96562}, "priority": 20, "hold_ms": 0, "expiry_ms": 8000, "pit_lane": "hold", "outcome": "spoken", "text": "In lap, one thirty-six point six."}
+{"event": "callout", "session": 1, "frame": 380, "kind": "template_out_lap", "slots": {"lap": 7, "lap_time_ms": 84212}, "priority": 20, "hold_ms": 0, "expiry_ms": 8000, "pit_lane": "hold", "outcome": "spoken", "text": "Out lap, one twenty-four point two."}
+{"event": "callout", "session": 1, "frame": 547, "kind": "delta_slower", "slots": {"lap": 8, "lap_time_ms": 81871, "delta_ms": 1928}, "priority": 20, "hold_ms": 0, "expiry_ms": 8000, "pit_lane": "hold", "outcome": "spoken", "text": "Lap eight. one twenty-one point nine. two point zero over best."}

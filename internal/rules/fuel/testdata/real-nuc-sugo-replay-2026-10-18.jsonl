@@ -1,0 +1,6 @@
+{"event": "session.started", "session": 1, "frame": 62}
+{"event": "callout", "session": 1, "frame": 452, "kind": "template", "slots": {"laps": 3}, "priority": 15, "hold_secs": 0.0, "expiry_secs": 8.0, "pit_lane": "spoken", "text": "Fuel. three laps remaining."}
+{"event": "callout", "session": 1, "frame": 619, "kind": "template_pit_next", "slots": {}, "priority": 5, "hold_secs": 0.0, "expiry_secs": 8.0, "pit_lane": "spoken", "text": "Box next lap."}
+{"event": "callout", "session": 1, "frame": 619, "kind": "template", "slots": {"laps": 2}, "priority": 15, "hold_secs": 0.0, "expiry_secs": 8.0, "pit_lane": "spoken", "text": "Fuel. two laps remaining."}
+{"event": "callout", "session": 1, "frame": 788, "kind": "template_pit", "slots": {}, "priority": 5, "hold_secs": 0.0, "expiry_secs": 8.0, "pit_lane": "spoken", "text": "Pit this lap."}
+{"event": "callout", "session": 1, "frame": 788, "kind": "template_critical", "slots": {}, "priority": 5, "hold_secs": 0.0, "expiry_secs": 8.0, "pit_lane": "spoken", "text": "Fuel critical. Less than one lap."}

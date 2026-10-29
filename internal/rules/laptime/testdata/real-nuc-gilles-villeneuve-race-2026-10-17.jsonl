@@ -1,0 +1,3 @@
+{"event": "session.started", "session": 1, "frame": 51}
+{"event": "callout", "session": 1, "frame": 256, "kind": "delta_first", "slots": {"lap": 1, "lap_time_ms": 97524}, "priority": 20, "hold_ms": 0, "expiry_ms": 8000, "pit_lane": "hold", "outcome": "spoken", "text": "Lap one. one thirty-seven point five."}
+{"event": "callout", "session": 1, "frame": 457, "kind": "delta_first", "slots": {"lap": 2, "lap_time_ms": 99190}, "priority": 20, "hold_ms": 0, "expiry_ms": 8000, "pit_lane": "hold", "outcome": "spoken", "text": "Lap two. one thirty-nine point two."}
