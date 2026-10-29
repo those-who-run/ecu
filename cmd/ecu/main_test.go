@@ -267,6 +267,15 @@ func TestTheRulesFileIsReadAtStart(t *testing.T) {
 			t.Errorf("%s: exit %d, stderr %q; want 2 naming TWR_ECU_RULES_FILE", path, code, stderr.String())
 		}
 	}
+	typo := filepath.Join(dir, "typo.yaml")
+	if err := os.WriteFile(typo, []byte("rules:\n  final_lapp: {enabled: false}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var warned bytes.Buffer
+	if _, err := rulesEngine(env(map[string]string{"TWR_ECU_RULES_FILE": typo}), service.NewLogger(&warned, slog.LevelInfo)); err != nil ||
+		!strings.Contains(warned.String(), `"rules":["final_lapp"]`) {
+		t.Errorf("a misspelled rule: %v, %s", err, warned.String())
+	}
 	var logs bytes.Buffer
 	eng, err := rulesEngine(env(map[string]string{"TWR_ECU_RULES_FILE": filepath.Join("..", "..", "internal", "rules", "testdata", "rules.example.yaml")}),
 		service.NewLogger(&logs, slog.LevelInfo))
