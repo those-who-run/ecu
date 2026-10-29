@@ -1,0 +1,6 @@
+{"event": "session.started", "session": 1, "frame": 1}
+{"event": "callout", "session": 1, "frame": 288, "kind": "template_gained", "position": 6, "previous_position": 7, "priority": 12, "hold_secs": 1.0, "max_age_secs": null, "pit_lane": "drop", "outcome": "spoken"}
+{"event": "callout", "session": 1, "frame": 320, "kind": "template_gained", "position": 5, "previous_position": 6, "priority": 12, "hold_secs": 1.0, "max_age_secs": null, "pit_lane": "drop", "outcome": "spoken"}
+{"event": "callout", "session": 1, "frame": 475, "kind": "template_lost", "position": 10, "previous_position": 5, "priority": 12, "hold_secs": 1.0, "max_age_secs": null, "pit_lane": "drop", "outcome": "spoken"}
+{"event": "callout", "session": 1, "frame": 571, "kind": "template_gained", "position": 9, "previous_position": 10, "priority": 12, "hold_secs": 1.0, "max_age_secs": null, "pit_lane": "drop", "outcome": "spoken"}
+{"event": "callout", "session": 1, "frame": 871, "kind": "template_gained", "position": 6, "previous_position": 9, "priority": 12, "hold_secs": 1.0, "max_age_secs": null, "pit_lane": "drop", "outcome": "spoken"}

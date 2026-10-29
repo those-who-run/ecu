@@ -1,0 +1,5 @@
+{"event": "session.started", "session": 1, "frame": 73}
+{"event": "callout", "session": 1, "frame": 320, "kind": "delta_first", "slots": {"lap": 1, "lap_time_ms": 121386}, "priority": 20, "hold_ms": 0, "expiry_ms": 8000, "pit_lane": "hold", "outcome": "spoken", "text": "Lap one. two oh one point four."}
+{"event": "callout", "session": 1, "frame": 614, "kind": "delta_first", "slots": {"lap": 2, "lap_time_ms": 130474}, "priority": 20, "hold_ms": 0, "expiry_ms": 8000, "pit_lane": "hold", "outcome": "spoken", "text": "Lap two. two ten point five."}
+{"event": "callout", "session": 1, "frame": 876, "kind": "template_new_best", "slots": {"lap": 3, "lap_time_ms": 129918, "delta_ms": -556}, "priority": 11, "hold_ms": 0, "expiry_ms": 8000, "pit_lane": "hold", "outcome": "spoken", "text": "Lap three. two oh nine point nine. New best by zero point six."}
+{"event": "callout", "session": 1, "frame": 1153, "kind": "delta_slower_large", "slots": {"lap": 4, "lap_time_ms": 138580, "delta_ms": 8662}, "priority": 20, "hold_ms": 0, "expiry_ms": 8000, "pit_lane": "hold", "outcome": "spoken", "text": "Lap four. two eighteen point six. eight point seven over best."}

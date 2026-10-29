@@ -1,0 +1,3 @@
+{"event": "session.started", "session": 1, "frame": 92}
+{"event": "callout", "session": 1, "frame": 341, "kind": "delta_first", "slots": {"lap": 1, "lap_time_ms": 124321}, "priority": 20, "hold_ms": 0, "expiry_ms": 8000, "pit_lane": "hold", "outcome": "spoken", "text": "Lap one. two oh four point three."}
+{"event": "callout", "session": 1, "frame": 583, "kind": "template_new_best", "slots": {"lap": 2, "lap_time_ms": 120314, "delta_ms": -4007}, "priority": 11, "hold_ms": 0, "expiry_ms": 8000, "pit_lane": "hold", "outcome": "spoken", "text": "Lap two. two oh zero point three. New best by four point zero."}

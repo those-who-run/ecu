@@ -1,0 +1,5 @@
+{"event": "session.started", "session": 1, "frame": 1}
+{"event": "session.started", "session": 2, "frame": 141}
+{"event": "callout", "session": 2, "frame": 164, "kind": "template_gained", "position": 9, "previous_position": 10, "priority": 12, "hold_secs": 1.0, "max_age_secs": null, "pit_lane": "drop", "outcome": "spoken"}
+{"event": "callout", "session": 2, "frame": 214, "kind": "template_gained", "position": 8, "previous_position": 9, "priority": 12, "hold_secs": 1.0, "max_age_secs": null, "pit_lane": "drop", "outcome": "spoken"}
+{"event": "callout", "session": 2, "frame": 254, "kind": "template_gained", "position": 7, "previous_position": 8, "priority": 12, "hold_secs": 1.0, "max_age_secs": null, "pit_lane": "drop", "outcome": "spoken"}
