@@ -1,0 +1,14 @@
+{"event": "session.started", "session": 1, "frame": 45}
+{"event": "lap.completed", "session": 1, "frame": 153, "lap": 1, "lap_time_ms": 94067, "complete": true, "pit": null, "counts_for_best": false}
+{"event": "lap.completed", "session": 1, "frame": 240, "lap": 2, "lap_time_ms": 82190, "complete": true, "pit": null, "counts_for_best": true}
+{"event": "lap.completed", "session": 1, "frame": 328, "lap": 3, "lap_time_ms": 83696, "complete": true, "pit": null, "counts_for_best": true}
+{"event": "lap.completed", "session": 1, "frame": 424, "lap": 4, "lap_time_ms": 90109, "complete": true, "pit": "in", "counts_for_best": false}
+{"event": "lap.completed", "session": 1, "frame": 578, "lap": 5, "lap_time_ms": 107304, "complete": true, "pit": "out", "counts_for_best": false}
+{"event": "lap.completed", "session": 1, "frame": 678, "lap": 6, "lap_time_ms": 82863, "complete": true, "pit": null, "counts_for_best": true}
+{"event": "lap.completed", "session": 1, "frame": 769, "lap": 7, "lap_time_ms": 83239, "complete": true, "pit": null, "counts_for_best": true}
+{"event": "lap.completed", "session": 1, "frame": 902, "lap": 8, "lap_time_ms": 107694, "complete": true, "pit": "in", "counts_for_best": false}
+{"event": "lap.completed", "session": 1, "frame": 1034, "lap": 9, "lap_time_ms": 107468, "complete": true, "pit": "out", "counts_for_best": false}
+{"event": "lap.completed", "session": 1, "frame": 1127, "lap": 10, "lap_time_ms": 83560, "complete": true, "pit": null, "counts_for_best": true}
+{"event": "lap.completed", "session": 1, "frame": 1219, "lap": 11, "lap_time_ms": 82830, "complete": true, "pit": null, "counts_for_best": true}
+{"event": "lap.completed", "session": 1, "frame": 1312, "lap": 12, "lap_time_ms": 83353, "complete": true, "pit": null, "counts_for_best": true}
+{"event": "session.ended", "session": 1, "best_lap_ms": 82190, "fastest_lap_ms": 82190, "gt7_best_lap_ms": 82190, "best_lap": 2}
