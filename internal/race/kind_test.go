@@ -378,13 +378,14 @@ func TestSessionKindIsV1sOnEveryRecording(t *testing.T) {
 
 // AC1: the last session.kind of each session is the kind and start v1's
 // tests/fixtures/FIXTURES.yaml names for it (for the demos v1 ignores, what it says
-// the detector reads). FIXTURES.yaml reads the start of a session ecu and v1's
-// engine join part way as v1's detector fed from the recording's first frame
-// would; joined, the start was not seen, so it is unknown (R4), as v1's engine
-// stores it.
+// the detector reads), but for the start of a session joined part way: the start
+// was not seen, so it is unknown (R4), as v1's engine stores it, where
+// FIXTURES.yaml names the start v1's detector reads fed from the recording's
+// first frame for three of them (2laps' first session, the Willow Springs and
+// Gilles Villeneuve pit stops).
 func TestTheLastKindOfEachSessionIsFixturesYAMLs(t *testing.T) {
 	for name, want := range map[string][]string{
-		"real-race-2laps-2026-10-14":                     {"solo_timed (flying)", "lap_race (rolling)"},
+		"real-race-2laps-2026-10-14":                     {"solo_timed (start not seen)", "lap_race (rolling)"},
 		"real-quali-restart-quit-2026-10-14":             {"timed_field (flying)", "timed_field (flying)"},
 		"real-n24h-race-lap1-positions-2026-10-14":       {"lap_race (rolling)"},
 		"real-nuc-unknown-track-2026-10-15":              {"solo_timed (flying)"},
@@ -398,9 +399,9 @@ func TestTheLastKindOfEachSessionIsFixturesYAMLs(t *testing.T) {
 		"real-nuc-laguna-seca-race-2026-10-15":           {"lap_race (rolling)"},
 		"real-nuc-tsukuba-brz-drift-2026-10-15":          {"solo_laps (flying)"},
 		"real-nuc-suzuka-timed-race-2026-10-16":          {"timed_field (flying)"},
-		"real-nuc-willow-springs-pit-stop-2026-10-17":    {"lap_race (rolling)"},
+		"real-nuc-willow-springs-pit-stop-2026-10-17":    {"lap_race (start not seen)"},
 		"real-nuc-gilles-villeneuve-race-2026-10-17":     {"lap_race (rolling)"},
-		"real-nuc-gilles-villeneuve-pit-stop-2026-10-17": {"lap_race (rolling)"},
+		"real-nuc-gilles-villeneuve-pit-stop-2026-10-17": {"lap_race (start not seen)"},
 		"real-nuc-sugo-two-stops-2026-10-18":             {"lap_race (rolling)"},
 		"real-nuc-sugo-restarts-2026-10-18":              {"lap_race (rolling)", "lap_race (rolling)", "lap_race (rolling)"},
 		"real-nuc-suzuka-joined-mid-race-2026-10-18":     {"timed_field (start not seen)"},
@@ -426,10 +427,7 @@ func TestTheLastKindOfEachSessionIsFixturesYAMLs(t *testing.T) {
 					if start != "unknown" {
 						t.Errorf("%s: joined part way, the start is %s, want unknown", name, start)
 					}
-					// FIXTURES.yaml's start, which the engine did not see.
-					if i := len(got); i < len(want) {
-						start = strings.TrimSuffix(want[i][strings.Index(want[i], "(")+1:], ")")
-					}
+					start = "start not seen"
 				}
 				got = append(got, kindNames[last.GetSessionType()]+" ("+start+")")
 			}

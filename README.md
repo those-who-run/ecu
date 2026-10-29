@@ -316,7 +316,7 @@ one line per session printed at the end.
   `ce-specversion`, `ce-id`, `ce-type`, `ce-source` (`/twr/ecu/gt7`), `ce-time`
   (when ecu received the packet) and `ce-datacontenttype`, and `Nats-Msg-Id`
   equal to `ce-id`. The ids follow the `msg_id` schemes of `contracts`'
-  `subjects.yaml` (v0.2.0, paddock#279): a frame's is `<run>:frame:<seq>`, and
+  `subjects.yaml` (v0.2.2, paddock#279): a frame's is `<run>:frame:<seq>`, and
   an event's is `<src>:<sid>:session.started:1`,
   `<src>:<sid>:session.track:<run>:<seq>` and
   `<src>:<sid>:session.kind:<run>:<seq>` (the run and the frame it changed
