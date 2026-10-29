@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.7](https://github.com/those-who-run/ecu/compare/v0.1.6...v0.1.7) (2026-10-29)
+
+
+### Features
+
+* **race:** the final lap and the settled position (race.final_lap, race.position) ([#34](https://github.com/those-who-run/ecu/issues/34)) ([def6d2e](https://github.com/those-who-run/ecu/commit/def6d2ef11a7f353411f8a216ad22f354dcfacc9))
+* **race:** the lap model: pit roles, which laps count, lap.best ([#35](https://github.com/those-who-run/ecu/issues/35)) ([06a8086](https://github.com/those-who-run/ecu/commit/06a8086a37624bb6ccda7f5e292588f193d0f3d5))
+
 ## [0.1.6](https://github.com/those-who-run/ecu/compare/v0.1.5...v0.1.6) (2026-10-29)
 
 
