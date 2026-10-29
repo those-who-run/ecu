@@ -1,0 +1,4 @@
+{"event": "session.started", "session": 1, "frame": 18}
+{"event": "lap.completed", "session": 1, "frame": 250, "lap": 1, "lap_time_ms": 112476, "complete": true, "pit": null, "counts_for_best": false}
+{"event": "lap.completed", "session": 1, "frame": 433, "lap": 2, "lap_time_ms": null, "complete": false, "pit": null, "counts_for_best": null}
+{"event": "session.ended", "session": 1, "best_lap_ms": 112476, "fastest_lap_ms": 112476, "gt7_best_lap_ms": 112476, "best_lap": 1}

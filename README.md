@@ -17,7 +17,7 @@ acceptance criterion, `Part of those-who-run/paddock#N` otherwise
 that takes `salsa` packets one at a time and gives, for each, its frame and the
 events it gives rise to, `session.started`, `pit.entered`, `pit.exited`,
 `pit.teleport`, `race.final_lap`, `race.position`, `session.track`,
-`session.kind`, `lap.completed`, `race.finished` and `session.ended`, as the `contracts` messages. It opens a session, closes a lap
+`session.kind`, `lap.completed`, `lap.best`, `race.finished` and `session.ended`, as the `contracts` messages. It opens a session, closes a lap
 and ends a session exactly where v1 did, with v1's rules ported from its
 `state.py`, `engine.py` and `store.py` at v1.0.0 (paddock#33).
 
@@ -338,8 +338,10 @@ frame and publishes the session's entries, exits and withdrawn entries, as v1's
 - **At the end.** `session.ended`'s summary carries the stints and the stops,
   a stop still open last, without an out-lap, a lane time or a position after
   (Spa, quit from the box).
-- **Not yet.** Pit roles on `lap.completed` are paddock#83's. The summary
-  has no teleports: v1's `summary.json` stored none, and contracts v0.2.3's
+- **Lap roles.** Each `lap.completed` carries its pit role (in-lap, out-lap,
+  both or none) from the status as last applied to the session, as v1's
+  store and rules read it ([The laps](#the-laps)).
+- **Not yet.** The summary has no teleports: v1's `summary.json` stored none, and contracts v0.2.3's
   `SessionSummary` has no field for them.
 - **Tests.** On every one of v1's 25 recordings, the detector's changes are
   v1's, field for field, and the `pit.entered`, `pit.exited` and
@@ -367,8 +369,8 @@ frame and publishes the session's entries, exits and withdrawn entries, as v1's
   the driver is on another lap. A paused car is not coasting.
 - **The event.** `RaceFinished`: the lap completed at the line, the position
   there (left out outside a field, as for a lap), the total of the complete
-  laps' times, the best lap as v1's summary gave it (GT7's own best, else the
-  quickest complete lap, lap 1 of a lap race left out), and the seq of the
+  laps' times, the session's best lap as the last `lap.best` gave it
+  ([The laps](#the-laps)), and the seq of the
   flag frame or of the crossing as `at`. Its `ce-time` is the frame it was
   decided on: 3 s after the crossing for a timed finish.
 - **Where in a step.** v1's `Engine._step` decides the finish after the pits
@@ -390,6 +392,52 @@ frame and publishes the session's entries, exits and withdrawn entries, as v1's
   [`internal/race/testdata/finish/`](internal/race/testdata/finish) wrote them
   from v1.0.0, the six v1 opens no session on with every start taken for a
   drive (SUGO's replay then finishes at the flag, as v1's engine would).
+
+## The laps
+
+[`internal/race/laps.go`](internal/race/laps.go) is the lap model: what each
+lap was, decided once for every rule and subscriber (paddock#83).
+
+- **Where a lap closes.** Where v1's store closed it: on the lap counter's
+  bump, seen against the last driving frame across a pause or a loading
+  screen, so a lap posted in a pit cut-scene closes on the frame after it.
+  GT7 posts the lap's time on the bump frame, which is also where v1's
+  `lap_time` rule took it: on all 25 recordings every complete lap v1 stored
+  was posted on its bump, with the stored time. The one post without a bump,
+  SUGO's replay jumping to the results, is for a lap v1 never stored, and
+  closes nothing here either.
+- **`lap.completed`.** The lap, its time, complete, the pit role
+  ([Pit stops](#pit-stops)), `counts_for_best`, the fuel at its start and end
+  and used, the position, and its first and last seq. A lap counts for the
+  best as v1's `lap_time` rule decided: a timed lap with no pit role, but not
+  a start lap GT7 leaves out of its best (lap 1 of a session with a lap total,
+  and lap 1 of a timed one posted with GT7's best still blank).
+- **`lap.best`.** Published when a lap's end changes the session's best, once
+  per lap at most, with the best before it and the gap. The best is GT7's own
+  when it has one and a lap of the session has that time (GT7 keeps its best
+  across sessions at a track), else the quickest lap that counts.
+  `race.finished` and the summary's `best_lap` and `best_lap_time_ms` are the
+  last `lap.best`'s, so none of them can disagree.
+- **Not v1's in one way.** Without GT7's best on a lap, v1's stored best
+  (`results.best_lap`) was the quickest complete lap, counted or not, lap 1
+  of a lap race left out only when another lap was timed. ecu never takes a
+  lap that does not count, as contracts v0.2.3 says; on the 25 recordings
+  that leaves two sessions whose only timed lap is lap 1 with no best, where
+  v1 stored lap 1.
+- **The summary.** Also `fastest_lap_ms` (the quickest complete lap of any
+  kind) and `game_best_lap_ms` (GT7's own best, as last reported), as v1
+  stored them.
+- **Where in a step.** v1's `Engine._step` ran the `lap_time` rule after the
+  pits, and its store after the track and the kind. ecu decides a lap's role,
+  whether it counts and the best at the store's place, after the pits, the
+  track and the kind, and before the finish; the rule read nothing those two
+  change in between.
+- **Tests.** On every one of v1's 25 recordings, each `lap.completed`'s frame,
+  lap, time, complete, pit role and `counts_for_best`, and each summary's
+  best, fastest and GT7's best laps, are v1's but for the difference above,
+  as `make_golden.py` in [`internal/race/testdata/lap/`](internal/race/testdata/lap)
+  wrote them from v1.0.0 with v1's `lap_time` rule, and the last `lap.best`
+  of each session is the summary's best.
 
 ## The final lap and the position
 
@@ -454,6 +502,7 @@ is the callouts' (paddock#93, #94).
 | `twr.v1.<src>.evt.<sid>.race.final_lap` | the final lap of a lap race began | `EVENTS` |
 | `twr.v1.<src>.evt.<sid>.race.position` | the car's position changed and settled for 3 s | `EVENTS` |
 | `twr.v1.<src>.evt.<sid>.lap.completed` | a lap ended | `EVENTS` |
+| `twr.v1.<src>.evt.<sid>.lap.best` | the session's best lap changed | `EVENTS` |
 | `twr.v1.<src>.evt.<sid>.race.finished` | the race reached its finish, by the flag or timed | `EVENTS` |
 | `twr.v1.<src>.evt.<sid>.session.ended` | a session ended | `EVENTS` |
 
@@ -469,7 +518,8 @@ is the callouts' (paddock#93, #94).
   on; the run is the message's `run_id` too), `<src>:<sid>:pit.entered:<entry>`,
   `<src>:<sid>:pit.exited:<stop>`, `<src>:<sid>:pit.teleport:<entry>`,
   `<src>:<sid>:race.final_lap:1`, `<src>:<sid>:race.position:<run>:<seq>`,
-  `<src>:<sid>:lap.completed:<n>`, `<src>:<sid>:race.finished:1` or
+  `<src>:<sid>:lap.completed:<n>`, `<src>:<sid>:lap.best:<n>` (the lap whose
+  end changed the best), `<src>:<sid>:race.finished:1` or
   `<src>:<sid>:session.ended:1`, with
   the subject's `<src>`, so two replays
   under different sources are not deduplicated against each other. An event

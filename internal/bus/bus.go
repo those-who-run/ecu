@@ -290,7 +290,7 @@ func (p *Publisher) dropFrame(lo bool) {
 // <area>.<what> comes from its ce-type, and an event with no session open goes on
 // evt._, its id then starting <src>:<run>: as the race state gives it.
 func (p *Publisher) event(o race.Output, wait <-chan struct{}) {
-	if o.Started == nil && o.Lap == nil && o.Track == nil && o.Kind == nil && o.Ended == nil &&
+	if o.Started == nil && o.Lap == nil && o.Best == nil && o.Track == nil && o.Kind == nil && o.Ended == nil &&
 		o.PitEntered == nil && o.PitExited == nil && o.PitTeleport == nil && o.FinalLap == nil &&
 		o.Position == nil && o.Finished == nil {
 		return

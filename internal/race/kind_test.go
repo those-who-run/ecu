@@ -94,8 +94,8 @@ func TestTheStartHasTheFirstVerdictAndTheEndTheFinalOne(t *testing.T) {
 	d.add(3, 0, 48, 61000, 2) // 5: lap 2
 	d.add(0, 0, 48, 61000, 2) // 6: back to the track screen
 	evs := events(run(d.all))
-	if len(evs) != 5 {
-		t.Fatalf("%d events, want start, laps 1 and 2, lap 3 cut short, end", len(evs))
+	if len(evs) != 6 || evs[3].Best == nil {
+		t.Fatalf("%d events, want start, laps 1 and 2, lap 2's best, lap 3 cut short, end", len(evs))
 	}
 	if got := evs[0].Started.GetSessionType(); got != eventsv1.SessionType_SESSION_TYPE_SOLO_TIMED {
 		t.Errorf("start: %v, want the first frame's verdict, solo timed", got)
@@ -106,7 +106,7 @@ func TestTheStartHasTheFirstVerdictAndTheEndTheFinalOne(t *testing.T) {
 	if lap := evs[2].Lap; lap.Position == nil || lap.GetPosition() != 2 {
 		t.Errorf("lap 2, ended in a field: position %v, want 2", lap.Position)
 	}
-	sum := evs[4].Ended.GetSummary()
+	sum := evs[5].Ended.GetSummary()
 	if sum.GetSessionType() != eventsv1.SessionType_SESSION_TYPE_TIMED_FIELD || sum.GetFinalPosition() != 2 ||
 		sum.FinishingPosition != nil {
 		t.Errorf("end: %v, want a timed field, final position 2 and no finishing position", sum)

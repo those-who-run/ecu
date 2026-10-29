@@ -39,7 +39,8 @@ func show(p *int32) string {
 
 // finishLines are the outputs of a replay as a golden's lines, stepping it frame by
 // frame to know the frame a finish was published on. A session's end carries the
-// best lap of its race.finished: ecu's summary has none yet (paddock#83, #86).
+// best lap of its race.finished, which the lap model gives (laps_test.go holds the
+// summary's to it).
 func finishLines(t *testing.T, name string) []string {
 	t.Helper()
 	m := New(testIDs())
@@ -343,32 +344,5 @@ func TestASoloTimedSessionHasNoTimedFinish(t *testing.T) {
 	}
 	if f := finishes(run(all)); len(f) != 0 {
 		t.Errorf("%v, want no finish", f[0].Finished)
-	}
-}
-
-func TestBestLap(t *testing.T) {
-	laps := []timedLap{{1, 57100}, {2, 60200}, {3, 59900}, {4, 59900}}
-	for _, c := range []struct {
-		name     string
-		gt7      int32
-		skipLap1 bool
-		want     timedLap
-	}{
-		{"quickest, lap 1 counted", 0, false, timedLap{1, 57100}},
-		{"quickest, lap 1 of a lap race left out, the first of a tie", 0, true, timedLap{3, 59900}},
-		{"GT7's own best", 60200, true, timedLap{2, 60200}},
-		{"GT7's best on no lap seen", 58000, true, timedLap{3, 59900}},
-	} {
-		sess := &session{timedLaps: laps, gt7BestMs: c.gt7}
-		if got, ok := sess.bestLap(c.skipLap1); !ok || got != c.want {
-			t.Errorf("%s: %v, want %v", c.name, got, c.want)
-		}
-	}
-	sess := &session{timedLaps: []timedLap{{1, 57100}}}
-	if got, _ := sess.bestLap(true); got != (timedLap{1, 57100}) {
-		t.Errorf("lap 1 alone: %v, want it", got)
-	}
-	if _, ok := (&session{}).bestLap(false); ok {
-		t.Error("no lap timed: a best lap")
 	}
 }

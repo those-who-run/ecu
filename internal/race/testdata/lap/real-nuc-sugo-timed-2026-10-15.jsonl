@@ -1,0 +1,6 @@
+{"event": "session.started", "session": 1, "frame": 95}
+{"event": "lap.completed", "session": 1, "frame": 295, "lap": 1, "lap_time_ms": 100344, "complete": true, "pit": null, "counts_for_best": true}
+{"event": "lap.completed", "session": 1, "frame": 499, "lap": 2, "lap_time_ms": 101253, "complete": true, "pit": null, "counts_for_best": true}
+{"event": "lap.completed", "session": 1, "frame": 691, "lap": 3, "lap_time_ms": 97278, "complete": true, "pit": null, "counts_for_best": true}
+{"event": "lap.completed", "session": 1, "frame": 769, "lap": 4, "lap_time_ms": null, "complete": false, "pit": null, "counts_for_best": null}
+{"event": "session.ended", "session": 1, "best_lap_ms": 97278, "fastest_lap_ms": 97278, "gt7_best_lap_ms": 97278, "best_lap": 3}

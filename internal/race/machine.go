@@ -17,8 +17,11 @@
 // Engine._apply_track (track.go here, paddock#81), fed by internal/track's
 // detector, and the pit stops from Engine._apply_pits (pit.go here, paddock#78), fed
 // by internal/pit's, and the finish, by the flag or timed, from Engine._timed_finish
-// (finish.go here, paddock#85), and the final lap and the settled position from
-// v1's FinalLapRule and PositionRule (position.go here, paddock#84). What else v1's engine reads (replays and demo races
+// (finish.go here, paddock#85), the final lap and the settled position from
+// v1's FinalLapRule and PositionRule (position.go here, paddock#84), and the lap
+// model: each lap's pit role and whether it counts for the best, from
+// Engine._step's lap_time rule, and the best, from results.best_lap with
+// contracts v0.2.3's one difference (laps.go here, paddock#83). What else v1's engine reads (replays and demo races
 // held at the start, continuing after a restart and the frozen pause) is not here
 // yet.
 package race
@@ -133,15 +136,16 @@ func (w Why) Reason() eventsv1.EndReason {
 }
 
 // Output is a frame or an event, with its CloudEvents id and time: exactly one of
-// Frame, Started, Lap, Track, Kind, PitEntered, PitExited, PitTeleport, FinalLap,
-// Position, Finished and Ended is set, each the contracts message of that name. SessionStarted's
+// Frame, Started, Lap, Best, Track, Kind, PitEntered, PitExited, PitTeleport,
+// FinalLap, Position, Finished and Ended is set, each the contracts message of that name. SessionStarted's
 // source is left empty: only the publisher knows the <src> it publishes under, and
 // sets it (internal/bus).
 type Output struct {
 	// Event is the ce-id (and Nats-Msg-Id), ce-source and ce-time, the id built
 	// as contracts' subjects.yaml says: <run>:frame:<seq> for a frame, and
 	// <sid>:session.started:1, <sid>:lap.completed:<lap> and
-	// <sid>:session.ended:1 for the events, <sid>:session.track:<run>:<seq>
+	// <sid>:session.ended:1 for the events, <sid>:lap.best:<n> with the lap
+	// whose end changed the best, <sid>:session.track:<run>:<seq>
 	// and <sid>:session.kind:<run>:<seq> for a track or kind verdict, with the
 	// seq of the frame it changed on, <sid>:pit.entered:<entry>,
 	// <sid>:pit.exited:<stop> and <sid>:pit.teleport:<entry> for the pits,
@@ -155,6 +159,7 @@ type Output struct {
 	Frame   *telemetryv1.Frame
 	Started *eventsv1.SessionStarted
 	Lap     *eventsv1.LapCompleted
+	Best    *eventsv1.LapBestChanged
 	Track   *eventsv1.SessionTrackChanged
 	Kind    *eventsv1.SessionKindChanged
 	Ended   *eventsv1.SessionEnded
@@ -180,6 +185,8 @@ func (o Output) Message() proto.Message {
 		return o.Started
 	case o.Lap != nil:
 		return o.Lap
+	case o.Best != nil:
+		return o.Best
 	case o.Track != nil:
 		return o.Track
 	case o.Kind != nil:
@@ -233,8 +240,7 @@ type session struct {
 	track        *track.Match // the verdict applied to the session, nil for none (v1's Engine.track)
 	kind         *kindVerdict // the kind verdict applied to the session, nil for none (v1's Session.kind)
 	pits         pitCounts
-	timedLaps    []timedLap // the complete laps with a time, in the order they closed
-	gt7BestMs    int32      // GT7's own best lap, 0 for none (v1's Session.gt7_best_ms)
+	laps         lapBook // the lap model's view of the laps (laps.go, paddock#83)
 }
 
 // lapFrames are the frames of the lap in progress (v1's Session.buffer): their seqs,
@@ -267,8 +273,8 @@ func (m *Machine) Run() string { return m.run }
 // Step takes the next packet and returns its frame, then the events it gives rise
 // to, in the order they happened: the end of a session the packet's start closes,
 // the start, a pit entry, exit or entry withdrawn, the final lap and a settled
-// position, a change of the session's track, a change of its kind, a lap closed,
-// the race's finish, and the end of the session.
+// position, a change of the session's track, a change of its kind, a lap closed
+// and the best it gave the session, the race's finish, and the end of the session.
 func (m *Machine) Step(r Received) []Output {
 	m.seq++
 	s := newState(m.seq, r.T, &r.Packet)
@@ -368,6 +374,9 @@ func (m *Machine) Step(r Received) []Output {
 	m.observeFinish(seen, &s, r.Time, kindBefore)
 	if m.session != nil && ended {
 		m.finalTrack()
+		// v1's set_pits on a race's end, before end_session: the lap the session
+		// ends in takes its role from the pits as they are now.
+		m.session.laps.pits = m.pits.Status()
 		why := WhyQuit
 		switch {
 		case m.finish.kind == eventsv1.FinishKind_FINISH_KIND_FLAG:
@@ -444,7 +453,7 @@ func (m *Machine) observe(prev, s *state, t time.Time) {
 			m.session.lastPosition = p
 		}
 		if s.bestLapMs > 0 {
-			m.session.gt7BestMs = s.bestLapMs
+			m.session.laps.gt7BestMs = s.bestLapMs
 		}
 	}
 	if lapCompleted(prev, s) {
@@ -479,9 +488,15 @@ func (m *Machine) closeLap(lap int32, s *state, t time.Time, complete bool) {
 		FirstSeq:    frames.first,
 		LastSeq:     last,
 	}
+	// The lap model's verdicts (laps.go): the role from the pit status as last
+	// applied to the session, and whether the lap counts for the best, as v1's
+	// lap_time rule decided on the frame that posted the time.
+	role := sess.laps.pits.LapRole(lap)
+	ev.PitRole = pitRole(role)
 	if complete && s.lastLapMs > 0 {
 		ev.LapTimeMs = s.lastLapMs
-		sess.timedLaps = append(sess.timedLaps, timedLap{lap: lap, ms: s.lastLapMs})
+		ev.CountsForBest = countsForBest(lap, s, role)
+		sess.laps.timed = append(sess.laps.timed, timedLap{lap: lap, ms: s.lastLapMs, counts: ev.CountsForBest})
 	}
 	// Outside a field the position is left out, by the verdict at the lap's end.
 	if p := s.racePosition(); p != 0 && !solo(m.kinds.kind()) {
@@ -497,6 +512,7 @@ func (m *Machine) closeLap(lap int32, s *state, t time.Time, complete bool) {
 		Session: sess.id,
 		Lap:     ev,
 	})
+	m.publishBest(lap, last, t)
 }
 
 // end closes the open session on s, its last frame (v1's SessionStore.end_session):
@@ -523,9 +539,10 @@ func (m *Machine) end(s *state, t time.Time, why Why) {
 		SessionType:   kind,
 		Finished:      m.finish.kind != eventsv1.FinishKind_FINISH_KIND_UNSPECIFIED,
 	}
-	if total, ok := sess.totalTimeMs(); ok && summary.Finished {
+	if total, ok := sess.laps.totalTimeMs(); ok && summary.Finished {
 		summary.TotalTimeMs = &total
 	}
+	lapSummary(summary, &sess.laps)
 	if sess.track != nil {
 		summary.Track = verdict(*sess.track)
 	}
