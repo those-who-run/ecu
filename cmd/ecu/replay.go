@@ -40,8 +40,12 @@ var connectTimeout = 10 * time.Second
 
 // replayGrace is how long a replay waits at the end for the server to take and
 // acknowledge what is still queued. Longer than live's: a replay that gives up
-// loses what it was run for.
-const replayGrace = 30 * time.Second
+// loses what it was run for. interruptGrace is what is left of it once SIGINT or
+// SIGTERM comes. Vars, so the tests can shorten them.
+var (
+	replayGrace    = 30 * time.Second
+	interruptGrace = time.Second
+)
 
 // replayOptions are the publisher's limits for a replay: the defaults, which the
 // tests shrink so the replay waits on the hand-over often.
@@ -134,21 +138,35 @@ func replay(ctx context.Context, args []string, getenv func(string) string, stdi
 	paced := &pacer{src: rec, speed: factor, clock: start}
 	failed := drive(ctx, paced, paced.at, race.New(ulid.Make), waiting{ctx, pub}, nil)
 
+	logger.InfoContext(ctx, "replayed: flushing", "packets", paced.n)
+
+	// The flush gets replayGrace, cut to interruptGrace once a signal comes:
+	// NotifyContext takes every later signal, so Ctrl-C must not wait 30 s.
 	grace, cancel := context.WithTimeout(context.WithoutCancel(ctx), replayGrace)
 	defer cancel()
-	s := pub.Close(grace)
+	stopCut := context.AfterFunc(ctx, func() { time.AfterFunc(interruptGrace, cancel) })
+	defer stopCut()
+	pub.Close(grace)
+	// The totals are final only once Closed is: the publisher counts what it
+	// drops when the grace runs out after Close has returned.
+	final := false
 	select {
 	case <-pub.Closed():
+		final = true
 	case <-time.After(closeAfter):
 	}
+	s := pub.Stats()
 	var re *salsa.RecordingError
 	switch {
 	case errors.As(failed, &re):
 		_, _ = fmt.Fprintln(stderr, "ecu replay:", failed)
 		return exitRecording
-	case failed != nil:
-		_, _ = fmt.Fprintln(stderr, "ecu replay: stopped:", failed)
+	case failed != nil || ctx.Err() != nil:
+		_, _ = fmt.Fprintln(stderr, "ecu replay: stopped:", context.Cause(ctx))
 		return exitInterrupted
+	case !final:
+		_, _ = fmt.Fprintln(stderr, "ecu replay: NATS still held the publisher at the end: what it took is not known")
+		return exitNATS
 	case s.DroppedFrames > 0 || s.DroppedEvents > 0:
 		_, _ = fmt.Fprintf(stderr, "ecu replay: NATS did not take everything: %d frames and %d events dropped\n",
 			s.DroppedFrames, s.DroppedEvents)
@@ -298,6 +316,7 @@ type pacer struct {
 	speed float64
 	clock time.Time
 
+	n       int // packets read
 	started bool
 	t0      float64   // the first packet's t
 	wall    time.Time // when the first packet was given, for the pacing
@@ -308,6 +327,7 @@ func (p *pacer) Next(ctx context.Context) (salsa.Received, error) {
 	if err != nil {
 		return r, err
 	}
+	p.n++
 	if !p.started {
 		p.started, p.t0, p.wall = true, r.T, time.Now()
 		return r, nil

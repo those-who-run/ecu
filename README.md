@@ -205,9 +205,10 @@ docker run --rm -v "$PWD:/recordings" ghcr.io/those-who-run/twr-ecu \
   cannot be read: the message names the file and the line
   (`x.jsonl:4: ...`); what came before the bad line is published, and its
   session ended as ecu stopped. `2` for a NATS server not reached within 10 s,
-  one that did not take everything (any frame or event dropped, which the log
-  line `published` counts), or a bad flag. `130` when SIGINT or SIGTERM stops
-  it, the open session ended as ecu stopped.
+  one that did not take everything by the end of the 30 s (any frame or event
+  dropped, which the final `published` log line counts), or a bad flag. `130`
+  when SIGINT or SIGTERM stops it, the open session ended as ecu stopped; a
+  signal while it waits for the server at the end cuts that wait to 1 s.
 
 Not here yet, and still paddock#35's: `--seed` for the ULIDs (session and
 event ids are random on each run until then), `--from` and `--to`, and the

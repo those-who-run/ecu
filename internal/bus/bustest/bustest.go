@@ -272,14 +272,20 @@ func AddStream(t testing.TB, js jetstream.JetStream, name string) {
 	}
 }
 
-// WithStreams starts a server with TELEMETRY and EVENTS, for a test that publishes
-// through internal/bus and reads back with Read and Count.
-func WithStreams(t testing.TB) *Server {
+// WithStreams starts a server with the streams named, "telemetry" and "events",
+// or both when none is named, for a test that publishes through internal/bus and
+// reads back with Read and Count.
+func WithStreams(t testing.TB, names ...string) *Server {
 	t.Helper()
 	s := NewServer(t)
 	nc, js := s.connect()
 	defer nc.Close()
-	AddStreams(t, js)
+	if len(names) == 0 {
+		names = []string{"telemetry", "events"}
+	}
+	for _, name := range names {
+		AddStream(t, js, name)
+	}
 	return s
 }
 

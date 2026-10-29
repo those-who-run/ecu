@@ -6,16 +6,19 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/those-who-run/contracts/ce"
 	"github.com/those-who-run/ecu/internal/bus"
 	"github.com/those-who-run/ecu/internal/bus/bustest"
+	"github.com/those-who-run/ecu/internal/race"
 	"github.com/those-who-run/ecu/internal/record"
-	"github.com/those-who-run/salsa"
+	"google.golang.org/protobuf/encoding/protojson"
 )
 
 // replayed is one run of ecu replay.
@@ -81,7 +84,9 @@ func TestAReplayAtMaxPublishesEveryFrameAndEvent(t *testing.T) {
 
 	in := readAll(t, openRecording(t, path))
 	want := &fakePublisher{}
-	_ = drive(t.Context(), &slice{all: in}, func(salsa.Received) time.Time { return time.Unix(0, 0) }, machine(), want, nil)
+	// Dated as the replay dates them, so the payloads' times match too.
+	dated := &pacer{clock: defaultClock, t0: in[0].T}
+	_ = drive(t.Context(), &slice{all: in}, dated.at, machine(), want, nil)
 	var kinds []string
 	for _, o := range want.outs {
 		if o.Frame == nil {
@@ -120,6 +125,34 @@ func TestAReplayAtMaxPublishesEveryFrameAndEvent(t *testing.T) {
 	for i := range kinds {
 		if gotKinds[i] != kinds[i] {
 			t.Errorf("event %d is %q, want %q", i, gotKinds[i], kinds[i])
+		}
+	}
+	// Each payload is the race state's for the same packets, laps and lap times
+	// included, apart from the session id, which is random on each run.
+	var wantEvents []race.Output
+	for _, o := range want.outs {
+		if o.Frame == nil {
+			wantEvents = append(wantEvents, o)
+		}
+	}
+	for i, o := range wantEvents {
+		sid := strings.Split(stored[i].Subject, ".")[4] // twr.v1.parity.evt.<sid>.<area>.<what>
+		if o.Started != nil {
+			o.Started.Source = "parity"
+		}
+		data, err := protojson.Marshal(o.Message())
+		if err != nil {
+			t.Fatal(err)
+		}
+		var w, g map[string]any
+		if err := json.Unmarshal([]byte(strings.ReplaceAll(string(data), o.Session, sid)), &w); err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(stored[i].Data, &g); err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(w, g) {
+			t.Errorf("event %d (%s) is\n%s\nwant\n%s", i, kinds[i], stored[i].Data, data)
 		}
 	}
 
@@ -338,5 +371,54 @@ func TestAnInterruptedReplay(t *testing.T) {
 	}
 	if n := srv.Count("TELEMETRY"); n != 1 {
 		t.Errorf("TELEMETRY holds %d frames, want the first only", n)
+	}
+}
+
+// R1 of paddock#35: events the server never acknowledges (here, with no EVENTS
+// stream) are dropped once the grace runs out, and the replay exits 2, not 0.
+func TestEventsNotTakenExitTwo(t *testing.T) {
+	srv := bustest.WithStreams(t, "telemetry")
+	replayGrace = 300 * time.Millisecond
+	t.Cleanup(func() { replayGrace = 30 * time.Second })
+	got := runReplay(t, nil, "--speed", "max", "--src", "parity", "--nats", srv.URL(), recordingPath(t, suzuka))
+	if got.code != 2 || !strings.Contains(got.stderr, "events dropped") {
+		t.Errorf("exit %d, stderr %q; want 2 and the events dropped", got.code, got.stderr)
+	}
+}
+
+// signalOnFlush is a log that cancels the replay once it says it is flushing, as
+// a SIGINT then would.
+type signalOnFlush struct {
+	mu     sync.Mutex
+	buf    bytes.Buffer
+	cancel context.CancelFunc
+	at     time.Time
+}
+
+func (l *signalOnFlush) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if bytes.Contains(p, []byte(`"msg":"replayed: flushing"`)) {
+		l.at = time.Now()
+		l.cancel()
+	}
+	return l.buf.Write(p)
+}
+
+// A signal while the replay waits for the server to take what is queued cuts
+// the wait to interruptGrace, and the replay exits 130.
+func TestASignalDuringTheFlush(t *testing.T) {
+	srv := bustest.WithStreams(t, "telemetry") // no EVENTS: the events would wait the full grace
+	interruptGrace = 200 * time.Millisecond
+	t.Cleanup(func() { interruptGrace = time.Second })
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	log := &signalOnFlush{cancel: cancel}
+	var stderr bytes.Buffer
+	code := replay(ctx, []string{"--speed", "max", "--src", "parity", "--nats", srv.URL(), recordingPath(t, suzuka)},
+		env(nil), nil, log, &stderr)
+	took := time.Since(log.at)
+	if code != 130 || log.at.IsZero() || took > 2*time.Second {
+		t.Errorf("exit %d %v after the signal, stderr %q; want 130 within 2 s", code, took, stderr.String())
 	}
 }
