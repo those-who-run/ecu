@@ -3,6 +3,7 @@ package bustest
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/nats-io/nats.go"
 )
@@ -25,10 +26,17 @@ func TestAServerWithTheStreams(t *testing.T) {
 		t.Fatal(err)
 	}
 	nc.Close()
+	// The stream stores a core publish after the server has taken it: wait for
+	// it before killing the server.
+	for deadline := time.Now().Add(10 * time.Second); s.Count("TELEMETRY") != 3; time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatalf("TELEMETRY holds %d, want 3", s.Count("TELEMETRY"))
+		}
+	}
 	s.Stop()
 	s.Start()
 	if n := s.Count("TELEMETRY"); n != 3 {
-		t.Fatalf("TELEMETRY holds %d, want 3", n)
+		t.Fatalf("TELEMETRY holds %d after a restart, want 3", n)
 	}
 	var got []string
 	for _, m := range s.Read("TELEMETRY", 2) {
