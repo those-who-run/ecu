@@ -1,0 +1,2 @@
+{"event": "session.started", "session": 1, "frame": 1, "joined": true}
+{"event": "callout", "session": 1, "frame": 5, "kind": "template_joined", "slots": {"lap": 5, "laps": 12, "position": 7, "total_cars": 20}, "priority": 8, "hold_secs": 0.0, "expiry_secs": 8.0, "pit_lane": "hold", "text": "Back with you. Lap five of twelve. P seven.", "outcome": "spoken"}

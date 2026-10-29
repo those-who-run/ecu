@@ -1,0 +1,2 @@
+{"event": "session.started", "session": 1, "frame": 51, "joined": false}
+{"event": "callout", "session": 1, "frame": 56, "kind": "template", "slots": {"track": "Circuit Gilles Villeneuve", "laps": 12, "position": 20, "total_cars": 20}, "priority": 8, "hold_secs": 0.0, "expiry_secs": 8.0, "pit_lane": "hold", "text": "Circuit Gilles Villeneuve. Twelve laps. P twenty of twenty.", "outcome": "spoken"}

@@ -1,0 +1,2 @@
+{"event": "session.started", "session": 1, "frame": 21, "joined": false}
+{"event": "callout", "session": 1, "frame": 26, "kind": "template", "slots": {"track": "Tsukuba Circuit", "laps": 4}, "priority": 8, "hold_secs": 0.0, "expiry_secs": 8.0, "pit_lane": "hold", "text": "Tsukuba Circuit. Four laps.", "outcome": "spoken"}

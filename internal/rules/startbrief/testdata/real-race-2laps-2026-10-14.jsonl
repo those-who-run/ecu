@@ -1,0 +1,4 @@
+{"event": "session.started", "session": 1, "frame": 1, "joined": true}
+{"event": "callout", "session": 1, "frame": 3, "kind": "template_joined", "slots": {"lap": 7}, "priority": 8, "hold_secs": 0.0, "expiry_secs": 8.0, "pit_lane": "hold", "text": "Back with you. Lap seven.", "outcome": "spoken"}
+{"event": "session.started", "session": 2, "frame": 141, "joined": false}
+{"event": "callout", "session": 2, "frame": 145, "kind": "template", "slots": {"laps": 2, "position": 10, "total_cars": 20}, "priority": 8, "hold_secs": 0.0, "expiry_secs": 8.0, "pit_lane": "hold", "text": "Two laps. P ten of twenty.", "outcome": "spoken"}

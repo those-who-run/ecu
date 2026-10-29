@@ -1,0 +1,2 @@
+{"event": "session.started", "session": 1, "frame": 43, "joined": false}
+{"event": "callout", "session": 1, "frame": 48, "kind": "template", "slots": {"timed": true, "position": 10, "total_cars": 20}, "priority": 8, "hold_secs": 0.0, "expiry_secs": 8.0, "pit_lane": "hold", "text": "Timed race. P ten of twenty.", "outcome": "spoken"}
