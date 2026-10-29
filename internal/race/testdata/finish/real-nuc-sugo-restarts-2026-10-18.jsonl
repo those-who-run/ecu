@@ -1,0 +1,7 @@
+{"event": "session.started", "session": 1, "frame": 46}
+{"event": "session.ended", "session": 1, "finished": false, "total_time_ms": null, "best_lap_ms": 109315, "best_lap": 1}
+{"event": "session.started", "session": 2, "frame": 668}
+{"event": "session.ended", "session": 2, "finished": false, "total_time_ms": null, "best_lap_ms": null, "best_lap": null}
+{"event": "session.started", "session": 3, "frame": 790}
+{"event": "race.finished", "session": 3, "frame": 1151, "kind": "flag", "at": 1151, "lap": 2, "position": 2, "session_kind": "lap_race"}
+{"event": "session.ended", "session": 3, "finished": true, "total_time_ms": 169772, "best_lap_ms": 83610, "best_lap": 2}

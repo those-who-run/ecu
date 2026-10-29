@@ -16,7 +16,8 @@ acceptance criterion, `Part of those-who-run/paddock#N` otherwise
 [`internal/race`](internal/race) is the race state: a pure state machine
 that takes `salsa` packets one at a time and gives, for each, its frame and the
 events it gives rise to, `session.started`, `pit.entered`, `pit.exited`,
-`session.track`, `session.kind`, `lap.completed` and `session.ended`, as the
+`session.track`, `session.kind`, `lap.completed`, `race.finished` and
+`session.ended`, as the
 `contracts` messages. It opens a session, closes a lap
 and ends a session exactly where v1 did, with v1's rules ported from its
 `state.py`, `engine.py` and `store.py` at v1.0.0 (paddock#33).
@@ -30,9 +31,10 @@ and ends a session exactly where v1 did, with v1's rules ported from its
 - **End reasons.** At the flag, quit (a loading screen with the lap counter
   reset), back to a menu or the track screen (`END_REASON_MENU`, contracts
   v0.2.0), restarted, the next session started, the input ended (`EndOfInput`,
-  the end of a recording) and ecu stopped (`Stop`). A timed session that goes
-  back to a menu still ends as quit, as before v0.2.0, until ecu reads the
-  timed finish (`END_REASON_TIMED_FINISH`, paddock#85).
+  the end of a recording) and ecu stopped (`Stop`). A timed race ended after
+  its timed finish is `END_REASON_TIMED_FINISH` ([The finish](#the-finish)),
+  and a timed session left for a menu before it, as a time trial always is,
+  `END_REASON_MENU`.
 
 - **No clock, no NATS, no files.** Each packet comes with the time ecu received
   it, which becomes its frame's `ce-time`; a session's `started_at` is its
@@ -338,6 +340,43 @@ frame and publishes the session's entries and exits, as v1's
   wrote them from v1.0.0. The Gilles Villeneuve stop is also `contracts`'
   `testdata/v1/gilles_villeneuve_pit_stop.json`.
 
+## The finish
+
+[`internal/race/finish.go`](internal/race/finish.go) publishes
+`race.finished` once a session at most, where v1's engine set `finished`
+(paddock#85).
+
+- **By the flag.** A race with a lap total shows the flag in the lap counter
+  (lap total + 1): the first finished frame is the finish (`FINISH_KIND_FLAG`),
+  solo laps included, as v1 counted them finished.
+- **Timed.** A timed race has no flag. v1's `Engine._timed_finish`, ported as it
+  is: in a timed session with a field and GT7's cars-on-track flag, after a
+  lap time is posted, throttle and brake both 0 at over 20 km/h for 3 s is GT7
+  driving the car after the line (`FINISH_KIND_TIMED`), as of that line
+  crossing. Inputs within 0.5 s of the line are still the driver's; after that
+  the driver is on another lap. A paused car is not coasting.
+- **The event.** `RaceFinished`: the lap completed at the line, the position
+  there (left out outside a field, as for a lap), the total of the complete
+  laps' times, the best lap as v1's summary gave it (GT7's own best, else the
+  quickest complete lap, lap 1 of a lap race left out), and the seq of the
+  flag frame or of the crossing as `at`. Its `ce-time` is the frame it was
+  decided on: 3 s after the crossing for a timed finish.
+- **Where in a step.** v1's `Engine._step` decides the finish after the pits
+  and the rules, before the track, the kind and the lap store see the frame,
+  reading the kind from before the frame. ecu takes the kind from before the
+  frame too, and publishes `race.finished` after the lap store, so the final
+  lap's `lap.completed`, which closes on the flag frame, comes first and is
+  counted in the total, then `session.ended`.
+- **The end.** The session's summary is `finished`, with `total_time_ms`, and
+  the end that follows is `END_REASON_FINISHED` or `END_REASON_TIMED_FINISH`.
+  The frames GT7 replays after the results start no session and finish
+  nothing.
+- **Tests.** On every one of v1's 25 recordings, `race.finished` and each
+  summary's `finished` and total time are v1's, as `make_golden.py` in
+  [`internal/race/testdata/finish/`](internal/race/testdata/finish) wrote them
+  from v1.0.0, the six v1 opens no session on with every start taken for a
+  drive (SUGO's replay then finishes at the flag, as v1's engine would).
+
 ## Publishing
 
 [`internal/bus`](internal/bus) puts the race state's outputs on NATS
@@ -354,6 +393,7 @@ frame and publishes the session's entries and exits, as v1's
 | `twr.v1.<src>.evt.<sid>.pit.entered` | the car came into the pit lane | `EVENTS` |
 | `twr.v1.<src>.evt.<sid>.pit.exited` | the car left the pit lane, with its stop | `EVENTS` |
 | `twr.v1.<src>.evt.<sid>.lap.completed` | a lap ended | `EVENTS` |
+| `twr.v1.<src>.evt.<sid>.race.finished` | the race reached its finish, by the flag or timed | `EVENTS` |
 | `twr.v1.<src>.evt.<sid>.session.ended` | a session ended | `EVENTS` |
 
 - **Messages.** Each is the `contracts` message in protobuf
@@ -366,7 +406,8 @@ frame and publishes the session's entries and exits, as v1's
   `<src>:<sid>:session.track:<run>:<seq>` and
   `<src>:<sid>:session.kind:<run>:<seq>` (the run and the frame it changed
   on; the run is the message's `run_id` too), `<src>:<sid>:pit.entered:<entry>`,
-  `<src>:<sid>:pit.exited:<stop>`, `<src>:<sid>:lap.completed:<n>` or
+  `<src>:<sid>:pit.exited:<stop>`, `<src>:<sid>:lap.completed:<n>`,
+  `<src>:<sid>:race.finished:1` or
   `<src>:<sid>:session.ended:1`, with
   the subject's `<src>`, so two replays
   under different sources are not deduplicated against each other. An event

@@ -25,6 +25,7 @@ type state struct {
 	lap       int32 // GT7's current lap
 	totalLaps int32
 	lastLapMs int32
+	bestLapMs int32 // GT7's own best lap, -1 or 0 when it has none
 	fuel      float64
 	position  int32 // GT7's race position, -1 outside a race
 	totalCars int32 // GT7's count of cars, -1 in a time trial and around the results
@@ -34,6 +35,9 @@ type state struct {
 	fuelCapacity float64
 	speedKph     float64
 	carsOnTrack  bool // GT7's cars-on-track flag
+
+	// What the timed finish reads (finish.go), 0 to 255.
+	throttle, brake int32
 }
 
 func (s *state) inRace() bool { return s.phase == phaseInRace }
@@ -57,6 +61,7 @@ func newState(seq uint32, t float64, p *salsa.Packet) state {
 		lap:       lap,
 		totalLaps: total,
 		lastLapMs: p.LastLapMs,
+		bestLapMs: p.BestLapMs,
 		fuel:      float64(p.FuelLevel),
 		position:  int32(p.RacePosition),
 		totalCars: int32(p.TotalCars),
@@ -65,6 +70,9 @@ func newState(seq uint32, t float64, p *salsa.Packet) state {
 		fuelCapacity: float64(p.FuelCapacity),
 		speedKph:     p.SpeedKPH(),
 		carsOnTrack:  p.Flags.CarsOnTrack(),
+
+		throttle: int32(p.Throttle),
+		brake:    int32(p.Brake),
 	}
 }
 
@@ -107,6 +115,18 @@ func racingFrame(prev, s *state) bool {
 // lapCompleted says the lap counter advanced by one while driving.
 func lapCompleted(prev, s *state) bool {
 	return racingFrame(prev, s) && prev.lap >= 1 && s.lap == prev.lap+1
+}
+
+// lapTimePosted says a lap time is available for a lap that just finished.
+//
+// GT7 publishes the last-lap time in the same frame as the counter bump (confirmed
+// from a recording). Both conditions are kept so two identical lap times in a row
+// are still announced; the lap-time rule dedupes per lap.
+func lapTimePosted(prev, s *state) bool {
+	if !racingFrame(prev, s) || s.lastLapMs <= 0 {
+		return false
+	}
+	return s.lastLapMs != prev.lastLapMs || lapCompleted(prev, s)
 }
 
 // raceStarted says s is the first driving frame of a session. Loading screens and
