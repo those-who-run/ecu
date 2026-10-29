@@ -94,7 +94,7 @@ type Stop struct {
 	// Number is the stop's number, 1 for the first stop of the session.
 	Number int32
 	InLap  int32
-	// OutLap is 0 while the car is still in the pit lane.
+	// OutLap is the lap the car left the pit lane on, when Done.
 	OutLap int32
 	EntryT float64
 	// ExitT is the exit's time, when Done.
@@ -108,6 +108,9 @@ type Stop struct {
 	// PitLaneKph is the speed on the first driving frame after the entry cut:
 	// the limiter.
 	PitLaneKph float64
+	// Exited says the car has left the pit lane: v1's out_lap is not None. It is
+	// a flag of its own, not OutLap != 0, so a stop left on lap 0 is done too.
+	Exited bool
 	// PositionBefore and PositionAfter are the race positions, 0 for none.
 	PositionBefore int32
 	PositionAfter  int32
@@ -115,7 +118,7 @@ type Stop struct {
 }
 
 // Done says the car has left the pit lane.
-func (s Stop) Done() bool { return s.OutLap != 0 }
+func (s Stop) Done() bool { return s.Exited }
 
 // FuelAdded is the fuel added, never below 0.
 func (s Stop) FuelAdded() float64 { return max(s.FuelAfter-s.FuelBefore, 0) }
@@ -180,11 +183,11 @@ func (s Status) Stint() int32 {
 }
 
 // StintStartLap is the lap the current stint began on: the last stop's out-lap,
-// or lap 1.
+// or lap 1, as for an out-lap of 0 (v1's `out_lap or 1`).
 func (s Status) StintStartLap() int32 {
 	for i := len(s.Stops) - 1; i >= 0; i-- {
 		if s.Stops[i].Done() {
-			return s.Stops[i].OutLap
+			return max(s.Stops[i].OutLap, 1)
 		}
 	}
 	return 1
@@ -200,7 +203,7 @@ func (s Status) LapRole(lap int32) Role {
 			continue
 		}
 		if lap == stop.InLap {
-			if stop.OutLap == lap {
+			if stop.Done() && stop.OutLap == lap {
 				return RoleInOut
 			}
 			return RoleIn
@@ -362,7 +365,7 @@ func (d *Detector) inPits(last, f *telemetryv1.Frame, cut string, paused bool) C
 		})
 		return Withdrawn
 	}
-	stop.OutLap, stop.ExitT = f.GetLap(), f.GetT()
+	stop.OutLap, stop.ExitT, stop.Exited = f.GetLap(), f.GetT(), true
 	stop.Evidence += "; " + out
 	d.stops = append(d.stops, *stop)
 	return Exited

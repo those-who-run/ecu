@@ -179,7 +179,7 @@ func TestTheNextEntryAfterATeleportTakesItsNumber(t *testing.T) {
 }
 
 func TestPitLapsRolesAndStints(t *testing.T) {
-	s := Status{Stops: []Stop{{Number: 1, InLap: 6, OutLap: 7}}}
+	s := Status{Stops: []Stop{{Number: 1, InLap: 6, OutLap: 7, Exited: true}}}
 	var pitLaps []int32
 	for l := int32(1); l <= 12; l++ {
 		if s.IsPitLap(l) {
@@ -201,7 +201,7 @@ func TestPitLapsRolesAndStints(t *testing.T) {
 	if none.Stint() != 1 || none.StintStartLap() != 1 || none.IsPitLap(1) {
 		t.Error("no stops")
 	}
-	if one := (Status{Stops: []Stop{{InLap: 4, OutLap: 4}}}); one.LapRole(4) != RoleInOut {
+	if one := (Status{Stops: []Stop{{InLap: 4, OutLap: 4, Exited: true}}}); one.LapRole(4) != RoleInOut {
 		t.Errorf("in and out on lap 4: %v", one.LapRole(4))
 	}
 	// An open stop marks every lap from the in-lap.
@@ -220,5 +220,30 @@ func TestAResetForgetsTheStops(t *testing.T) {
 	d.Reset()
 	if s := d.Status(); len(s.Stops) != 0 || len(s.Teleports) != 0 || s.InPitLane {
 		t.Errorf("status %+v", s)
+	}
+}
+
+// A stop left on lap 0 is done, as v1's `out_lap is not None` reads it: the
+// stint after it has begun, from lap 1, and lap 0 is its in-and-out lap.
+func TestAStopLeftOnLapZeroIsDone(t *testing.T) {
+	d := New()
+	changes := observeAll(d,
+		fr(0, lap(0), x(0)),
+		fr(0.04, lap(0), speed(60), x(200)), // a loading frame at lap 0 is no cut: a teleport
+		fr(5, lap(0), speed(0), x(260)),
+		fr(10, lap(0), speed(0), x(260), fuel(100)),
+		fr(15, lap(0), speed(101), x(330), fuel(100)),
+	)
+	if changes[1] != Entered || changes[4] != Exited {
+		t.Fatalf("changes %v", changes)
+	}
+	s := d.Status()
+	stop := s.Stops[0]
+	if s.InPitLane || !stop.Done() || stop.OutLap != 0 || s.Stint() != 2 || s.StintStartLap() != 1 ||
+		s.LapRole(0) != RoleInOut || s.LapRole(1) != RoleNone {
+		t.Errorf("status %+v: stint %d from lap %d, lap 0 %v", s, s.Stint(), s.StintStartLap(), s.LapRole(0))
+	}
+	if secs, ok := stop.PitLaneSecs(); !ok || !near(secs, 15-0.04) {
+		t.Errorf("pit lane %v %v", secs, ok)
 	}
 }

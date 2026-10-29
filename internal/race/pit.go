@@ -21,7 +21,12 @@ import (
 // (contracts v0.2.2): every entry, withdrawn or not, for pit.entered's <entry>,
 // and the stops completed, for pit.exited's <stop>. They are the session's, not
 // the detector's, so a session continued after an ecu restart can carry them on
-// (TODO(paddock#76): start them from the stops before the restart).
+// (TODO(paddock#76): start them from the stops before the restart). They only
+// go up: when the detector resets inside a session (the lap counter goes back
+// without a restart the machine sees), the ids carry on, but the summary's
+// stops come from the detector and number from 1 again, so PitExited's
+// stop.stop and the summary's can disagree. v1's summary does the same;
+// paddock#76 settles it with the restore.
 type pitCounts struct {
 	entries int32 // every entry, the open one included
 	stops   int32 // the stops completed
@@ -125,6 +130,14 @@ func pitStop(s pit.Stop) *eventsv1.PitStop {
 
 // pitSummary puts the session's stints and stops in its summary, a stop still open
 // last, as v1's SessionStore.end_session stores them.
+//
+// It reads the detector's status on the frame that ends the session, whatever
+// ended it. That is deliberate: v1 reads it so at a race end (set_pits before
+// end_session on race_ended), and contracts' fuel_after is the level "now
+// while it is still in the pit lane". When a start, a restart or the end of the
+// frames closes the session with the car in the pit lane, v1 stored the open
+// stop as it stood at its last change (fuel, time at rest and position from
+// the entry frame); that is not a value to go back to.
 //
 // TODO(paddock#76): a session continued after an ecu restart counts on from the
 // stops before it, as v1 does.
