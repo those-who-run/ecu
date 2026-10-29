@@ -108,7 +108,9 @@ contract's script key ("The kinds ecu sends, by rule" in `callout.proto`), and
   `drop` is never published, and `hold` is kept until the exit, the entry
   withdrawn, or the finish in the lane. It's then published as raised there,
   with a new `created_at` and `expires_at` and no `hold_until`, keeping its
-  `at` and `id`. Callouts queued before the entry are radio's to handle
+  `at` and `id`. The policy applies on the flag frame and after it too, and a
+  callout held then is released on the same frame. A session that ends in the
+  lane without a finish never publishes what was held. Callouts queued before the entry are radio's to handle
   (paddock#59).
 
 Order within a frame: the released callouts, then each rule's in
@@ -132,8 +134,9 @@ value to show between callouts (fuel's laps remaining) implements
   `testdata/callouts/make_golden.py` in a v1.0.0 env. Each line has the
   session, the frame, the rule, the kind (contracts' table, as paddock's
   `parity/v1events.py` names it), priority, pit lane and outcome. The outcome
-  is `spoken`, `held` (with the frame it was released on) or `unpublished`
-  (raised in the lane and dropped).
+  is `spoken`, `held` (with the frame it was released on), `dropped` (queued at
+  an entry, which radio drops) or `unpublished` (raised in the lane and
+  dropped, or held and never released).
 - `TestEveryCalloutIsV1sOnEveryRecording` (`golden_test.go`) replays each
   recording through the machine and the engine, and compares the callouts of
   **every registered rule** with the golden's lines for that rule. A new rule

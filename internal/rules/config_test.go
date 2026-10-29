@@ -107,6 +107,9 @@ rules:
 	if cfg.Rules["final_lap"].Enabled {
 		t.Error("final_lap enabled")
 	}
+	if strings.Join(cfg.Unknown, ",") != "nonsense" {
+		t.Errorf("unknown rules %v, want nonsense", cfg.Unknown)
+	}
 	e, err := New(cfg, nil)
 	if err != nil {
 		t.Fatal(err)

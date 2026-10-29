@@ -57,6 +57,10 @@ type Config struct {
 	// Rules are each known rule's settings, by name: every rule of Order and
 	// telemetry, given in the file or not.
 	Rules map[string]*Settings
+	// Unknown are the rules the file names that ecu doesn't know, sorted: a
+	// misspelling, most likely. They are ignored, as v1 ignored them, and ecu
+	// logs a warning naming them.
+	Unknown []string
 }
 
 // Settings are one rule's settings: those every rule takes, and its own, which it
@@ -108,6 +112,11 @@ func ParseConfig(data []byte) (Config, error) {
 		s, err := settings(name, file.Rules[name])
 		errs = append(errs, err)
 		cfg.Rules[name] = s
+	}
+	for _, name := range slices.Sorted(maps.Keys(file.Rules)) {
+		if _, ok := defaults[name]; !ok {
+			cfg.Unknown = append(cfg.Unknown, name)
+		}
 	}
 	return cfg, errors.Join(errs...)
 }
