@@ -95,7 +95,7 @@ func TestAStalledServerNeverHoldsAStep(t *testing.T) {
 			}
 			want := `"dropped_frames":` + strconv.FormatUint(s.DroppedFrames, 10) +
 				`,"dropped_lo_frames":` + strconv.FormatUint(s.DroppedLoFrames, 10) +
-				`,"dropped_events":` + strconv.FormatUint(s.DroppedEvents, 10) + `,"final":true}`
+				`,"dropped_events":` + strconv.FormatUint(s.DroppedEvents, 10) + `,"dropped_callouts":0,"final":true}`
 			if n := len(published); n == 0 || !strings.Contains(published[n-1], want) ||
 				strings.Count(l.String(), `"final":true`) != 1 {
 				t.Errorf("published lines %q, want the last one to end %s", published, want)
