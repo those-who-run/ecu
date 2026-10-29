@@ -48,6 +48,7 @@ func (m *Machine) observePits(f *telemetryv1.Frame, t time.Time) {
 		return
 	}
 	status := m.pits.Status()
+	m.ctx.PitChange = change
 	// The laps' roles come from the status as applied here (v1's set_pits).
 	sess.laps.pits = status
 	pits := &sess.pits
