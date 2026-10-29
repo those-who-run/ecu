@@ -2,12 +2,11 @@ package fuel
 
 import (
 	"math"
-	"math/rand/v2"
 	"slices"
 	"testing"
-	"time"
 
 	"github.com/those-who-run/ecu/internal/race"
+	"github.com/those-who-run/ecu/internal/rules/rulestest"
 )
 
 // drive replays a recording through the machine into a fuel rule of its own,
@@ -15,9 +14,9 @@ import (
 // laps its model measured, in order.
 func drive(t *testing.T, name string) (r *Rule, measured []int32) {
 	t.Helper()
-	m := race.New(race.NewIDs(func() time.Time { return epoch }, rand.NewChaCha8([32]byte{'e', 'c', 'u'})))
+	m := race.New(rulestest.IDs())
 	r = New(DefaultConfig())
-	for _, p := range packets(t, name) {
+	for _, p := range rulestest.Packets(t, name) {
 		m.Step(p)
 		ctx := m.Context()
 		if ctx.Started {
