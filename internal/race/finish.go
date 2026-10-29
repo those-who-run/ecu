@@ -136,8 +136,10 @@ func (sess *session) totalTimeMs() (int32, bool) {
 // bestLap is v1's results.best_lap, the session's best lap as v1's summary, card
 // and spoken summary give it: GT7's own best when the session has one (it leaves
 // out a start lap from a grid ahead of the line), else the quickest complete lap,
-// leaving out lap 1 of a lap race when there are others. The lap model
-// (paddock#83) will own this, with lap.best.
+// leaving out lap 1 of a lap race when there are others.
+//
+// TODO(paddock#83): the lap model owns the best lap, with lap.best; it must keep
+// RaceFinished's best lap equal to the last lap.best of the session.
 func (sess *session) bestLap(skipLap1 bool) (timedLap, bool) {
 	if sess.gt7BestMs > 0 {
 		for _, l := range sess.timedLaps {

@@ -203,6 +203,25 @@ func TestTheTimedRaceFinishesOnceAtTheLine(t *testing.T) {
 	}
 }
 
+// A session that ends after its timed finish but before the results screen (the
+// input ending during GT7's coast, here Suzuka's timed race cut 8 frames after the
+// decision) is still finished, with its total time: ecu has published
+// race.finished for it, and the contract says its summary is then finished. A
+// deliberate departure from v1.0.0, which ended it with _end_session(prev) and
+// stored finished false and no total.
+func TestASessionCutAfterItsTimedFinishIsFinished(t *testing.T) {
+	all := packets(t, "real-nuc-suzuka-timed-race-2026-10-16")[:760]
+	out := run(all)
+	if f := finishes(out); len(f) != 1 || f[0].Finished.GetKind() != eventsv1.FinishKind_FINISH_KIND_TIMED {
+		t.Fatalf("%d race.finished, want the timed finish", len(f))
+	}
+	end := lastEnd(out)
+	sum := end.Ended.GetSummary()
+	if end.Why != WhyInputEnded || !sum.GetFinished() || sum.TotalTimeMs == nil || sum.GetTotalTimeMs() != 333162 {
+		t.Errorf("ended %v, %v; want the input ended, finished, total 333162 ms", end.Why, sum)
+	}
+}
+
 // AC2: the two-lap race and Suzuka East's race without a stop finish once each at
 // the flag, with the finishing position: P6 and P2.
 func TestALapRaceFinishesAtTheFlag(t *testing.T) {

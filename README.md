@@ -370,7 +370,11 @@ frame and publishes the session's entries and exits, as v1's
 - **The end.** The session's summary is `finished`, with `total_time_ms`, and
   the end that follows is `END_REASON_FINISHED` or `END_REASON_TIMED_FINISH`.
   The frames GT7 replays after the results start no session and finish
-  nothing.
+  nothing. A session that ends any other way after its finish (the input
+  ending, ecu stopping or a new start during GT7's coast to the results) is
+  still `finished`, with its total time: a deliberate departure from v1.0.0,
+  which stored it as not finished. ecu has published `race.finished` for it,
+  and the contract says its summary is then finished.
 - **Tests.** On every one of v1's 25 recordings, `race.finished` and each
   summary's `finished` and total time are v1's, as `make_golden.py` in
   [`internal/race/testdata/finish/`](internal/race/testdata/finish) wrote them
