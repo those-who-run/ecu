@@ -31,7 +31,7 @@ func TestTheAverageIsOverTheLastRollingLaps(t *testing.T) {
 	}
 	m.Start(100, false)
 	cross(m, lap{level: 90}, lap{level: 70}, lap{level: 60}, lap{level: 50})
-	if !slices.Equal(m.consumption, []float64{20, 10, 10}) {
+	if !slices.Equal(m.Consumption(), []float64{20, 10, 10}) {
 		t.Errorf("consumption %v, want the last three laps", m.consumption)
 	}
 	if got, _ := m.LapsRemaining(); !near(got, 50/(40.0/3)) {

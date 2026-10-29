@@ -483,6 +483,39 @@ is the callouts' (paddock#93, #94).
   v1's calls with `rules.example.yaml`'s), the six v1 opens no session on with
   every start taken for a drive.
 
+## Fuel
+
+[`internal/fuel`](internal/fuel) is the fuel model, and
+[`internal/rules/fuel`](internal/rules/fuel) the `fuel` rule that reads it
+(paddock#92): v1's `FuelRule` and `FuelStints` (`rules/fuel.py` and
+`stints.py` at v1.0.0), with the arithmetic in one place.
+
+- **The model.** Use per lap is the drop in level between two line crossings,
+  averaged over the last `rolling_laps` (3). Left out: the in-lap and out-lap
+  of a stop, a lap crossed inside a telemetry gap over `max_gap_secs` (1 s, not
+  a pause) and the lap after it, the lap a session was joined on, and a lap the
+  level rose over by more than `refuel_epsilon` (a stop the pit detector
+  missed). A completed stop redoes laps remaining at once from the level after
+  it. Fuel used per stint and in total adds up every drop, as v1's
+  `fuel_burned` did.
+- **The calls.** Laps remaining at the thresholds (10, 5, 3, 2, 1), as whole
+  laps rounded up within `round_up_laps` (`template_short` when rounded),
+  "Box next lap." and "Pit this lap." at priority 5 ahead of the number,
+  "Fuel critical." under one lap, each once per stint; only while the estimate
+  is short of a lap race's laps left, or a timed race. When it covers them,
+  `template_tight` once per stint under half a lap of margin, and
+  `template_last_lap_enough` as the final lap starts after a warning. Nothing
+  on a crossing in the pit lane or seen through a loading screen, or past the
+  flag. They are spoken in the pit lane (`pit_lane: speak`).
+- **The gauge.** The rule shows the model's laps remaining as
+  `gt7_fuel_laps_remaining` (`rules.Gauge`), for paddock#100 and the `live`
+  KV (paddock#88).
+- **Tests.** On every one of v1's 25 recordings the rule's callouts are
+  v1.0.0's, frame for frame, with kind, laps, priority, hold, expiry and pit
+  lane, as `make_golden.py` in
+  [`internal/rules/fuel/testdata/`](internal/rules/fuel/testdata) wrote them,
+  the six v1 opens no session on with every start taken for a drive.
+
 ## Publishing
 
 [`internal/bus`](internal/bus) puts the race state's outputs on NATS

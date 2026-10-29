@@ -1,4 +1,4 @@
-"""Write the goldens fuel_test.go compares with: every callout v1's FuelRule
+"""Write the goldens golden_test.go compares with: every callout v1's FuelRule
 raised, as JSON lines (those-who-run/paddock#92).
 
 Made once from v1 at tag v1.0.0 (those-who-run/those-who-run), in v1's own

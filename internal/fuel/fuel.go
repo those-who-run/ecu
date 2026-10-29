@@ -257,3 +257,6 @@ func (m *Model) Used() []float64 {
 	}
 	return out
 }
+
+// Consumption is the measured laps in the average, oldest first.
+func (m *Model) Consumption() []float64 { return append([]float64(nil), m.consumption...) }
