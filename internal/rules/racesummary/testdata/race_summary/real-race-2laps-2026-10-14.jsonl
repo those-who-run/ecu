@@ -1,0 +1,6 @@
+{"event": "session.started", "session": 1, "frame": 1}
+{"event": "callout", "session": 1, "at": 75, "as_of": 75, "kind": "template_quit", "slots": {"best_lap_ms": 49677, "laps": 7}, "priority": 25, "max_age": 30.0, "hold": 0.0, "pit_lane": "speak", "in_pit_lane": false, "text": "Session done. Seven laps. Best lap forty-nine point seven.", "outcome": "spoken"}
+{"event": "session.ended", "session": 1, "frame": 75}
+{"event": "session.started", "session": 2, "frame": 141}
+{"event": "callout", "session": 2, "at": 263, "as_of": 263, "kind": "template_position", "slots": {"best_lap_ms": 53108, "position": 6}, "priority": 25, "max_age": 30.0, "hold": 0.0, "pit_lane": "speak", "in_pit_lane": false, "text": "Chequered flag. Finished sixth. Best lap fifty-three point one.", "outcome": "spoken"}
+{"event": "session.ended", "session": 2, "frame": 263}
