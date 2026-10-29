@@ -1,0 +1,2 @@
+{"event": "session.started", "session": 1, "frame": 46}
+{"event": "callout", "session": 1, "frame": 471, "kind": "template_tight", "slots": {}, "priority": 15, "hold_secs": 0.0, "expiry_secs": 8.0, "pit_lane": "spoken", "text": "Fuel to the flag, just. Save a little."}

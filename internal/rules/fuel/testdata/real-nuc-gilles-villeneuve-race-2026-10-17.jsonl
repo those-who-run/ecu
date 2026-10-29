@@ -1,0 +1,2 @@
+{"event": "session.started", "session": 1, "frame": 51}
+{"event": "callout", "session": 1, "frame": 256, "kind": "template", "slots": {"laps": 5}, "priority": 15, "hold_secs": 0.0, "expiry_secs": 8.0, "pit_lane": "spoken", "text": "Fuel. five laps remaining."}
