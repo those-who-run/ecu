@@ -1,4 +1,4 @@
-"""Write the goldens the race_summary rule's test compares with: each callout v1's
+"""Write the goldens the racesummary package's test compares with: each callout v1's
 race_summary rule raised, as JSON lines (those-who-run/paddock#96).
 
 Made once from v1 at tag v1.0.0 (those-who-run/those-who-run), in v1's own
@@ -26,7 +26,7 @@ its own, and writes one line per event, in order:
 Nothing in v1 is changed: the engine's, the store's and the rule's methods are
 wrapped on their instances.
 
---drive takes every start for a drive, as ../../../race/testdata/kind/make_golden.py
+--drive takes every start for a drive, as internal/race/testdata/kind/make_golden.py
 says. It is used on the recordings v1 opens no session on.
 """
 
