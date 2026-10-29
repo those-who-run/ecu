@@ -162,7 +162,7 @@ func TestAReplayLandsInTheStreams(t *testing.T) {
 	if len(evs) != len(events) {
 		t.Fatalf("EVENTS holds %d events, want %d", len(evs), len(events))
 	}
-	var started, laps, ended int
+	var started, laps, tracks, ended int
 	for i, msg := range evs {
 		want := events[i]
 		var gotMsg proto.Message
@@ -174,6 +174,9 @@ func TestAReplayLandsInTheStreams(t *testing.T) {
 		case want.Lap != nil:
 			laps++
 			gotMsg, what, id = &eventsv1.LapCompleted{}, "lap.completed", "lap.completed:"+strconv.Itoa(int(want.Lap.GetLap()))
+		case want.Track != nil:
+			tracks++
+			gotMsg, what, id = &eventsv1.SessionTrackChanged{}, "session.track", "session.track:"+m.Run()+":"+strconv.Itoa(int(want.Track.GetAt()))
 		case want.Ended != nil:
 			ended++
 			gotMsg, what, id = &eventsv1.SessionEnded{}, "session.ended", "session.ended:1"
@@ -190,8 +193,8 @@ func TestAReplayLandsInTheStreams(t *testing.T) {
 		}
 		checkHeaders(t, header(msg), e, want.Event, "parity:"+want.Session+":"+id)
 	}
-	if started != 1 || laps != 6 || ended != 1 {
-		t.Errorf("%d starts, %d laps, %d ends; want 1, 6 (the race's laps) and 1", started, laps, ended)
+	if started != 1 || laps != 6 || tracks == 0 || ended != 1 {
+		t.Errorf("%d starts, %d laps, %d tracks, %d ends; want 1, 6 (the race's laps), some and 1", started, laps, tracks, ended)
 	}
 
 	// The start's source is the subject's <src> (ecu#11's review), and its
@@ -263,6 +266,29 @@ func TestTheSameEventsTwiceAreStoredOnce(t *testing.T) {
 	}
 	if got := r.read(t, "EVENTS", len(events)); len(got) != len(events) {
 		t.Errorf("EVENTS holds %d events, want %d", len(got), len(events))
+	}
+}
+
+// EVENTS keeps every event of a replay: none shares an id with another, which
+// EVENTS would drop as a duplicate. SUGO's race (2026-10-18) holds a verdict as
+// the session opens and crosses the line on the same frame, a second track
+// change there that is published as one session.track (paddock#81).
+func TestEveryEventOfAReplayIsInEvents(t *testing.T) {
+	r := newRig(t, "parity")
+	m := newMachine()
+	events := sessionEvents(step(m, r.pub, packets(t, "real-nuc-sugo-two-stops-2026-10-18")))
+	end := m.EndOfInput()
+	r.pub.Publish(end)
+	events = append(events, sessionEvents(end)...)
+	r.close(t)
+	got := r.read(t, "EVENTS", len(events))
+	if len(got) != len(events) {
+		t.Fatalf("EVENTS holds %d events, want all %d", len(got), len(events))
+	}
+	for i, msg := range got {
+		if id, want := header(msg).Get(ce.IDHeader), "parity:"+events[i].Event.ID; id != want {
+			t.Errorf("event %d is %s, want %s", i+1, id, want)
+		}
 	}
 }
 
@@ -398,6 +424,8 @@ func TestAServerStoppedMidReplay(t *testing.T) {
 			id = "session.started:1"
 		case o.Lap != nil:
 			id = "lap.completed:" + strconv.Itoa(int(o.Lap.GetLap()))
+		case o.Track != nil:
+			id = "session.track:" + m.Run() + ":" + strconv.Itoa(int(o.Track.GetAt()))
 		default:
 			id = "session.ended:1"
 		}

@@ -66,6 +66,11 @@ func (k *kinds) kind() eventsv1.SessionType {
 // reports 1 there. LapCompleted.position and SessionSummary.final_position are
 // absent for it (contracts v0.1.4), a deliberate difference from v1, which stored
 // the 1.
+// timed says the session runs for a time, not a number of laps.
+func timed(t eventsv1.SessionType) bool {
+	return t == eventsv1.SessionType_SESSION_TYPE_TIMED_FIELD || t == eventsv1.SessionType_SESSION_TYPE_SOLO_TIMED
+}
+
 func solo(t eventsv1.SessionType) bool {
 	return t == eventsv1.SessionType_SESSION_TYPE_SOLO_LAPS || t == eventsv1.SessionType_SESSION_TYPE_SOLO_TIMED
 }

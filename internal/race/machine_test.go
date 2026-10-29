@@ -38,11 +38,12 @@ func (d *drive) add(lap int16, flags salsa.Flags, fuel float32, lastLapMs int32,
 	})
 }
 
-// events is the outputs without the frames.
+// events is the session and lap events of the outputs: neither the frames nor the
+// track's verdicts, which track_test.go checks.
 func events(out []Output) []Output {
 	var evs []Output
 	for _, o := range out {
-		if o.Frame == nil {
+		if o.Frame == nil && o.Track == nil {
 			evs = append(evs, o)
 		}
 	}
@@ -167,6 +168,7 @@ func TestWhy(t *testing.T) {
 		{WhyStart, "start", eventsv1.EndReason_END_REASON_NEXT_SESSION_STARTED},
 		{WhyInputEnded, "input ended", eventsv1.EndReason_END_REASON_INPUT_ENDED},
 		{WhyStopped, "stopped", eventsv1.EndReason_END_REASON_ENGINEER_STOPPED},
+		{WhyMenu, "menu", eventsv1.EndReason_END_REASON_MENU},
 		{0, "Why(0)", eventsv1.EndReason_END_REASON_UNKNOWN},
 	}
 	for _, c := range cases {
@@ -178,10 +180,11 @@ func TestWhy(t *testing.T) {
 
 func TestMessage(t *testing.T) {
 	f, s, l, e := &telemetryv1.Frame{}, &eventsv1.SessionStarted{}, &eventsv1.LapCompleted{}, &eventsv1.SessionEnded{}
+	tr := &eventsv1.SessionTrackChanged{}
 	for _, c := range []struct {
 		o    Output
 		want proto.Message
-	}{{Output{Frame: f}, f}, {Output{Started: s}, s}, {Output{Lap: l}, l}, {Output{Ended: e}, e}} {
+	}{{Output{Frame: f}, f}, {Output{Started: s}, s}, {Output{Lap: l}, l}, {Output{Track: tr}, tr}, {Output{Ended: e}, e}} {
 		if c.o.Message() != c.want {
 			t.Errorf("%+v: got %T", c.o, c.o.Message())
 		}

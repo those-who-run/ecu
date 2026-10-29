@@ -553,3 +553,52 @@ func TestTheEndOfTheInputAndStoppingEndTheSession(t *testing.T) {
 		}
 	}
 }
+
+// contracts v0.2.0 tells a quit through a loading screen at lap 0 (QUIT) from
+// going straight back to a menu or the track screen (MENU); before it, both were
+// QUIT. A timed session's end at the results stays QUIT until ecu reads the timed
+// finish (paddock#85, END_REASON_TIMED_FINISH).
+func TestAQuitAndBackToTheMenuAreToldApart(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		want []Why
+	}{
+		{"real-quali-restart-quit-2026-10-14", []Why{WhyRestart, WhyQuit}},
+		{"real-nuc-spa-pit-cut-quit-2026-10-18", []Why{WhyQuit}},
+		{"real-nuc-tokyo-east-race-2026-10-15", []Why{WhyMenu}},
+		{"real-nuc-tsukuba-brz-drift-2026-10-15", []Why{WhyMenu}},
+		{"real-nuc-spa-time-trial-2026-10-18", []Why{WhyQuit}},
+		{"real-race-2laps-2026-10-14", []Why{WhyQuit, WhyFinished}},
+	} {
+		var got []Why
+		for _, o := range replay(t, c.name) {
+			if o.Ended != nil {
+				got = append(got, o.Why)
+				if o.Ended.GetReason() != o.Why.Reason() {
+					t.Errorf("%s: reason %v for %v", c.name, o.Ended.GetReason(), o.Why)
+				}
+			}
+		}
+		if !slices.Equal(got, c.want) {
+			t.Errorf("%s: ends %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
+// Every event id is unique across a replay, events of every kind: EVENTS drops a
+// second event with an id it holds as a duplicate. Two changes of the track on
+// one frame are one session.track (seven of v1's recordings have them).
+func TestEveryEventIDIsUnique(t *testing.T) {
+	for _, name := range v1Recordings {
+		seen := map[string]bool{}
+		for _, o := range replay(t, name) {
+			if o.Frame != nil {
+				continue
+			}
+			if seen[o.Event.ID] {
+				t.Errorf("%s: %s published twice", name, o.Event.ID)
+			}
+			seen[o.Event.ID] = true
+		}
+	}
+}

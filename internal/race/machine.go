@@ -12,10 +12,11 @@
 // helpers of state.py (state.go here), the session and lap steps of
 // Engine._step in engine.py, and the lap bookkeeping of SessionStore.observe,
 // _flush_lap and end_session in store.py, and the session's kind from
-// SessionDetector in sessionkind.py (kind.go here). What else v1's engine reads
-// (replays and demo races held at the start, joining part way and continuing after
-// a restart, the frozen pause, the timed-race finish, pits and track) is not here
-// yet.
+// SessionDetector in sessionkind.py (kind.go here), and the session's track from
+// Engine._apply_track (track.go here, paddock#81), fed by internal/track's
+// detector. What else v1's engine reads (replays and demo races held at the start,
+// continuing after a restart, the frozen pause, the timed-race finish and pits) is
+// not here yet.
 package race
 
 import (
@@ -30,6 +31,7 @@ import (
 	"github.com/those-who-run/contracts/ce"
 	eventsv1 "github.com/those-who-run/contracts/gen/go/twr/events/v1"
 	telemetryv1 "github.com/those-who-run/contracts/gen/go/twr/telemetry/v1"
+	"github.com/those-who-run/ecu/internal/track"
 	"github.com/those-who-run/salsa"
 )
 
@@ -66,8 +68,9 @@ type Why int
 const (
 	// WhyFinished is the chequered flag.
 	WhyFinished Why = iota + 1
-	// WhyQuit is back to a menu or the track screen, or a loading screen with the
-	// lap counter reset, before the flag (v1's race_ended).
+	// WhyQuit is a loading screen with the lap counter reset before the flag, as
+	// quitting from the pause menu or restarting a race gives (v1's race_ended on a
+	// loading frame).
 	WhyQuit
 	// WhyRestart is GT7 jumping back to a lower lap while driving (v1's
 	// race_restarted).
@@ -79,11 +82,14 @@ const (
 	WhyInputEnded
 	// WhyStopped is ecu stopping with the session open (Machine.Stop).
 	WhyStopped
+	// WhyMenu is straight back to a menu or the track screen before the flag (v1's
+	// race_ended on a menu or track-screen frame).
+	WhyMenu
 )
 
 var whyNames = map[Why]string{
 	WhyFinished: "finished", WhyQuit: "quit", WhyRestart: "restart", WhyStart: "start",
-	WhyInputEnded: "input ended", WhyStopped: "stopped",
+	WhyInputEnded: "input ended", WhyStopped: "stopped", WhyMenu: "menu",
 }
 
 func (w Why) String() string {
@@ -93,7 +99,7 @@ func (w Why) String() string {
 	return "Why(" + strconv.Itoa(int(w)) + ")"
 }
 
-// Reason is the contracts' EndReason for w (contracts v0.1.4).
+// Reason is the contracts' EndReason for w (contracts v0.2.0).
 func (w Why) Reason() eventsv1.EndReason {
 	switch w {
 	case WhyFinished:
@@ -108,21 +114,25 @@ func (w Why) Reason() eventsv1.EndReason {
 		return eventsv1.EndReason_END_REASON_INPUT_ENDED
 	case WhyStopped:
 		return eventsv1.EndReason_END_REASON_ENGINEER_STOPPED
+	case WhyMenu:
+		return eventsv1.EndReason_END_REASON_MENU
 	default:
 		return eventsv1.EndReason_END_REASON_UNKNOWN
 	}
 }
 
 // Output is a frame or an event, with its CloudEvents id and time: exactly one of
-// Frame, Started, Lap and Ended is set, each the contracts message of that name.
-// SessionStarted's source is left empty: only the publisher knows the <src> it
+// Frame, Started, Lap, Track and Ended is set, each the contracts message of that
+// name. SessionStarted's source is left empty: only the publisher knows the <src> it
 // publishes under, and sets it (internal/bus).
 type Output struct {
 	// Event is the ce-id (and Nats-Msg-Id), ce-source and ce-time, the id built
 	// as contracts' subjects.yaml says: <run>:frame:<seq> for a frame, and
 	// <sid>:session.started:1, <sid>:lap.completed:<lap> and
-	// <sid>:session.ended:1 for the events. An event's id is the catalogue's
-	// without its <src>: the publisher puts <src>: in front (paddock#279).
+	// <sid>:session.ended:1 for the events, and <sid>:session.track:<run>:<seq>
+	// for a track verdict, with the seq of the frame it changed on. An event's id
+	// is the catalogue's without its <src>: the publisher puts <src>: in front
+	// (paddock#279).
 	Event ce.Event
 	// Session is the id of the session an event belongs to; "" for a frame.
 	Session string
@@ -130,6 +140,7 @@ type Output struct {
 	Frame   *telemetryv1.Frame
 	Started *eventsv1.SessionStarted
 	Lap     *eventsv1.LapCompleted
+	Track   *eventsv1.SessionTrackChanged
 	Ended   *eventsv1.SessionEnded
 
 	// Why is why the session ended, set with Ended; SessionEnded's reason is
@@ -146,6 +157,8 @@ func (o Output) Message() proto.Message {
 		return o.Started
 	case o.Lap != nil:
 		return o.Lap
+	case o.Track != nil:
+		return o.Track
 	default:
 		return o.Ended
 	}
@@ -163,6 +176,7 @@ type Machine struct {
 	lastDriving *state // the last IN_RACE frame of this race (v1's Engine.last_driving)
 	finished    bool   // the open session reached the flag (v1's Engine.finished)
 	kinds       kinds  // the session's kind (v1's Engine.kinds)
+	tracks      *track.Detector
 	session     *session
 
 	out []Output
@@ -174,8 +188,9 @@ type session struct {
 	lapStartFuel float64
 	lap          lapFrames
 	completed    int32
-	lapsFuelUsed float64 // the sum of each lap's fuel used, in the order they closed
-	lastPosition int32   // the last race position seen, 0 for none
+	lapsFuelUsed float64      // the sum of each lap's fuel used, in the order they closed
+	lastPosition int32        // the last race position seen, 0 for none
+	track        *track.Match // the verdict applied to the session, nil for none (v1's Engine.track)
 }
 
 // lapFrames are the frames of the lap in progress (v1's Session.buffer): their seqs,
@@ -199,7 +214,7 @@ func (b *lapFrames) add(s *state) {
 // New is a machine with no session open. It mints its run id from ids, then each
 // session's id as the session starts.
 func New(ids IDs) *Machine {
-	return &Machine{ids: ids, run: ids().String()}
+	return &Machine{ids: ids, run: ids().String(), tracks: track.New(nil, track.Config{})}
 }
 
 // Run is the machine's run id, a ULID: the <run> in each frame's id.
@@ -207,7 +222,8 @@ func (m *Machine) Run() string { return m.run }
 
 // Step takes the next packet and returns its frame, then the events it gives rise
 // to, in the order they happened: the end of a session the packet's start closes,
-// the start, a lap closed, and the end of the session.
+// the start, a change of the session's track, a lap closed, and the end of the
+// session.
 func (m *Machine) Step(r Received) []Output {
 	m.seq++
 	s := newState(m.seq, &r.Packet)
@@ -231,6 +247,17 @@ func (m *Machine) Step(r Received) []Output {
 		m.lastDriving = nil
 		m.finished = false
 		m.kinds = kinds{}
+		// The track detector starts over by itself after a menu or a loading screen
+		// at lap 0, so only a restart, which teleports the car back to the grid with
+		// neither, resets it here, as v1's engine does: a rolling start keeps what
+		// it saw before the line. A session joined part way names no track before a
+		// line crossing.
+		if restarted {
+			m.tracks.Reset()
+		}
+		if joinedPartWay(prev, &s) {
+			m.tracks.Join()
+		}
 	}
 	// v1 feeds the detector every frame, after a start has reset it and before the
 	// lap store reads the frame: the start carries the verdict on its first frame,
@@ -238,6 +265,17 @@ func (m *Machine) Step(r Received) []Output {
 	m.kinds.observe(&s)
 	if starting {
 		m.start(&s, r.Time, joinedPartWay(prev, &s))
+		// A rolling start crosses the line before lap 1, so the detector may know
+		// the track already when the session opens (paddock#81, R3).
+		if match := m.tracks.Match(); match.Confidence != track.None {
+			m.applyTrack(match, &s, r.Time)
+		}
+	}
+	// The detector sees every frame, a session open or not; a change of its
+	// decision is the session's to keep or not, before the lap store reads the
+	// frame, as in v1's Engine._step.
+	if match, changed := m.tracks.Observe(m.out[0].Frame); changed && m.session != nil {
+		m.applyTrack(match, &s, r.Time)
 	}
 
 	// Rules and the lap store compare against the last driving frame. A pause or a
@@ -259,9 +297,17 @@ func (m *Machine) Step(r Received) []Output {
 	if m.session != nil {
 		m.observe(seen, &s, r.Time)
 		if ended {
+			m.finalTrack()
 			why := WhyQuit
-			if m.finished {
+			switch {
+			case m.finished:
 				why = WhyFinished
+			case (s.phase == phaseMenu || s.phase == phaseAtTrack) && !timed(m.kinds.kind()):
+				// TODO(paddock#85): a timed session's end at the results is
+				// END_REASON_TIMED_FINISH once ecu reads the timed finish; until
+				// then it stays QUIT, as before contracts v0.2.0, rather than
+				// reading as a driver who left for the menu.
+				why = WhyMenu
 			}
 			m.end(&s, r.Time, why)
 		}
@@ -404,6 +450,9 @@ func (m *Machine) end(s *state, t time.Time, why Why) {
 		LapsCompleted: sess.completed,
 		FuelUsed:      round3(sess.lapsFuelUsed),
 		SessionType:   kind,
+	}
+	if sess.track != nil {
+		summary.Track = verdict(*sess.track)
 	}
 	if final != 0 && !solo(kind) {
 		summary.FinalPosition = &final

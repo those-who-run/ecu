@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math/rand/v2"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -19,10 +18,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	telemetryv1 "github.com/those-who-run/contracts/gen/go/twr/telemetry/v1"
-	"github.com/those-who-run/ecu/internal/race"
 	"github.com/those-who-run/salsa"
 )
 
@@ -87,20 +84,24 @@ func readFrames(tb testing.TB, name string) []*telemetryv1.Frame {
 		tb.Fatal(err)
 	}
 	defer func() { _ = src.Close() }()
-	epoch := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	m := race.New(race.NewIDs(func() time.Time { return epoch }, rand.NewChaCha8([32]byte{'e', 'c', 'u'})))
-	var all []*telemetryv1.Frame
+	var all []salsa.Received
 	for {
 		r, err := src.Next(tb.Context())
 		if errors.Is(err, io.EOF) {
-			return all
+			break
 		}
 		if err != nil {
 			tb.Fatal(err)
 		}
-		all = append(all, m.Step(race.Received{Received: r, Time: epoch})[0].Frame)
+		all = append(all, r)
 	}
+	return FramesOf(all)
 }
+
+// FramesOf is the frame internal/race makes for each packet. internal/race imports
+// this package, so a test of this package cannot import it: frames_test.go, in
+// the external test package, sets FramesOf.
+var FramesOf func([]salsa.Received) []*telemetryv1.Frame
 
 // fixtureEntry is one entry of testdata/v1/FIXTURES.yaml.
 type fixtureEntry map[string]string

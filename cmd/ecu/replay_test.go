@@ -88,10 +88,17 @@ func TestAReplayAtMaxPublishesEveryFrameAndEvent(t *testing.T) {
 	// Dated as the replay dates them, so the payloads' times match too.
 	dated := &pacer{clock: defaultClock, t0: in[0].T}
 	_ = drive(t.Context(), &slice{all: in}, dated.at, machine(), want, nil)
+	// An event the session can have more than once a frame apart, such as
+	// session.track, ends its id in <run>:<seq>: the run is compared as <run>,
+	// the direct run's here and the replay's (its frames') in the stream.
 	var kinds []string
+	var wantRun string
 	for _, o := range want.outs {
+		if o.Frame != nil && wantRun == "" {
+			wantRun, _, _ = strings.Cut(o.Event.ID, ":frame:")
+		}
 		if o.Frame == nil {
-			kind := o.Event.ID[strings.Index(o.Event.ID, ":")+1:]
+			kind := strings.ReplaceAll(o.Event.ID[strings.Index(o.Event.ID, ":")+1:], wantRun, "<run>")
 			why := ""
 			if o.Ended != nil {
 				why = o.Why.Reason().String()
@@ -120,7 +127,7 @@ func TestAReplayAtMaxPublishesEveryFrameAndEvent(t *testing.T) {
 	var gotKinds []string
 	for _, m := range stored {
 		id := ce.Header(m.Header).Get(ce.IDHeader) // parity:<sid>:<area>.<what>:<n>
-		kind := id[strings.Index(id[len("parity:"):], ":")+len("parity:")+1:]
+		kind := strings.ReplaceAll(id[strings.Index(id[len("parity:"):], ":")+len("parity:")+1:], run, "<run>")
 		why := ""
 		if strings.HasSuffix(m.Subject, ".session.ended") {
 			var ended struct {
