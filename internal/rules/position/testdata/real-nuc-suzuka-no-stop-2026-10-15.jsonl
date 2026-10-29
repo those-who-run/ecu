@@ -1,0 +1,14 @@
+{"event": "session.started", "session": 1, "frame": 46}
+{"event": "callout", "session": 1, "frame": 91, "kind": "template_lost", "position": 12, "previous_position": 10, "priority": 12, "hold_secs": 1.0, "max_age_secs": null, "pit_lane": "drop", "outcome": "spoken"}
+{"event": "callout", "session": 1, "frame": 139, "kind": "template_gained", "position": 11, "previous_position": 12, "priority": 12, "hold_secs": 1.0, "max_age_secs": null, "pit_lane": "drop", "outcome": "spoken"}
+{"event": "callout", "session": 1, "frame": 171, "kind": "template_lost", "position": 13, "previous_position": 11, "priority": 12, "hold_secs": 1.0, "max_age_secs": null, "pit_lane": "drop", "outcome": "spoken"}
+{"event": "callout", "session": 1, "frame": 200, "kind": "template_gained", "position": 10, "previous_position": 13, "priority": 12, "hold_secs": 1.0, "max_age_secs": null, "pit_lane": "drop", "outcome": "spoken"}
+{"event": "callout", "session": 1, "frame": 221, "kind": "template_lost", "position": 11, "previous_position": 10, "priority": 12, "hold_secs": 1.0, "max_age_secs": null, "pit_lane": "drop", "outcome": "spoken"}
+{"event": "callout", "session": 1, "frame": 276, "kind": "template_gained", "position": 10, "previous_position": 11, "priority": 12, "hold_secs": 1.0, "max_age_secs": null, "pit_lane": "drop", "outcome": "spoken"}
+{"event": "callout", "session": 1, "frame": 299, "kind": "template_gained", "position": 9, "previous_position": 10, "priority": 12, "hold_secs": 1.0, "max_age_secs": null, "pit_lane": "drop", "outcome": "spoken"}
+{"event": "callout", "session": 1, "frame": 341, "kind": "template_gained", "position": 6, "previous_position": 9, "priority": 12, "hold_secs": 1.0, "max_age_secs": null, "pit_lane": "drop", "outcome": "spoken"}
+{"event": "callout", "session": 1, "frame": 364, "kind": "template_gained", "position": 4, "previous_position": 6, "priority": 12, "hold_secs": 1.0, "max_age_secs": null, "pit_lane": "drop", "outcome": "spoken"}
+{"event": "callout", "session": 1, "frame": 416, "kind": "template_lost", "position": 5, "previous_position": 4, "priority": 12, "hold_secs": 1.0, "max_age_secs": null, "pit_lane": "drop", "outcome": "spoken"}
+{"event": "callout", "session": 1, "frame": 459, "kind": "template_gained", "position": 4, "previous_position": 5, "priority": 12, "hold_secs": 1.0, "max_age_secs": null, "pit_lane": "drop", "outcome": "spoken"}
+{"event": "callout", "session": 1, "frame": 533, "kind": "template_gained_podium", "position": 3, "previous_position": 4, "priority": 12, "hold_secs": 1.0, "max_age_secs": null, "pit_lane": "drop", "outcome": "spoken"}
+{"event": "callout", "session": 1, "frame": 555, "kind": "template_gained_podium", "position": 2, "previous_position": 3, "priority": 12, "hold_secs": 1.0, "max_age_secs": null, "pit_lane": "drop", "outcome": "spoken"}
