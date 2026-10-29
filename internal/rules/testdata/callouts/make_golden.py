@@ -20,7 +20,8 @@ One line per callout, in the order raised:
 - rule, kind, priority, pit_lane: as ecu publishes them (contracts v0.2.3);
 - outcome: spoken; held in the pit lane and released on frame `released`;
   dropped, queued at a pit entry, which radio drops and ecu publishes; or
-  unpublished, raised in the lane and dropped, which ecu never publishes.
+  unpublished, raised in the lane and dropped, or held and never released (the
+  session ended in the lane), which ecu never publishes.
 """
 
 import copy
@@ -177,6 +178,8 @@ def main(path: Path) -> None:
 
     for c, line in raised:
         line.update(outcome.get(id(c), {"outcome": "spoken"}))
+        if line["outcome"] == "held" and "released" not in line:
+            line["outcome"] = "unpublished"  # held, and the session ended in the lane
         print(json.dumps(line))
 
 
