@@ -1,6 +1,8 @@
 package race
 
 import (
+	"time"
+
 	telemetryv1 "github.com/those-who-run/contracts/gen/go/twr/telemetry/v1"
 	"github.com/those-who-run/salsa"
 )
@@ -38,6 +40,9 @@ type state struct {
 
 	// What the timed finish reads (finish.go), 0 to 255.
 	throttle, brake int32
+
+	frame    *telemetryv1.Frame // the contracts frame, for the rules' View (context.go)
+	received time.Time          // when ecu received it
 }
 
 func (s *state) inRace() bool { return s.phase == phaseInRace }
