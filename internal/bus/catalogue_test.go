@@ -300,3 +300,50 @@ func TestAnEventWithNoSessionGoesOnEvtUnderscore(t *testing.T) {
 		t.Errorf("stats %+v, want the event acknowledged", s)
 	}
 }
+
+// paddock#79: no recording has a teleport, so pit.teleport is checked by hand: its
+// subject and ce-type are in the catalogue, and its id follows the catalogue's
+// <src>:<sid>:pit.teleport:<entry>.
+func TestAPitTeleportIsInTheCatalogue(t *testing.T) {
+	r := newRig(t, "parity")
+	const sid = "01JBUSSESSION0000000000000"
+	sub, err := r.nc.SubscribeSync("twr.v1.parity.evt." + sid + ".>")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.nc.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	r.pub.Publish([]race.Output{{
+		Event:       ce.Event{ID: sid + ":pit.teleport:2", Source: race.Source, Time: epoch},
+		Session:     sid,
+		PitTeleport: &eventsv1.PitTeleport{SessionId: sid, Entry: 2, Lap: 3},
+	}})
+	msg, err := sub.NextMsg(5 * time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "twr.v1.parity.evt." + sid + ".pit.teleport"; msg.Subject != want {
+		t.Errorf("subject %s, want %s", msg.Subject, want)
+	}
+	var found bool
+	for _, e := range catalogue(t) {
+		if !matches(e.pattern, msg.Subject) {
+			continue
+		}
+		found = true
+		if got := msg.Header.Get(ce.TypeHeader); got != e.ceType {
+			t.Errorf("ce-type %s; subjects.yaml says %s", got, e.ceType)
+		}
+		if id := msg.Header.Get(ce.IDHeader); !followsScheme(e.msgID, id, map[string]string{"src": "parity", "sid": sid}) ||
+			id != "parity:"+sid+":pit.teleport:2" {
+			t.Errorf("id %q, want the scheme %q with entry 2", id, e.msgID)
+		}
+	}
+	if !found {
+		t.Errorf("%s is not in subjects.yaml", msg.Subject)
+	}
+	if s := r.close(t); s.Events != 1 {
+		t.Errorf("stats %+v, want the event acknowledged", s)
+	}
+}

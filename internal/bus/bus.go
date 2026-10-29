@@ -290,7 +290,7 @@ func (p *Publisher) dropFrame(lo bool) {
 // evt._, its id then starting <src>:<run>: as the race state gives it.
 func (p *Publisher) event(o race.Output, wait <-chan struct{}) {
 	if o.Started == nil && o.Lap == nil && o.Track == nil && o.Kind == nil && o.Ended == nil &&
-		o.PitEntered == nil && o.PitExited == nil {
+		o.PitEntered == nil && o.PitExited == nil && o.PitTeleport == nil {
 		return
 	}
 	if o.Started != nil {
