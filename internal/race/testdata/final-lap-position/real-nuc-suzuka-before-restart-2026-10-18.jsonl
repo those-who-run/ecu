@@ -1,0 +1,21 @@
+{"event": "session.started", "session": 1, "frame": 48}
+{"event": "race.position", "session": 1, "frame": 108, "previous": 4, "position": 3}
+{"event": "position.call", "session": 1, "frame": 108, "position": 3}
+{"event": "race.position", "session": 1, "frame": 261, "previous": 3, "position": 4}
+{"event": "position.call", "session": 1, "frame": 261, "position": 4}
+{"event": "race.position", "session": 1, "frame": 291, "previous": 4, "position": 5}
+{"event": "position.call", "session": 1, "frame": 291, "position": 5}
+{"event": "race.position", "session": 1, "frame": 301, "previous": 5, "position": 6}
+{"event": "position.call", "session": 1, "frame": 304, "position": 6}
+{"event": "race.position", "session": 1, "frame": 315, "previous": 6, "position": 7}
+{"event": "position.call", "session": 1, "frame": 319, "position": 8}
+{"event": "race.position", "session": 1, "frame": 321, "previous": 7, "position": 8}
+{"event": "race.position", "session": 1, "frame": 328, "previous": 8, "position": 9}
+{"event": "race.position", "session": 1, "frame": 334, "previous": 9, "position": 10}
+{"event": "position.call", "session": 1, "frame": 334, "position": 10}
+{"event": "race.position", "session": 1, "frame": 348, "previous": 10, "position": 11}
+{"event": "position.call", "session": 1, "frame": 348, "position": 11}
+{"event": "race.position", "session": 1, "frame": 378, "previous": 11, "position": 3}
+{"event": "position.call", "session": 1, "frame": 378, "position": 3}
+{"event": "race.position", "session": 1, "frame": 1480, "previous": 3, "position": 1}
+{"event": "position.call", "session": 1, "frame": 1480, "position": 1}

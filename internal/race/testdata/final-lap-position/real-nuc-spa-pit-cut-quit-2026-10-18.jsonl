@@ -1,0 +1,26 @@
+{"event": "session.started", "session": 1, "frame": 73}
+{"event": "race.position", "session": 1, "frame": 216, "previous": 1, "position": 2}
+{"event": "position.call", "session": 1, "frame": 216, "position": 2}
+{"event": "race.position", "session": 1, "frame": 340, "previous": 2, "position": 3}
+{"event": "position.call", "session": 1, "frame": 340, "position": 3}
+{"event": "race.position", "session": 1, "frame": 360, "previous": 3, "position": 4}
+{"event": "position.call", "session": 1, "frame": 363, "position": 4}
+{"event": "race.position", "session": 1, "frame": 383, "previous": 4, "position": 6}
+{"event": "position.call", "session": 1, "frame": 388, "position": 6}
+{"event": "race.position", "session": 1, "frame": 408, "previous": 6, "position": 7}
+{"event": "position.call", "session": 1, "frame": 413, "position": 8}
+{"event": "race.position", "session": 1, "frame": 417, "previous": 7, "position": 8}
+{"event": "race.position", "session": 1, "frame": 466, "previous": 8, "position": 10}
+{"event": "position.call", "session": 1, "frame": 466, "position": 10}
+{"event": "race.position", "session": 1, "frame": 509, "previous": 10, "position": 11}
+{"event": "position.call", "session": 1, "frame": 509, "position": 11}
+{"event": "race.position", "session": 1, "frame": 519, "previous": 11, "position": 12}
+{"event": "position.call", "session": 1, "frame": 532, "position": 12}
+{"event": "race.position", "session": 1, "frame": 562, "previous": 12, "position": 13}
+{"event": "position.call", "session": 1, "frame": 562, "position": 13}
+{"event": "race.position", "session": 1, "frame": 573, "previous": 13, "position": 14}
+{"event": "position.call", "session": 1, "frame": 585, "position": 14}
+{"event": "race.position", "session": 1, "frame": 604, "previous": 14, "position": 15}
+{"event": "position.call", "session": 1, "frame": 608, "position": 15}
+{"event": "race.position", "session": 1, "frame": 623, "previous": 15, "position": 4}
+{"event": "position.call", "session": 1, "frame": 632, "position": 4}

@@ -1,0 +1,16 @@
+{"event": "session.started", "session": 1, "frame": 379}
+{"event": "race.position", "session": 1, "frame": 468, "previous": 1, "position": 3}
+{"event": "position.call", "session": 1, "frame": 468, "position": 3}
+{"event": "race.position", "session": 1, "frame": 475, "previous": 3, "position": 2}
+{"event": "position.call", "session": 1, "frame": 488, "position": 2}
+{"event": "race.position", "session": 1, "frame": 528, "previous": 2, "position": 1}
+{"event": "position.call", "session": 1, "frame": 528, "position": 1}
+{"event": "race.position", "session": 1, "frame": 554, "previous": 1, "position": 2}
+{"event": "position.call", "session": 1, "frame": 554, "position": 2}
+{"event": "race.position", "session": 1, "frame": 773, "previous": 2, "position": 1}
+{"event": "position.call", "session": 1, "frame": 773, "position": 1}
+{"event": "race.position", "session": 1, "frame": 883, "previous": 1, "position": 2}
+{"event": "position.call", "session": 1, "frame": 883, "position": 2}
+{"event": "race.position", "session": 1, "frame": 1059, "previous": 2, "position": 1}
+{"event": "position.call", "session": 1, "frame": 1059, "position": 1}
+{"event": "race.final_lap", "session": 1, "frame": 1385, "lap": 2}

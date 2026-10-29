@@ -162,7 +162,7 @@ func TestAReplayLandsInTheStreams(t *testing.T) {
 	if len(evs) != len(events) {
 		t.Fatalf("EVENTS holds %d events, want %d", len(evs), len(events))
 	}
-	var started, laps, tracks, kinds, entered, exited, finished, ended int
+	var started, laps, tracks, kinds, entered, exited, finalLaps, positions, finished, ended int
 	for i, msg := range evs {
 		want := events[i]
 		var gotMsg proto.Message
@@ -186,6 +186,12 @@ func TestAReplayLandsInTheStreams(t *testing.T) {
 		case want.PitExited != nil:
 			exited++
 			gotMsg, what, id = &eventsv1.PitExited{}, "pit.exited", "pit.exited:"+strconv.Itoa(int(want.PitExited.GetStop().GetStop()))
+		case want.FinalLap != nil:
+			finalLaps++
+			gotMsg, what, id = &eventsv1.RaceFinalLapStarted{}, "race.final_lap", "race.final_lap:1"
+		case want.Position != nil:
+			positions++
+			gotMsg, what, id = &eventsv1.RacePositionChanged{}, "race.position", "race.position:"+m.Run()+":"+strconv.Itoa(int(want.Position.GetAt()))
 		case want.Finished != nil:
 			finished++
 			gotMsg, what, id = &eventsv1.RaceFinished{}, "race.finished", "race.finished:1"
@@ -205,9 +211,11 @@ func TestAReplayLandsInTheStreams(t *testing.T) {
 		}
 		checkHeaders(t, header(msg), e, want.Event, "parity:"+want.Session+":"+id)
 	}
-	if started != 1 || laps != 6 || tracks == 0 || kinds == 0 || entered != 1 || exited != 1 || finished != 1 || ended != 1 {
-		t.Errorf("%d starts, %d laps, %d tracks, %d kinds, %d pit entries, %d pit exits, %d finishes, %d ends; want 1, 6 (the race's laps), some, some, 1, 1, 1 and 1",
-			started, laps, tracks, kinds, entered, exited, finished, ended)
+	if started != 1 || laps != 6 || tracks == 0 || kinds == 0 || entered != 1 || exited != 1 ||
+		finalLaps != 1 || positions != 2 || finished != 1 || ended != 1 {
+		t.Errorf("%d starts, %d laps, %d tracks, %d kinds, %d pit entries, %d pit exits, %d final laps, %d positions, %d finishes, %d ends; "+
+			"want 1, 6 (the race's laps), some, some, 1, 1, 1, 2, 1 and 1",
+			started, laps, tracks, kinds, entered, exited, finalLaps, positions, finished, ended)
 	}
 
 	// The start's source is the subject's <src> (ecu#11's review), and its
@@ -445,6 +453,10 @@ func TestAServerStoppedMidReplay(t *testing.T) {
 			id = "pit.entered:" + strconv.Itoa(int(o.PitEntered.GetEntry()))
 		case o.PitExited != nil:
 			id = "pit.exited:" + strconv.Itoa(int(o.PitExited.GetStop().GetStop()))
+		case o.FinalLap != nil:
+			id = "race.final_lap:1"
+		case o.Position != nil:
+			id = "race.position:" + m.Run() + ":" + strconv.Itoa(int(o.Position.GetAt()))
 		case o.Finished != nil:
 			id = "race.finished:1"
 		default:

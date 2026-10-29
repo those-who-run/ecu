@@ -1,0 +1,6 @@
+{"event": "session.started", "session": 1, "frame": 42}
+{"event": "race.position", "session": 1, "frame": 59, "previous": 1, "position": 2}
+{"event": "position.call", "session": 1, "frame": 80, "position": 2}
+{"event": "race.position", "session": 1, "frame": 112, "previous": 2, "position": 1}
+{"event": "position.call", "session": 1, "frame": 112, "position": 1}
+{"event": "race.final_lap", "session": 1, "frame": 722, "lap": 6}
