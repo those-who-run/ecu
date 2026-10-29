@@ -591,7 +591,7 @@ func TestAQuitAndBackToTheMenuAreToldApart(t *testing.T) {
 // one frame are one session.track (seven of v1's recordings have them), and the
 // kind changes at most once a frame (session.kind, paddock#82). Every recording
 // publishes both. The pit stops' recordings publish pit.entered and pit.exited,
-// SUGO's two of each, and Spa's an entry alone.
+// SUGO's two of each, and Spa's an entry alone; none publishes a pit.teleport.
 func TestEveryEventIDIsUnique(t *testing.T) {
 	pits := map[string]int{
 		"real-nuc-suzuka-pit-stop-2026-10-15":            2,
@@ -608,7 +608,7 @@ func TestEveryEventIDIsUnique(t *testing.T) {
 			if o.Frame != nil {
 				continue
 			}
-			if o.PitEntered != nil || o.PitExited != nil {
+			if o.PitEntered != nil || o.PitExited != nil || o.PitTeleport != nil {
 				pit++
 			}
 			if seen[o.Event.ID] {

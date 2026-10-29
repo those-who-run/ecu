@@ -237,6 +237,8 @@ func TestPitEventsAreV1sOnEveryRecording(t *testing.T) {
 					got = append(got, o.PitEntered)
 				case o.PitExited != nil:
 					got = append(got, o.PitExited)
+				case o.PitTeleport != nil:
+					got = append(got, o.PitTeleport)
 				case o.Ended != nil:
 					summaries = append(summaries, o.Ended.GetSummary())
 				}
@@ -251,9 +253,9 @@ func TestPitEventsAreV1sOnEveryRecording(t *testing.T) {
 				}
 				sid := sessions[*l.Session-1]
 				r := all[l.Frame-1]
-				stop := pitStopFromV1(t, l.Stop)
 				switch l.Event {
 				case "pit.entered":
+					stop := pitStopFromV1(t, l.Stop)
 					entries[*l.Session]++
 					entered = &eventsv1.PitEntered{
 						SessionId: sid, Entry: entries[*l.Session], Stop: stop.GetStop(), InLap: stop.GetInLap(),
@@ -262,13 +264,21 @@ func TestPitEventsAreV1sOnEveryRecording(t *testing.T) {
 					}
 					want = append(want, entered)
 				case "pit.exited":
+					stop := pitStopFromV1(t, l.Stop)
 					want = append(want, &eventsv1.PitExited{
 						SessionId: sid, Stop: stop, Stint: l.Stint, Entry: entered.GetEntry(),
 						EnteredAt: entered.GetEnteredAt(), ExitedAt: timestamppb.New(r.Time), At: l.Frame,
 						ExitedT: r.T, EnteredT: entered.GetEnteredT(),
 					})
+				case "pit.teleport":
+					at := entered.GetAt()
+					want = append(want, &eventsv1.PitTeleport{
+						SessionId: sid, Entry: entered.GetEntry(), EntryAt: &at,
+						Lap: int32(l.Teleport["lap"].(float64)), Evidence: l.Teleport["evidence"].(string),
+						At: l.Frame, WithdrawnT: l.Teleport["t"].(float64),
+					})
 				default:
-					t.Fatalf("%s: not in this PR (paddock#79)", l.Event)
+					t.Fatalf("%s: not a pit change", l.Event)
 				}
 			}
 			if len(got) != len(want) {
@@ -312,7 +322,7 @@ func TestPitEventsAreV1sOnEveryRecording(t *testing.T) {
 func pitEvents(out []Output) []Output {
 	var evs []Output
 	for _, o := range out {
-		if o.PitEntered != nil || o.PitExited != nil {
+		if o.PitEntered != nil || o.PitExited != nil || o.PitTeleport != nil {
 			evs = append(evs, o)
 		}
 	}
@@ -539,18 +549,22 @@ func TestAWithdrawnEntryAndTheNextHaveTheirOwnIDs(t *testing.T) {
 		if o.Started != nil {
 			sid = o.Session
 		}
-		if o.PitEntered != nil || o.PitExited != nil {
+		if o.PitEntered != nil || o.PitExited != nil || o.PitTeleport != nil {
 			ids = append(ids, strings.TrimPrefix(o.Event.ID, sid+":"))
 		}
 	}
-	if want := []string{"pit.entered:1", "pit.entered:2", "pit.exited:1"}; !slices.Equal(ids, want) {
+	want := []string{"pit.entered:1", "pit.teleport:1", "pit.entered:2", "pit.exited:1"}
+	if !slices.Equal(ids, want) {
 		t.Fatalf("ids %v, want %v", ids, want)
 	}
 	evs := pitEvents(out)
-	if e := evs[1].PitEntered; e.GetEntry() != 2 || e.GetStop() != 1 {
+	if e := evs[0].PitEntered; e.GetEntry() != 1 || e.GetStop() != 1 {
+		t.Errorf("first entry %v", e)
+	}
+	if e := evs[2].PitEntered; e.GetEntry() != 2 || e.GetStop() != 1 {
 		t.Errorf("second entry %v", e)
 	}
-	if x := evs[2].PitExited; x.GetEntry() != 2 || x.GetStop().GetStop() != 1 || x.GetStint() != 2 ||
+	if x := evs[3].PitExited; x.GetEntry() != 2 || x.GetStop().GetStop() != 1 || x.GetStint() != 2 ||
 		x.GetStop().GetFuelAdded() != 40 || x.GetStop().GetOutLap() != 2 {
 		t.Errorf("exit %v", x)
 	}
@@ -568,5 +582,60 @@ func TestNoPitEventWithNoSession(t *testing.T) {
 	f(0.04, telemetryv1.Phase_PHASE_IN_RACE, 300)
 	if len(m.out) != 0 || !m.pits.Status().InPitLane {
 		t.Errorf("outputs %v, in the pit lane %t", m.out, m.pits.Status().InPitLane)
+	}
+}
+
+// AC1 of paddock#79: a 300 m jump at racing speed on lap 3, then driving on at
+// over 100 km/h without ever coming to rest, is an entry withdrawn: pit.entered,
+// then pit.teleport naming it, no pit.exited, and lap 3 no pit lap. The
+// session's stops and stints are as they were before the entry.
+func TestAJumpOnLap3IsATeleportNotAStop(t *testing.T) {
+	var d pitDrive
+	d.add(0, 0, 0, 0, 0, 50)                                // the grid
+	x := func(t float64) float32 { return float32(50 * t) } // 180 km/h
+	for at := 1.0; at <= 25; at += 0.5 {
+		d.add(at, int16(1+at/10), 0, 180, x(at), 50)
+	}
+	// Put back on track 300 m on, at racing speed, and driving on.
+	const jump = 25 + 1.0/60
+	for _, at := range []float64{jump, 25.5, 26, 26.5} {
+		d.add(at, 3, 0, 180, x(at)+300, 50)
+	}
+	d.add(30, 4, 0, 180, x(30)+300, 50)
+
+	m := New(testIDs())
+	var out []Output
+	for _, r := range d.all {
+		out = append(out, m.Step(r)...)
+	}
+	status := m.pits.Status()
+	out = append(out, m.EndOfInput()...)
+
+	evs := pitEvents(out)
+	if len(evs) != 2 || evs[0].PitEntered == nil || evs[1].PitTeleport == nil {
+		t.Fatalf("pit events %v, want an entry and a teleport", evs)
+	}
+	in, jumped := evs[0].PitEntered, evs[1].PitTeleport
+	if in.GetEntry() != 1 || in.GetStop() != 1 || in.GetInLap() != 3 || in.GetEnteredT() != jump ||
+		in.GetEvidence() != "entry teleport at 180.0 km/h" {
+		t.Errorf("entered %v", in)
+	}
+	want := &eventsv1.PitTeleport{
+		SessionId: in.GetSessionId(), Entry: 1, EntryAt: proto.Uint32(in.GetAt()), Lap: 3,
+		Evidence: "entry teleport at 180.0 km/h; over 100 km/h; never at rest, no fuel, no tyres",
+		At:       in.GetAt() + 1, WithdrawnT: 25.5,
+	}
+	if !proto.Equal(jumped, want) {
+		t.Errorf("teleport\n%v\nwant\n%v", jumped, want)
+	}
+	if id := evs[1].Event.ID; id != in.GetSessionId()+":pit.teleport:1" || evs[1].Session != in.GetSessionId() {
+		t.Errorf("teleport id %s in session %s", id, evs[1].Session)
+	}
+	if status.InPitLane || len(status.Stops) != 0 || len(status.Teleports) != 1 || status.Stint() != 1 ||
+		status.LapRole(3) != pit.RoleNone {
+		t.Errorf("status %+v, lap 3 %v", status, status.LapRole(3))
+	}
+	if s := lastSummary(out); s.GetStints() != 1 || len(s.GetPitStops()) != 0 {
+		t.Errorf("summary: %d stints, stops %v", s.GetStints(), s.GetPitStops())
 	}
 }
