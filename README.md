@@ -156,6 +156,66 @@ through `salsa`.
 Not here yet, and still paddock#266's: a recording per outing, archiving,
 pruning and listing recordings.
 
+## Replay
+
+`ecu replay PATH` replays a v1 recording onto NATS (paddock#35): `.jsonl`,
+`.jsonl.gz`, or `-` for standard input, read through `salsa`'s recording
+Source. Its packets drive the same race state and the same publisher as a live
+drive's, so from the packet on a replay runs exactly the code a live drive
+does. At the end of the recording the open session ends as the input ended
+(`END_REASON_INPUT_ENDED`, the race state's reason for the end of a
+recording), ecu waits up to 30 s for the server to take what is queued, and
+exits.
+
+```sh
+ecu replay --speed max --src parity real-race-2laps-2026-10-14.jsonl.gz
+docker run --rm -v "$PWD:/recordings" ghcr.io/those-who-run/twr-ecu \
+  replay --nats nats://<host>:4222 /recordings/real-race-2laps-2026-10-14.jsonl.gz
+```
+
+| Flag | Default | What |
+| --- | --- | --- |
+| `--speed` | `1` | `1` keeps the recording's own pacing, a pause included; any factor above 0 (`10` is ten times faster); `max` does not wait. |
+| `--src` | `replay-<stem>-<suffix>` | The source token: `parity`, or `replay-<run>`. `live` is refused. |
+| `--run` | none | Publish under `replay-<run>`, with no suffix. Not with `--src`. |
+| `--clock` | `2026-01-01T00:00:00Z` | The first frame's wall-clock time: ISO 8601, UTC unless it says (`2026-10-31T20:05:09+01:00`), or epoch seconds. |
+| `--nats` | `TWR_NATS_URL`, then `nats://127.0.0.1:4222` | The NATS server. |
+
+- **The source.** By default `replay-<stem>-<suffix>`: the file name without
+  `.gz` and its extension, lower-cased, anything outside `[a-z0-9-]` made a
+  `-`, and 6 random characters, so `Real Race 2laps.jsonl.gz` replays under
+  `replay-real-race-2laps-k3x7qa`, and two replays of one file don't share a
+  source. Standard input's stem is `stdin`. `TWR_SRC` is not read, so a live
+  deployment's `live` never leaks into a replay.
+- **The clock.** v1's `t` is the recording machine's uptime, with no date. A
+  frame's `ce-time`, and a session's `started_at`, are the first frame's time
+  (`--clock`, or 2026-01-01T00:00:00Z) plus the frame's `t` less the first
+  frame's, whatever the speed. So a replay without `--clock` dates the same
+  way every time.
+- **Pacing.** Each packet waits for its own time since the first, divided by
+  the speed, so the waits don't add up over a long recording.
+- **No frame dropped.** A replay publishes with `PublishWait`: a frame or an
+  event that finds the publisher's hand-over full waits for room instead of
+  being dropped, so `--speed max` goes as fast as the server takes frames and
+  no faster. Live keeps `Publish`, which never waits.
+- **No recording, no PS5.** A replay never writes to
+  `TWR_ECU_RECORDINGS_DIR` and needs no `TWR_ECU_PS5_IP`. It serves no
+  `/healthz`, and logs JSON to standard output as live does.
+- **Exit codes.** `0` once everything is published. `1` for a recording that
+  cannot be read: the message names the file and the line
+  (`x.jsonl:4: ...`); what came before the bad line is published, and its
+  session ended as ecu stopped. `2` for a NATS server not reached within 10 s,
+  one that did not take everything by the end of the 30 s (any frame or event
+  dropped, which the final `published` log line counts, or a final flush that
+  failed), or a bad flag. ecu waits for the connection to close before it
+  exits, so nothing is logged after its last line. `130`
+  when SIGINT or SIGTERM stops it, the open session ended as ecu stopped; a
+  signal while it waits for the server at the end cuts that wait to 1 s.
+
+Not here yet, and still paddock#35's: `--seed` for the ULIDs (session and
+event ids are random on each run until then), `--from` and `--to`, and the
+one line per session printed at the end.
+
 ## Publishing
 
 [`internal/bus`](internal/bus) puts the race state's outputs on NATS
@@ -215,9 +275,9 @@ pruning and listing recordings.
 - **Configuration.** `--nats` or `TWR_NATS_URL` (`nats://127.0.0.1:4222`), and
   `--src` or `TWR_SRC` (`live`): `live`, `parity` or `replay-<run>`, the run of
   letters, digits, `_` and `-`. Anything else, such as a `.`, `*`, `>` or white
-  space, stops ecu at start, and so does anything but `live` until ecu replays
-  recordings: it publishes only live frames
-  ([Listening to the PS5](#listening-to-the-ps5)). ecu logs the server (without credentials) and the
+  space, stops ecu at start, and so does anything but `live` when it listens to
+  the PS5 ([Listening to the PS5](#listening-to-the-ps5)); `ecu replay` refuses
+  `live` instead ([Replay](#replay)). ecu logs the server (without credentials) and the
   source at start, and the frames, 20 Hz frames and events published and
   dropped at the end, with `"final": true`. When a write still
   holds the publisher once the 5 s are up, that line has `"final": false`,
@@ -227,7 +287,9 @@ pruning and listing recordings.
   once into the user's cache and checked against its sha256 (or the binary
   `TWR_TEST_NATS_SERVER` names), with the `TELEMETRY` and `EVENTS` definitions
   of paddock's `deploy/nats/streams` in
-  [`internal/bus/testdata/streams`](internal/bus/testdata/streams). `go test
+  [`internal/bus/bustest/streams`](internal/bus/bustest/streams), in
+  [`internal/bus/bustest`](internal/bus/bustest), which `cmd/ecu`'s replay
+  tests use too. `go test
   -run '^$' -bench EncodeFrame ./internal/bus` measures a frame's encoding.
 
 ## Checks

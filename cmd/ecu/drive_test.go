@@ -116,7 +116,7 @@ func events(outs []race.Output) []string {
 func TestALiveDriveReachesThePublisherAndIsRecorded(t *testing.T) {
 	in := readAll(t, openRecording(t, recordingPath(t, suzuka)))
 	want := &fakePublisher{}
-	drive(t.Context(), &slice{all: in}, func(salsa.Received) time.Time { return time.Unix(0, 0) }, machine(), want, nil)
+	_ = drive(t.Context(), &slice{all: in}, func(salsa.Received) time.Time { return time.Unix(0, 0) }, machine(), want, nil)
 
 	ps5, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
 	if err != nil {
@@ -144,7 +144,7 @@ func TestALiveDriveReachesThePublisherAndIsRecorded(t *testing.T) {
 	go func() {
 		defer close(driven)
 		start := src.Start()
-		drive(ctx, src, func(r salsa.Received) time.Time { return start.Add(time.Duration(r.T * float64(time.Second))) },
+		_ = drive(ctx, src, func(r salsa.Received) time.Time { return start.Add(time.Duration(r.T * float64(time.Second))) },
 			machine(), got, rec)
 	}()
 
@@ -271,7 +271,7 @@ func TestTheDriveEndsTheSession(t *testing.T) {
 	at := func(r salsa.Received) time.Time { return time.Unix(0, int64(math.Round(r.T*1e9))) }
 
 	ended := &fakePublisher{}
-	drive(t.Context(), &slice{all: cut}, at, machine(), ended, nil)
+	_ = drive(t.Context(), &slice{all: cut}, at, machine(), ended, nil)
 	if last := ended.outs[len(ended.outs)-1]; last.Ended == nil || last.Why != race.WhyInputEnded {
 		t.Errorf("last output %+v, want the session ended as the input ended", last)
 	}
@@ -279,7 +279,7 @@ func TestTheDriveEndsTheSession(t *testing.T) {
 	stopped := &fakePublisher{}
 	ctx, cancel := context.WithCancel(t.Context())
 	src := &cancelAfter{slice: slice{all: cut}, n: len(cut), cancel: cancel}
-	drive(ctx, src, at, machine(), stopped, nil)
+	_ = drive(ctx, src, at, machine(), stopped, nil)
 	if last := stopped.outs[len(stopped.outs)-1]; last.Ended == nil || last.Why != race.WhyStopped {
 		t.Errorf("last output %+v, want the session ended as ecu stopped", last)
 	}

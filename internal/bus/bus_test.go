@@ -15,13 +15,14 @@ import (
 	"github.com/those-who-run/contracts/ce"
 	eventsv1 "github.com/those-who-run/contracts/gen/go/twr/events/v1"
 	telemetryv1 "github.com/those-who-run/contracts/gen/go/twr/telemetry/v1"
+	"github.com/those-who-run/ecu/internal/bus/bustest"
 	"github.com/those-who-run/ecu/internal/race"
 )
 
 // rig is a nats-server with the TELEMETRY and EVENTS streams, a client of the
 // test's own to read them back, and a publisher under src.
 type rig struct {
-	srv  *natsServer
+	srv  *bustest.Server
 	nc   *nats.Conn
 	js   jetstream.JetStream
 	pub  *Publisher
@@ -340,7 +341,7 @@ func TestAServerStoppedMidReplay(t *testing.T) {
 	}
 	handled(t, r.pub, len(out)-len(sessionEvents(out)))
 	r.nc.Close()
-	r.srv.stop()
+	r.srv.Stop()
 	waitFor(t, "lost connection", func() bool { return !r.pub.nc.IsConnected() })
 	before := r.pub.Stats()
 	var down []race.Output
@@ -368,7 +369,7 @@ func TestAServerStoppedMidReplay(t *testing.T) {
 	}
 	out = append(out, down...)
 
-	r.srv.start()
+	r.srv.Start()
 	waitFor(t, "the connection again", r.pub.nc.IsConnected)
 	out = append(out, step(m, r.pub, all[at:])...)
 	end := m.EndOfInput()

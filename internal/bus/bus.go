@@ -7,10 +7,11 @@
 // until EVENTS acknowledges it. Every message carries the full set of CloudEvents
 // headers, from contracts' ce package. It is the only package that imports nats.go.
 //
-// Nothing on the frame path waits on the network: Publish encodes the outputs and
-// hands them to one goroutine, which owns the connection, without waiting. That
+// Nothing on the live frame path waits on the network: Publish encodes the outputs
+// and hands them to one goroutine, which owns the connection, without waiting. That
 // goroutine may wait on the network (a server that stops reading holds a write for
-// up to its timeout); the step loop never does.
+// up to its timeout); live's step loop never does. A replay publishes with
+// PublishWait instead, which waits for room rather than dropping (paddock#35).
 package bus
 
 import (
@@ -92,10 +93,13 @@ const (
 )
 
 // Stats is what was published and dropped. Events counts the acknowledgements
-// from EVENTS, a duplicate's included.
+// from EVENTS, a duplicate's included. Unflushed is set by Close when the frames
+// the client held at the end may not have reached the server: the final flush
+// failed, the connection was down, or the time ran out.
 type Stats struct {
 	Frames, LoFrames, Events                      uint64
 	DroppedFrames, DroppedLoFrames, DroppedEvents uint64
+	Unflushed                                     bool
 }
 
 // frameMsg is a frame for the publishing goroutine, with whether it goes on .lo
@@ -123,6 +127,7 @@ type Publisher struct {
 	until  context.Context // Close's deadline, set before quit is closed
 	done   chan struct{}   // the publishing goroutine has ended
 	closed chan struct{}   // the connection is closed and the final totals logged
+	gone   chan struct{}   // the connection is closed and the client's last callback has run
 
 	// The step loop's own: the frame time of the last frame put on .lo.
 	lastLo float64
@@ -131,6 +136,7 @@ type Publisher struct {
 	counters struct {
 		frames, lo, events                      atomic.Uint64
 		droppedFrames, droppedLo, droppedEvents atomic.Uint64
+		unflushed                               atomic.Bool
 	}
 }
 
@@ -155,6 +161,7 @@ func Connect(cfg Config, logger *slog.Logger, opts Options) (*Publisher, error) 
 		opts.ReconnectWait = time.Second
 	}
 	d := &dialer{d: net.Dialer{Timeout: connectTimeout}}
+	gone := make(chan struct{})
 	nc, err := nats.Connect(cfg.URL,
 		nats.Name("ecu"),
 		nats.RetryOnFailedConnect(true),
@@ -173,6 +180,9 @@ func Connect(cfg Config, logger *slog.Logger, opts Options) (*Publisher, error) 
 				logger.Warn("NATS connection lost", "err", err)
 			}
 		}),
+		// The client runs its callbacks in order on a goroutine of its own, the
+		// closed one last: after it, nothing the client does logs.
+		nats.ClosedHandler(func(*nats.Conn) { close(gone) }),
 	)
 	if err != nil {
 		return nil, err
@@ -190,6 +200,7 @@ func Connect(cfg Config, logger *slog.Logger, opts Options) (*Publisher, error) 
 		quit:   make(chan struct{}),
 		done:   make(chan struct{}),
 		closed: make(chan struct{}),
+		gone:   gone,
 	}
 	go p.run()
 	logger.Info("publishing", "nats", redacted(cfg.URL), "src", cfg.Src)
@@ -202,17 +213,47 @@ func Connect(cfg Config, logger *slog.Logger, opts Options) (*Publisher, error) 
 // here, as only the publisher knows it. It encodes the outputs and hands them on
 // without waiting: a frame that finds the hand-over full is dropped and counted,
 // and so is an event that finds the queue full, with an error logged.
-func (p *Publisher) Publish(outs []race.Output) {
+func (p *Publisher) Publish(outs []race.Output) { p.publish(nil, outs) }
+
+// PublishWait is Publish for a replay (paddock#35): a frame or an event that finds
+// the hand-over or the queue full waits for room, until ctx is done, instead of
+// being dropped, so a replay at --speed max goes no faster than the server takes
+// its frames and loses none. Once ctx is done it drops as Publish does. Live uses
+// Publish, so its step loop never waits on the network.
+func (p *Publisher) PublishWait(ctx context.Context, outs []race.Output) { p.publish(ctx.Done(), outs) }
+
+// publish publishes outs, waiting for room until wait is closed; a nil wait never
+// waits.
+func (p *Publisher) publish(wait <-chan struct{}, outs []race.Output) {
 	for _, o := range outs {
 		if o.Frame != nil {
-			p.frame(o)
+			p.frame(o, wait)
 		} else {
-			p.event(o)
+			p.event(o, wait)
 		}
 	}
 }
 
-func (p *Publisher) frame(o race.Output) {
+// handOver sends m on ch, waiting for room until wait is closed, and says whether
+// it was sent.
+func handOver[T any](ch chan<- T, m T, wait <-chan struct{}) bool {
+	select {
+	case ch <- m:
+		return true
+	default:
+	}
+	if wait == nil {
+		return false
+	}
+	select {
+	case ch <- m:
+		return true
+	case <-wait:
+		return false
+	}
+}
+
+func (p *Publisher) frame(o race.Output, wait <-chan struct{}) {
 	t := o.Frame.GetT()
 	// A frame time that goes back is a new clock (another recording, or GT7 started
 	// over): the .lo subject starts again from it.
@@ -227,9 +268,7 @@ func (p *Publisher) frame(o race.Output) {
 		return
 	}
 	msg := &nats.Msg{Subject: "twr.v1." + p.src + ".frame.gt7", Header: nats.Header(h), Data: data}
-	select {
-	case p.frames <- frameMsg{msg, lo}:
-	default:
+	if !handOver(p.frames, frameMsg{msg, lo}, wait) {
 		p.dropFrame(lo)
 	}
 }
@@ -247,7 +286,7 @@ func (p *Publisher) dropFrame(lo bool) {
 // whole stream and two sources can carry the same session id. Its subject's
 // <area>.<what> comes from its ce-type, and an event with no session open goes on
 // evt._, its id then starting <src>:<run>: as the race state gives it.
-func (p *Publisher) event(o race.Output) {
+func (p *Publisher) event(o race.Output, wait <-chan struct{}) {
 	if o.Started == nil && o.Lap == nil && o.Ended == nil {
 		return
 	}
@@ -269,9 +308,7 @@ func (p *Publisher) event(o race.Output) {
 		sid = "_"
 	}
 	msg := &nats.Msg{Subject: "twr.v1." + p.src + ".evt." + sid + "." + areaWhat(h.Get(ce.TypeHeader)), Header: nats.Header(h), Data: data}
-	select {
-	case p.events <- msg:
-	default:
+	if !handOver(p.events, msg, wait) {
 		p.counters.droppedEvents.Add(1)
 		p.logger.Error("event dropped: the queue is full", "id", e.ID, "queue", p.limit)
 	}
@@ -397,12 +434,31 @@ func (p *Publisher) sendFrame(f frameMsg) {
 	p.counters.lo.Add(1)
 }
 
+// WaitConnected waits until the publisher is connected to the server, and returns
+// ctx's error if it is not before ctx is done. Connect returns before the first
+// connection is made, and the client keeps trying in the background, which suits
+// live; a replay waits here instead, so a server that cannot be reached stops it
+// (paddock#35).
+func (p *Publisher) WaitConnected(ctx context.Context) error {
+	tick := time.NewTicker(10 * time.Millisecond)
+	defer tick.Stop()
+	for !p.nc.IsConnected() {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-tick.C:
+		}
+	}
+	return nil
+}
+
 // Stats is what has been published and dropped so far.
 func (p *Publisher) Stats() Stats {
 	c := &p.counters
 	return Stats{
 		Frames: c.frames.Load(), LoFrames: c.lo.Load(), Events: c.events.Load(),
 		DroppedFrames: c.droppedFrames.Load(), DroppedLoFrames: c.droppedLo.Load(), DroppedEvents: c.droppedEvents.Load(),
+		Unflushed: c.unflushed.Load(),
 	}
 }
 
@@ -428,6 +484,11 @@ func (p *Publisher) Close(ctx context.Context) Stats {
 		var err error
 		if ctx.Err() == nil && p.nc.IsConnected() {
 			err = p.nc.FlushWithContext(ctx)
+		} else {
+			p.counters.unflushed.Store(true)
+		}
+		if err != nil {
+			p.counters.unflushed.Store(true)
 		}
 		s := p.logTotals(ctx, true)
 		if err != nil && !errors.Is(err, context.Canceled) {
@@ -442,6 +503,7 @@ func (p *Publisher) Close(ctx context.Context) Stats {
 		return s
 	default:
 	}
+	p.counters.unflushed.Store(true)
 	s := p.logTotals(ctx, false)
 	p.logger.WarnContext(ctx, "the publisher was still writing when the time ran out: the totals follow once it stops")
 	// A write to a server that stopped reading gives up only after writeTimeout, and
@@ -465,6 +527,11 @@ func (p *Publisher) Close(ctx context.Context) Stats {
 // Closed is closed once Close has logged the final totals; the connection is
 // closed then, or just after.
 func (p *Publisher) Closed() <-chan struct{} { return p.closed }
+
+// Gone is closed once the connection is closed and the client has run its last
+// callback, after Closed: from then on nothing the publisher or its client does
+// logs. A replay waits for it before it returns (paddock#35).
+func (p *Publisher) Gone() <-chan struct{} { return p.gone }
 
 func (p *Publisher) logTotals(ctx context.Context, final bool) Stats {
 	s := p.Stats()

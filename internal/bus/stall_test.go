@@ -1,12 +1,9 @@
 package bus
 
 import (
-	"bufio"
 	"context"
-	"net"
 	"strconv"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -15,66 +12,12 @@ import (
 
 	"github.com/those-who-run/contracts/ce"
 	eventsv1 "github.com/those-who-run/contracts/gen/go/twr/events/v1"
+	"github.com/those-who-run/ecu/internal/bus/bustest"
 	"github.com/those-who-run/ecu/internal/race"
 )
 
-// stalled is a TCP listener that plays a NATS server gone wrong: each connection
-// it accepts is held open, and either never answered (silent), or answered up to
-// the client's first PING and then never read again, so the client's writes fill
-// the socket and wait.
-func stalled(t *testing.T, silent bool) string {
-	t.Helper()
-	var lc net.ListenConfig
-	ln, err := lc.Listen(t.Context(), "tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var mu sync.Mutex
-	var conns []net.Conn
-	t.Cleanup(func() {
-		_ = ln.Close()
-		mu.Lock()
-		defer mu.Unlock()
-		for _, c := range conns {
-			_ = c.Close()
-		}
-	})
-	go func() {
-		for {
-			c, err := ln.Accept()
-			if err != nil {
-				return
-			}
-			mu.Lock()
-			conns = append(conns, c)
-			mu.Unlock()
-			if silent {
-				continue
-			}
-			_ = c.(*net.TCPConn).SetReadBuffer(4096)
-			go handshake(c)
-		}
-	}()
-	return "nats://" + ln.Addr().String()
-}
-
-// handshake answers a client's CONNECT and first PING as a server would, then reads
-// nothing more.
-func handshake(c net.Conn) {
-	_, _ = c.Write([]byte(`INFO {"server_id":"stalled","version":"2.15.1","proto":1,"headers":true,` +
-		`"max_payload":1048576}` + "\r\n"))
-	r := bufio.NewReader(c)
-	for {
-		line, err := r.ReadString('\n')
-		if err != nil {
-			return
-		}
-		if strings.HasPrefix(line, "PING") {
-			_, _ = c.Write([]byte("PONG\r\n"))
-			return
-		}
-	}
-}
+// stalled is bustest.Stalled: a NATS server gone wrong.
+func stalled(t *testing.T, silent bool) string { return bustest.Stalled(t, silent) }
 
 // B1 of the review of ecu#12, and R6: a server that stops reading, or one that
 // never answers, holds the publishing goroutine, never a step. The client's own
@@ -175,9 +118,9 @@ func TestEventsStayInOrderAcrossAReconnect(t *testing.T) {
 	for n := int32(1); n <= 300; n++ {
 		switch n {
 		case 50:
-			r.srv.stop()
+			r.srv.Stop()
 		case 150:
-			r.srv.start() // the publisher finds it again within 20 ms, while laps keep coming
+			r.srv.Start() // the publisher finds it again within 20 ms, while laps keep coming
 		}
 		r.pub.Publish(all[n-1 : n])
 		time.Sleep(time.Millisecond)
@@ -295,7 +238,7 @@ func TestAFullEventQueueDropsAndCounts(t *testing.T) {
 		t.Fatal(err)
 	}
 	r.nc.Close()
-	r.srv.stop()
+	r.srv.Stop()
 	waitFor(t, "lost connection", func() bool { return !r.pub.nc.IsConnected() })
 	var slowest time.Duration
 	for i, o := range laps(20) {
@@ -312,7 +255,7 @@ func TestAFullEventQueueDropsAndCounts(t *testing.T) {
 	if n := strings.Count(r.logs.String(), "event dropped: the queue is full"); n != 12 {
 		t.Errorf("%d drops logged, want 12", n)
 	}
-	r.srv.start()
+	r.srv.Start()
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
 	if s := r.pub.Close(ctx); s.Events != 8 {
