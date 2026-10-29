@@ -127,8 +127,8 @@ func TestEverySubjectIsInTheCatalogue(t *testing.T) {
 	for _, msg := range msgs {
 		sent[[2]string{generic(msg), msg.Header.Get(ce.TypeHeader)}] = true
 	}
-	if len(sent) != 7 {
-		t.Errorf("%d kinds of message sent, want 7: frames, .lo and five events: %v", len(sent), sent)
+	if len(sent) != 9 {
+		t.Errorf("%d kinds of message sent, want 9: frames, .lo and seven events: %v", len(sent), sent)
 	}
 	entries := catalogue(t)
 	for k := range sent {
@@ -210,8 +210,8 @@ func TestEveryIDFollowsTheCatalogue(t *testing.T) {
 		}
 		checked[scheme] = true
 	}
-	if len(checked) != 6 {
-		t.Errorf("checked ids against %d schemes, want 6: the frame's and the five events': %v", len(checked), checked)
+	if len(checked) != 8 {
+		t.Errorf("checked ids against %d schemes, want 8: the frame's and the seven events': %v", len(checked), checked)
 	}
 }
 

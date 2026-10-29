@@ -15,8 +15,9 @@ acceptance criterion, `Part of those-who-run/paddock#N` otherwise
 
 [`internal/race`](internal/race) is the race state: a pure state machine
 that takes `salsa` packets one at a time and gives, for each, its frame and the
-events it gives rise to, `session.started`, `session.track`, `session.kind`,
-`lap.completed` and `session.ended`, as the `contracts` messages. It opens a session, closes a lap
+events it gives rise to, `session.started`, `pit.entered`, `pit.exited`,
+`session.track`, `session.kind`, `lap.completed` and `session.ended`, as the
+`contracts` messages. It opens a session, closes a lap
 and ends a session exactly where v1 did, with v1's rules ported from its
 `state.py`, `engine.py` and `store.py` at v1.0.0 (paddock#33).
 
@@ -295,6 +296,48 @@ Not here yet, and still paddock#35's: `--seed` for the ULIDs (session and
 event ids are random on each run until then), `--from` and `--to`, and the
 one line per session printed at the end.
 
+## Pit stops
+
+GT7 sends no pit flag. [`internal/pit`](internal/pit) finds pit stops from its
+camera cuts: v1's `PitDetector` (`pitstop.py` at v1.0.0), ported as it is, a
+pure library like the race state (paddock#78). The race state feeds it every
+frame and publishes the session's entries and exits, as v1's
+`Engine._apply_pits`, in [`internal/race/pit.go`](internal/race/pit.go).
+
+- **Entry.** A one-frame loading screen on lap 1 or later after a racing
+  frame, or a teleport (over 10 m at over 600 km/h between two frames, timed
+  from the packet counter as well as the clock). `pit.entered` carries the
+  in-lap (the lap on the frame before the cut), the fuel and position before,
+  `entered_t` and `entered_at`, and the evidence.
+- **The stop.** The time at rest (under 1 km/h, steps capped at 1 s, pauses
+  not counted), the fuel after, new tyres (all four temperatures dropping over
+  5 °C in a frame) and the position after.
+- **Exit.** A cut or teleport once the car has been at rest and moves at
+  5 km/h or more, or any frame over 100 km/h. `pit.exited` carries the stop as
+  v1's `PitStop.record()` writes it (fuel to 3 decimals, times to 10 ms, the
+  limiter's speed to 0.1 km/h), the stint that starts, and the entry's and
+  exit's times.
+- **Before the laps.** The pits are worked out before the lap store reads the
+  frame, so a line crossed on the frame after the cut is known to be in the
+  pits. A start or a restart resets the detector; a loading cut keeps the
+  track detector's verdict.
+- **Ids.** `<sid>:pit.entered:<entry>` counts every entry in the session,
+  and `<sid>:pit.exited:<stop>` the stops (contracts v0.2.2). The counts are
+  the session's, for paddock#76 to carry across an ecu restart. A frame
+  changes the pits once at most, so it gives one pit event at most.
+- **At the end.** `session.ended`'s summary carries the stints and the stops,
+  a stop still open last, without an out-lap, a lane time or a position after
+  (Spa, quit from the box).
+- **Not yet.** An entry that was no stop (never at rest, no fuel, no tyres,
+  as a reset to track) is withdrawn by the detector but not yet published as
+  `pit.teleport` (paddock#79). Pit roles on `lap.completed` are paddock#83's.
+- **Tests.** On every one of v1's 25 recordings, the detector's changes are
+  v1's, field for field, and the `pit.entered` and `pit.exited` events and
+  each summary's stops are what v1's engine applied and stored, as
+  `make_golden.py` in [`internal/race/testdata/pit/`](internal/race/testdata/pit)
+  wrote them from v1.0.0. The Gilles Villeneuve stop is also `contracts`'
+  `testdata/v1/gilles_villeneuve_pit_stop.json`.
+
 ## Publishing
 
 [`internal/bus`](internal/bus) puts the race state's outputs on NATS
@@ -308,6 +351,8 @@ one line per session printed at the end.
 | `twr.v1.<src>.evt.<sid>.session.started` | a session began | `EVENTS` |
 | `twr.v1.<src>.evt.<sid>.session.track` | the session's track verdict changed | `EVENTS` |
 | `twr.v1.<src>.evt.<sid>.session.kind` | the session's kind verdict changed | `EVENTS` |
+| `twr.v1.<src>.evt.<sid>.pit.entered` | the car came into the pit lane | `EVENTS` |
+| `twr.v1.<src>.evt.<sid>.pit.exited` | the car left the pit lane, with its stop | `EVENTS` |
 | `twr.v1.<src>.evt.<sid>.lap.completed` | a lap ended | `EVENTS` |
 | `twr.v1.<src>.evt.<sid>.session.ended` | a session ended | `EVENTS` |
 
@@ -320,7 +365,9 @@ one line per session printed at the end.
   an event's is `<src>:<sid>:session.started:1`,
   `<src>:<sid>:session.track:<run>:<seq>` and
   `<src>:<sid>:session.kind:<run>:<seq>` (the run and the frame it changed
-  on), `<src>:<sid>:lap.completed:<n>` or `<src>:<sid>:session.ended:1`, with
+  on; the run is the message's `run_id` too), `<src>:<sid>:pit.entered:<entry>`,
+  `<src>:<sid>:pit.exited:<stop>`, `<src>:<sid>:lap.completed:<n>` or
+  `<src>:<sid>:session.ended:1`, with
   the subject's `<src>`, so two replays
   under different sources are not deduplicated against each other. An event
   published with no session open would go on `evt._`, with `<run>` in
