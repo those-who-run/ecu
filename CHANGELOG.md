@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.1.6](https://github.com/those-who-run/ecu/compare/v0.1.5...v0.1.6) (2026-10-29)
+
+
+### Features
+
+* **race:** publish an entry withdrawn (pit.teleport) ([#31](https://github.com/those-who-run/ecu/issues/31)) ([6b805a7](https://github.com/those-who-run/ecu/commit/6b805a7dfe3420b871495fa9b2b10999e8a85509))
+* **race:** the finish, by flag and timed (race.finished) ([#32](https://github.com/those-who-run/ecu/issues/32)) ([c339670](https://github.com/those-who-run/ecu/commit/c3396706137b57ab75ff65eec8a6d3433dff8659))
+
+
+### Dependencies
+
+* contracts v0.2.3, with the 20 Hz frame catalogued ([#30](https://github.com/those-who-run/ecu/issues/30)) ([597c1f6](https://github.com/those-who-run/ecu/commit/597c1f6d2ea18afd810faf6dbfb3f683255d7da3))
+
 ## [0.1.5](https://github.com/those-who-run/ecu/compare/v0.1.4...v0.1.5) (2026-10-29)
 
 
