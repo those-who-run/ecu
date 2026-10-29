@@ -1,4 +1,4 @@
-"""Write the goldens lap_time_test.go compares with: each callout v1's lap_time
+"""Write the goldens laptime_test.go compares with: each callout v1's lap_time
 rule raised, as JSON lines (those-who-run/paddock#91).
 
 Made once from v1 at tag v1.0.0 (those-who-run/those-who-run), in v1's own

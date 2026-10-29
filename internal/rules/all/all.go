@@ -5,4 +5,5 @@ package all
 
 import (
 	_ "github.com/those-who-run/ecu/internal/rules/finallap" // final_lap, paddock#93
+	_ "github.com/those-who-run/ecu/internal/rules/laptime"  // lap_time, paddock#91
 )
