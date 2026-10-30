@@ -57,7 +57,7 @@ func feedDrive(t *testing.T, timeout, gap time.Duration, before, after []salsa.P
 	pub := &fakePublisher{}
 	ctx, cancel := context.WithCancel(t.Context())
 	driven := make(chan struct{})
-	go func() { defer close(driven); _ = drive(ctx, src, at, m, eng, pub, nil) }()
+	go func() { defer close(driven); _ = drive(ctx, src, at, m, eng, pub, nil, nil) }()
 	for _, p := range before {
 		src.packets <- p
 	}

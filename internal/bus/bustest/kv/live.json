@@ -1,0 +1,19 @@
+{
+  "$comment": [
+    "live: the current state (the open session, pit status, telemetry age, each service's health), so a client that joins late reads the current value at once and then watches it (ADR 0001, point 1). Every key carries its source (live, replay-<run>, parity). The keys are contracts' (subjects.yaml, paddock#72): ecu.status, ecu.session, ecu.pit and ecu.fuel of each source, written only by ecu (paddock#36, R3; paddock#73).",
+    "This file is not a stream config: bootstrap.sh turns each field into the flag of the same name for nats kv add and nats kv edit.",
+    "history 1: only the current value matters; a client that wants changes watches the key.",
+    "max_value_size 64 KiB (65536): a value is one status message as protobuf JSON, a few hundred bytes. 64 KiB is over 100 times that and still refuses a mistaken write of something frame-sized.",
+    "max_bucket_size 64 MiB (67108864): a handful of keys per source, each under 1 KB, so even thousands of replay runs leaving their keys behind fill a few MB. The limit is a backstop so the bucket cannot fill the disk.",
+    "No ttl: a value stays until it is replaced. Whether keys left by replays expire (per-key TTLs) is for the milestone that writes them.",
+    "Discard and duplicate window are not set here: nats kv add fixes them for every bucket (discard new, so a full bucket refuses a write rather than dropping a current value; a 2 min duplicate window).",
+    "replicas 1: one NATS server (ADR 0004). File storage so a server restart keeps the state."
+  ],
+  "bucket": "live",
+  "description": "Current state, one key per thing per source (paddock#36).",
+  "history": 1,
+  "storage": "file",
+  "replicas": 1,
+  "max_value_size": 65536,
+  "max_bucket_size": 67108864
+}

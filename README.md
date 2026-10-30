@@ -264,8 +264,9 @@ The ports: UDP 33740 in (the PS5 sends there, to the address the heartbeat
 came from), and UDP out to the PS5's 33739. In a pod, 33740/UDP needs a
 `hostPort`, as v1's Deployment has.
 
-Not here yet, and still paddock#106's: the listener's state in `/healthz` and
-the `live` KV (R7, with paddock#88 and paddock#107), and the metrics (R9).
+The listener's state is in `/healthz` and the `live` KV
+([The live status](#the-live-status), paddock#88). Not here yet, and still
+paddock#106's: the metrics (R9).
 
 ### Telemetry lost and restored
 
@@ -805,10 +806,57 @@ rule.
   once into the user's cache and checked against its sha256 (or the binary
   `TWR_TEST_NATS_SERVER` names), with the `TELEMETRY`, `EVENTS` and `CALLOUTS` definitions
   of paddock's `deploy/nats/streams` in
-  [`internal/bus/bustest/streams`](internal/bus/bustest/streams), in
+  [`internal/bus/bustest/streams`](internal/bus/bustest/streams), and the `live`
+  and `ecu` buckets of `deploy/nats/kv` in
+  [`internal/bus/bustest/kv`](internal/bus/bustest/kv), in
   [`internal/bus/bustest`](internal/bus/bustest), which `cmd/ecu`'s replay
   tests use too. `go test
   -run '^$' -bench EncodeFrame ./internal/bus` measures a frame's encoding.
+
+## The live status
+
+[`internal/status`](internal/status) says what ecu is doing (paddock#88), as
+v1's `GET /api/v1/status` and `/healthz` did (v1's `status.py` and `App.status`,
+`App.idle` and `App.live_status` at v1.0.0), in the `live` KV bucket, so a
+reader that joins late reads it at once and then watches it. The keys and
+values are `contracts`' (`subjects.yaml`, `twr.state.v1` in `live.proto`):
+
+| Key | Value | Written |
+| --- | --- | --- |
+| `ecu.status.<src>` | `EcuStatus`: activity, idle, `idle_secs`, the telemetry link, the last packet's age, packets, sessions started | on change, every second while idle, at least every 5 s while busy |
+| `ecu.session.<src>` | `LiveSession`: kind, track, lap, laps, position and cars where the results card shows them | on change while a session is open; deleted when it ends |
+| `ecu.pit.<src>` | `PitState`: in the pit lane, stint, stops | the same |
+| `ecu.fuel.<src>` | `FuelState`: the level, the tank, and the laps it lasts by the fuel model (`gt7_fuel_laps_remaining`, paddock#92 R8) | the same |
+
+- **Never from the frame path.** The step loop hands the tracker the race
+  state's read-only view after each step or tick (`race.Machine.Live`, a copy
+  that allocates nothing); a writer goroutine reads it once a second, encodes
+  the values and writes those due, through `internal/bus`'s KV handle. A write
+  that fails is logged once and tried again each second.
+- **Idle, as v1's.** Busy while driving frames (in a race, or paused in one)
+  arrive, that is while the last one is under `TWR_ECU_TELEMETRY_TIMEOUT_SECS`
+  old; idle otherwise, a session left open by a feed that stopped included,
+  and once the drive ends. The activity is `idle` exactly then; otherwise
+  `replay` or `demo` while the start check ignores one, `paused`, or
+  `driving`, a start still being judged included.
+- **Per source.** Every key carries the source, so `ecu replay` writes its own
+  (`ecu.status.replay-<run>`, `ecu.status.parity`), never live's, and leaves
+  its status idle and its session's keys deleted at its end.
+- **No secrets.** The values come from the race state, ecu's version and the
+  source alone: no token, credential, PS5 or NATS address.
+- **`/healthz`** on `ADDR` adds the same idle flag, `idle_secs`, activity, the
+  telemetry link and listener, the last packet's age, packets and sessions
+  started, with `tasks` (the drive and the status writer alive),
+  `nats_connected` and `ok`, all of them well. It answers 503 only when a task
+  has died or the listener cannot hold its port: NATS down is `ok: false` and
+  still 200, as the client reconnects by itself, and the PS5 off is normal.
+- **Not here yet.** `car_name` waits on v1's car table (paddock#86), and
+  `svc.ecu.status`, the NATS micro endpoint, on the pit wall (Rosberg).
+- **Tests.** `internal/status`'s tests feed v1's recordings through the race
+  state and check every field of v1.0.0's status body, as `contracts`'
+  `testdata/v1/gilles_villeneuve_status.json` holds it, SUGO's two stops (in
+  the pit lane between each entry and exit, P9 at the end, idle 3 s after the
+  last driving frame) and SUGO's GT7 replay (`replay` while it plays).
 
 ## Checks
 
@@ -827,7 +875,7 @@ The ones every Go component shares, from the
 - **Logging with `log/slog`, as JSON** on standard output, one object per line,
   with key-value pairs.
 - **A health endpoint**, `GET /healthz`, which answers 200 while the process can
-  serve.
+  serve; ecu's adds its status ([The live status](#the-live-status)).
 
 ## From the template
 
