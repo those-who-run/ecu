@@ -341,6 +341,65 @@ func TestAPitTeleportIsInTheCatalogue(t *testing.T) {
 	}
 }
 
+// paddock#87: the watchdog's events go on evt.<sid> with a session open and on
+// evt._ with none, each with the catalogue's ce-type and id, <run> in the id
+// and run_id in the message.
+func TestTelemetryLostAndRestoredAreInTheCatalogue(t *testing.T) {
+	r := newRig(t, "parity")
+	const sid, run = "01JBUSSESSION0000000000000", "01JBUSRUN0000000000000000A"
+	sub, err := r.nc.SubscribeSync("twr.v1.parity.evt.>")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.nc.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	r.pub.Publish([]race.Output{
+		{
+			Event: ce.Event{ID: sid + ":telemetry.lost:" + run + ":7", Source: race.Source, Time: epoch}, Session: sid,
+			TelemetryLost: &eventsv1.TelemetryLost{SessionId: sid, RunId: run, At: 7, SilenceMs: 3000},
+		},
+		{
+			Event:             ce.Event{ID: run + ":telemetry.restored:9", Source: race.Source, Time: epoch},
+			TelemetryRestored: &eventsv1.TelemetryRestored{RunId: run, LostAt: 7, At: 9, GapMs: 5000},
+		},
+	})
+	want := []struct{ subject, id string }{
+		{"twr.v1.parity.evt." + sid + ".telemetry.lost", "parity:" + sid + ":telemetry.lost:" + run + ":7"},
+		{"twr.v1.parity.evt._.telemetry.restored", "parity:" + run + ":telemetry.restored:9"},
+	}
+	for _, w := range want {
+		msg, err := sub.NextMsg(5 * time.Second)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if msg.Subject != w.subject || msg.Header.Get(ce.IDHeader) != w.id {
+			t.Errorf("%s %s, want %s %s", msg.Subject, msg.Header.Get(ce.IDHeader), w.subject, w.id)
+		}
+		var found bool
+		underscore := strings.Contains(msg.Subject, ".evt._.")
+		for _, e := range catalogue(t) {
+			// evt._ also matches the <sid> pattern: the entry is the evt._ one.
+			if !matches(e.pattern, msg.Subject) || underscore != strings.Contains(e.pattern, ".evt._.") {
+				continue
+			}
+			found = true
+			if got := msg.Header.Get(ce.TypeHeader); got != e.ceType {
+				t.Errorf("ce-type %s; subjects.yaml says %s", got, e.ceType)
+			}
+			if id := msg.Header.Get(ce.IDHeader); !followsScheme(e.msgID, id, map[string]string{"src": "parity", "sid": sid, "run": run}) {
+				t.Errorf("id %q, want the scheme %q", id, e.msgID)
+			}
+		}
+		if !found {
+			t.Errorf("%s is not in subjects.yaml", msg.Subject)
+		}
+	}
+	if s := r.close(t); s.Events != 2 {
+		t.Errorf("stats %+v, want both events acknowledged", s)
+	}
+}
+
 // paddock#97, R5: a car alarm, which only the rule engine raises (the temps
 // rule), goes on its subject in subjects.yaml with its ce-type and its id scheme,
 // <src>:<sid>:car.alarm:<check>:<run>:<seq>.

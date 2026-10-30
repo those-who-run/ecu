@@ -216,6 +216,18 @@ type Context struct {
 	// start and the end of the input are not this, as in v1.
 	EndedEarly *View
 
+	// The telemetry watchdog (feed.go, paddock#87), what the telemetry rule
+	// (paddock#98) reads in place of v1's TelemetryVoice.observe. Tick: no frame
+	// came, the watchdog called the feed lost (Machine.Tick); Cur is the last
+	// frame, which the rules saw already, Time is the tick's, and the engine runs
+	// only the rules that watch the feed (rules.Watcher). Lost is the loss on a
+	// tick, nil otherwise: its Phase is the last frame's, as v1's voice read
+	// engine.prev. Restored is the loss's end on the first frame after it, nil
+	// otherwise: its LostPhase is the lost frame's phase.
+	Tick     bool
+	Lost     *eventsv1.TelemetryLost
+	Restored *eventsv1.TelemetryRestored
+
 	timed []timedLap // the session's timed laps before this frame
 }
 

@@ -153,7 +153,9 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout,
 		defer close(driven)
 		start := src.Start()
 		at := func(r salsa.Received) time.Time { return start.Add(time.Duration(r.T * float64(time.Second))) }
-		_ = drive(driveCtx, src, at, race.New(ulid.Make), eng, pub, rec)
+		m := race.New(ulid.Make)
+		m.WatchTelemetry(liveCfg.TelemetryTimeout) // live only (paddock#87)
+		_ = drive(driveCtx, src, at, m, eng, pub, rec)
 	}()
 	// The drive ends, with the session it holds, and the source stops, so
 	// nothing writes to the recorder once it closes; then the recorder closes,
@@ -192,12 +194,14 @@ type publisher interface {
 // at gives a packet's wall-clock time. At the end the open session ends: as the
 // input ended (EndOfInput) at the end of a recording, as ecu stopping (Stop)
 // otherwise. It returns what stopped src, nil at its end: a replay tells a bad
-// recording from an interrupted one by it.
+// recording from an interrupted one by it. While m watches the feed (live,
+// paddock#87), it waits for a packet no later than when the feed counts as lost,
+// and then publishes the loss (next).
 func drive(ctx context.Context, src salsa.Source, at func(salsa.Received) time.Time, m *race.Machine,
 	eng *rules.Engine, pub publisher, rec *record.Writer,
 ) error {
 	for {
-		r, err := src.Next(ctx)
+		r, err := next(ctx, src, m, eng, pub)
 		if errors.Is(err, io.EOF) {
 			pub.Publish(m.EndOfInput())
 			return nil
@@ -212,6 +216,44 @@ func drive(ctx context.Context, src salsa.Source, at func(salsa.Received) time.T
 		outs := m.Step(race.Received{Received: r, Time: at(r)})
 		if eng != nil {
 			// The rules read the frame as the machine left it (paddock#89).
+			outs = append(outs, eng.Step(m.Context())...)
+		}
+		pub.Publish(outs)
+	}
+}
+
+// lossGrace is the last wait for a packet before the feed is called lost.
+const lossGrace = time.Millisecond
+
+// next is src's next packet. While m watches the feed, it waits no later than
+// m.LostAt, on the wall clock, which live's packet times are on; when none came by
+// then, it publishes what m.Tick and the rules that watch the feed make of the
+// loss, and waits on. A source's Next keeps a packet that comes as its context
+// ends for the next call, as live's does.
+func next(ctx context.Context, src salsa.Source, m *race.Machine, eng *rules.Engine, pub publisher) (salsa.Received, error) {
+	for {
+		due, ok := m.LostAt()
+		if !ok {
+			return src.Next(ctx)
+		}
+		wait, cancel := context.WithDeadline(ctx, due)
+		r, err := src.Next(wait)
+		cancel()
+		if err == nil || ctx.Err() != nil || !errors.Is(err, context.DeadlineExceeded) {
+			return r, err
+		}
+		// A packet that came as the deadline passed can still be waiting (live's
+		// Next picks at random between it and the deadline), or the drive was
+		// held up past it: one more try, with a moment's grace and a context not
+		// yet done, gives it first, so it is never called a loss.
+		grace, cancel := context.WithTimeout(ctx, lossGrace)
+		r, err = src.Next(grace)
+		cancel()
+		if err == nil || ctx.Err() != nil || !errors.Is(err, context.DeadlineExceeded) {
+			return r, err
+		}
+		outs := m.Tick(time.Now())
+		if eng != nil && len(outs) > 0 {
 			outs = append(outs, eng.Step(m.Context())...)
 		}
 		pub.Publish(outs)

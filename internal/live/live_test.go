@@ -421,12 +421,17 @@ func TestConfigFromEnv(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.PS5 != "192.0.2.7" || cfg.Heartbeat != 2*time.Second || cfg.HeartbeatPort != 33739 || cfg.Listen != ":33740" {
+	if cfg.PS5 != "192.0.2.7" || cfg.Heartbeat != 2*time.Second || cfg.HeartbeatPort != 33739 || cfg.Listen != ":33740" ||
+		cfg.TelemetryTimeout != 3*time.Second {
 		t.Errorf("defaults %+v", cfg)
 	}
 	cfg, err = ConfigFromEnv(env(map[string]string{"TWR_ECU_PS5_IP": "192.0.2.7", "TWR_ECU_HEARTBEAT_SECS": "0.5"}))
 	if err != nil || cfg.Heartbeat != 500*time.Millisecond {
 		t.Errorf("0.5 s: %+v, %v", cfg, err)
+	}
+	cfg, err = ConfigFromEnv(env(map[string]string{"TWR_ECU_PS5_IP": "192.0.2.7", "TWR_ECU_TELEMETRY_TIMEOUT_SECS": "1.5"}))
+	if err != nil || cfg.TelemetryTimeout != 1500*time.Millisecond {
+		t.Errorf("a 1.5 s timeout: %+v, %v", cfg, err)
 	}
 	for _, c := range []struct {
 		vars map[string]string
@@ -444,6 +449,11 @@ func TestConfigFromEnv(t *testing.T) {
 		{map[string]string{"TWR_ECU_PS5_IP": "192.0.2.7", "TWR_ECU_HEARTBEAT_SECS": "1e-10"}, "from 0.01 to 3600"},
 		{map[string]string{"TWR_ECU_PS5_IP": "192.0.2.7", "TWR_ECU_HEARTBEAT_SECS": "1e10"}, "from 0.01 to 3600"},
 		{map[string]string{"TWR_ECU_PS5_IP": "192.0.2.7", "TWR_ECU_HEARTBEAT_SECS": "Inf"}, "TWR_ECU_HEARTBEAT_SECS"},
+		{map[string]string{"TWR_ECU_PS5_IP": "192.0.2.7", "TWR_ECU_TELEMETRY_TIMEOUT_SECS": "0"}, "above 0 and at most 3600"},
+		{map[string]string{"TWR_ECU_PS5_IP": "192.0.2.7", "TWR_ECU_TELEMETRY_TIMEOUT_SECS": "-1"}, "above 0 and at most 3600"},
+		{map[string]string{"TWR_ECU_PS5_IP": "192.0.2.7", "TWR_ECU_TELEMETRY_TIMEOUT_SECS": "1e10"}, "above 0 and at most 3600"},
+		{map[string]string{"TWR_ECU_PS5_IP": "192.0.2.7", "TWR_ECU_TELEMETRY_TIMEOUT_SECS": "NaN"}, "TWR_ECU_TELEMETRY_TIMEOUT_SECS"},
+		{map[string]string{"TWR_ECU_PS5_IP": "192.0.2.7", "TWR_ECU_TELEMETRY_TIMEOUT_SECS": "soon"}, "TWR_ECU_TELEMETRY_TIMEOUT_SECS"},
 	} {
 		if _, err := ConfigFromEnv(env(c.vars)); err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%v: %v, want %q", c.vars, err, c.want)

@@ -21,7 +21,9 @@
 // v1's FinalLapRule and PositionRule (position.go here, paddock#84), and the lap
 // model: each lap's pit role and whether it counts for the best, from
 // Engine._step's lap_time rule, and the best, from results.best_lap with
-// contracts v0.2.3's one difference (laps.go here, paddock#83). What else v1's engine reads (replays and demo races
+// contracts v0.2.3's one difference (laps.go here, paddock#83), and the
+// telemetry watchdog's loss and return, from App._watchdog and Engine.feed_lost
+// (feed.go here, paddock#87), the caller giving it the time. What else v1's engine reads (replays and demo races
 // held at the start, continuing after a restart and the frozen pause) is not here
 // yet.
 package race
@@ -96,12 +98,15 @@ const (
 	// WhyTimedFinish is the end of a session after its timed finish (v1's
 	// race_ended once Engine._timed_finish had set finished).
 	WhyTimedFinish
+	// WhyTelemetryLost is the feed lost in a pause (v1's Engine._end_paused "the
+	// feed was lost", feed.go): the session ends paused.
+	WhyTelemetryLost
 )
 
 var whyNames = map[Why]string{
 	WhyFinished: "finished", WhyQuit: "quit", WhyRestart: "restart", WhyStart: "start",
 	WhyInputEnded: "input ended", WhyStopped: "stopped", WhyMenu: "menu",
-	WhyTimedFinish: "timed finish",
+	WhyTimedFinish: "timed finish", WhyTelemetryLost: "telemetry lost",
 }
 
 func (w Why) String() string {
@@ -130,6 +135,8 @@ func (w Why) Reason() eventsv1.EndReason {
 		return eventsv1.EndReason_END_REASON_MENU
 	case WhyTimedFinish:
 		return eventsv1.EndReason_END_REASON_TIMED_FINISH
+	case WhyTelemetryLost:
+		return eventsv1.EndReason_END_REASON_TELEMETRY_LOST
 	default:
 		return eventsv1.EndReason_END_REASON_UNKNOWN
 	}
@@ -137,7 +144,7 @@ func (w Why) Reason() eventsv1.EndReason {
 
 // Output is a frame or an event, with its CloudEvents id and time: exactly one of
 // Frame, Started, Lap, Best, Track, Kind, PitEntered, PitExited, PitTeleport,
-// FinalLap, Position, Finished, Ended, Callout and Alarm is set, each the contracts message of that name
+// FinalLap, Position, Finished, Ended, TelemetryLost, TelemetryRestored, Callout and Alarm is set, each the contracts message of that name
 // (Callout and Alarm are the rule engine's, internal/rules). SessionStarted's
 // source is left empty: only the publisher knows the <src> it publishes under, and
 // sets it (internal/bus).
@@ -171,6 +178,13 @@ type Output struct {
 	FinalLap    *eventsv1.RaceFinalLapStarted
 	Position    *eventsv1.RacePositionChanged
 	Finished    *eventsv1.RaceFinished
+
+	// TelemetryLost and TelemetryRestored are the watchdog's (feed.go,
+	// paddock#87): <sid>:telemetry.lost:<run>:<seq> with a session open and
+	// <run>:telemetry.lost:<seq> with none, and the same for restored, seq being
+	// the event's at.
+	TelemetryLost     *eventsv1.TelemetryLost
+	TelemetryRestored *eventsv1.TelemetryRestored
 
 	// Callout is a callout the rule engine raised (internal/rules, paddock#89),
 	// on twr.v1.<src>.callout.<level>: never the machine's own.
@@ -214,6 +228,10 @@ func (o Output) Message() proto.Message {
 		return o.Finished
 	case o.Callout != nil:
 		return o.Callout
+	case o.TelemetryLost != nil:
+		return o.TelemetryLost
+	case o.TelemetryRestored != nil:
+		return o.TelemetryRestored
 	case o.Alarm != nil:
 		return o.Alarm
 	default:
@@ -245,6 +263,11 @@ type Machine struct {
 	// trackChanges are the verdicts applied to a session since the rules last
 	// saw one, for Context.TrackChanges.
 	trackChanges []*track.Match
+
+	feed feed // the telemetry watchdog (feed.go, paddock#87)
+	// endedPaused: the session ended in a pause, and the frames are ignored until
+	// the next start (v1's Engine.ended_paused).
+	endedPaused bool
 }
 
 // session is the open session: v1's store.Session, cut to what the events need.
@@ -302,11 +325,20 @@ func (m *Machine) Step(r Received) []Output {
 		Event: m.event(m.run+":frame:"+strconv.FormatUint(uint64(m.seq), 10), r.Time),
 		Frame: s.frame,
 	}}
+	m.restore(&s, r.Time)
 
 	// Engine._step, the parts that open, close and end.
 	prev := m.prev
 	restarted := raceRestarted(prev, &s)
 	starting := raceStarted(prev, &s) || restarted
+	// v1's Engine.process: after a session ended paused, nothing but a start is
+	// read; the frame goes out and the rules see it with no session.
+	if m.endedPaused && !starting {
+		m.ctx.Run, m.ctx.Time, m.ctx.Cur = m.run, r.Time, s.view()
+		m.prev, m.prevTime = &s, r.Time
+		return m.out
+	}
+	m.endedPaused = false
 	if starting {
 		if m.session != nil && prev != nil {
 			why := WhyStart
@@ -574,6 +606,7 @@ func (m *Machine) end(s *state, t time.Time, why Why) {
 		FuelUsed:      round3(sess.lapsFuelUsed),
 		SessionType:   kind,
 		Finished:      m.finish.kind != eventsv1.FinishKind_FINISH_KIND_UNSPECIFIED,
+		EndedPaused:   why == WhyTelemetryLost,
 	}
 	if total, ok := sess.laps.totalTimeMs(); ok && summary.Finished {
 		summary.TotalTimeMs = &total

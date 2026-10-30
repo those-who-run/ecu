@@ -446,3 +446,50 @@ func TestThePitLaneAppliesAtTheFlag(t *testing.T) {
 		t.Errorf("position: %d dropped, want 1", d)
 	}
 }
+
+// watcher is a stub that watches the feed, as the telemetry rule will (paddock#98).
+type watcher struct{ stub }
+
+func (*watcher) WatchesFeed() {}
+
+// On the watchdog's tick (paddock#87) only the rules that watch the feed run, and
+// what they raise is stamped as of the tick: the last frame's at, the tick's time.
+func TestOnATickOnlyTheWatchersRun(t *testing.T) {
+	var frameRule, feedRule int
+	e := testEngine(t, nil,
+		"lap_time", &stub{raise: func(*race.Context) []Callout { frameRule++; return []Callout{{Kind: "template"}} }},
+		"telemetry", &watcher{stub{raise: func(ctx *race.Context) []Callout {
+			feedRule++
+			if ctx.Lost == nil {
+				return []Callout{{Kind: "template_back"}} // as on a stray packet after a loss
+			}
+			return []Callout{{Kind: "template_lost"}}
+		}}})
+	ctx := frame(7, false)
+	onFrame := callouts(e.Step(ctx))
+	if frameRule != 1 || feedRule != 1 {
+		t.Fatalf("on a frame: %d and %d evaluations, want both rules once", frameRule, feedRule)
+	}
+	tick := *ctx
+	tick.Tick, tick.Lost, tick.Time = true, &eventsv1.TelemetryLost{At: 7}, ctx.Time.Add(3*time.Second)
+	got := callouts(e.Step(&tick))
+	if frameRule != 1 || feedRule != 2 {
+		t.Errorf("on a tick: %d and %d evaluations, want the watcher alone", frameRule, feedRule)
+	}
+	if len(got) != 1 || got[0].GetKind() != "template_lost" || got[0].GetAt() != 7 ||
+		!got[0].GetCreatedAt().AsTime().Equal(tick.Time) || got[0].GetPriority() != 5 {
+		t.Errorf("on a tick: %v", got)
+	}
+	// The watcher raised on frame 7 and on the tick after it, both at 7: two ids,
+	// or CALLOUTS would dedupe the loss away.
+	var back *eventsv1.Callout
+	for _, c := range onFrame {
+		if c.GetRule() == "telemetry" {
+			back = c
+		}
+	}
+	if back == nil || len(got) != 1 || back.GetId() == got[0].GetId() ||
+		got[0].GetId() != "run:callout:7:tick:telemetry:1" {
+		t.Errorf("ids on the frame %v and on the tick %v: want two, the tick's marked", back.GetId(), got)
+	}
+}

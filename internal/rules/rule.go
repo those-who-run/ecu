@@ -58,6 +58,16 @@ type Callout struct {
 	Alarm *eventsv1.CarAlarmRaised
 }
 
+// Watcher is a rule that also runs when no frame comes: on the telemetry
+// watchdog's tick (race.Context.Tick, paddock#87), where it reads ctx.Lost. On a
+// tick the engine runs only the watchers. The telemetry rule (paddock#98) is one:
+// v1's TelemetryVoice, fed by the watchdog. It reads ctx.Restored on the frame
+// that ends the loss, as any rule reads a frame.
+type Watcher interface {
+	Rule
+	WatchesFeed()
+}
+
 // Gauge is a rule that has a value to show between callouts (R8), such as the
 // fuel rule's laps remaining. ok is false while it has none.
 type Gauge interface {
@@ -70,7 +80,7 @@ type Builder func(s *Settings) Rule
 
 // Order is v1's rule registry order (rules/__init__.py's REGISTRY), the order the
 // rules run in on each frame. A rule's name is its key in the rules file. The
-// telemetry rule (paddock#98) is not a frame rule and is not here.
+// telemetry rule (paddock#98), outside v1's registry, joins it as a Watcher.
 var Order = []string{"lap_time", "fuel", "final_lap", "position", "start_brief", "race_summary", "temps"}
 
 var builders = map[string]Builder{}

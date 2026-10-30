@@ -67,6 +67,14 @@ const (
 	maxHeartbeat     = time.Hour
 )
 
+// DefaultTelemetryTimeout is the time with no packet that counts as the feed lost
+// when TWR_ECU_TELEMETRY_TIMEOUT_SECS is unset (v1's GT7_TELEMETRY_TIMEOUT_SECS,
+// paddock#87), and maxTelemetryTimeout the most it may be set to.
+const (
+	DefaultTelemetryTimeout = 3 * time.Second
+	maxTelemetryTimeout     = time.Hour
+)
+
 // Config is the live source's configuration.
 type Config struct {
 	// PS5 is the PS5's IP address: TWR_ECU_PS5_IP, required.
@@ -80,6 +88,10 @@ type Config struct {
 	// Listen is the address the datagrams are read on: ":33740"
 	// (salsa.TelemetryPort) unless a test sets another.
 	Listen string
+	// TelemetryTimeout is the time with no packet that counts as the feed lost
+	// (race.Machine.WatchTelemetry): TWR_ECU_TELEMETRY_TIMEOUT_SECS, in seconds,
+	// DefaultTelemetryTimeout when unset.
+	TelemetryTimeout time.Duration
 }
 
 // ErrNoPS5 is ConfigFromEnv's error when TWR_ECU_PS5_IP is unset or empty: there
@@ -88,14 +100,16 @@ var ErrNoPS5 = errors.New("TWR_ECU_PS5_IP: the PS5's IP address is required for 
 	"(there is no broadcast discovery)")
 
 // ConfigFromEnv reads the configuration through getenv. TWR_ECU_PS5_IP must be an
-// IP address (ErrNoPS5 when it is unset) and TWR_ECU_HEARTBEAT_SECS, when set, a
-// number of seconds from 0.01 to 3,600.
+// IP address (ErrNoPS5 when it is unset), TWR_ECU_HEARTBEAT_SECS, when set, a
+// number of seconds from 0.01 to 3,600, and TWR_ECU_TELEMETRY_TIMEOUT_SECS, when
+// set, a number of seconds above 0 and at most 3,600.
 func ConfigFromEnv(getenv func(string) string) (Config, error) {
 	cfg := Config{
-		PS5:           strings.TrimSpace(getenv("TWR_ECU_PS5_IP")),
-		Heartbeat:     DefaultHeartbeat,
-		HeartbeatPort: salsa.HeartbeatPort,
-		Listen:        ":" + strconv.Itoa(salsa.TelemetryPort),
+		PS5:              strings.TrimSpace(getenv("TWR_ECU_PS5_IP")),
+		Heartbeat:        DefaultHeartbeat,
+		HeartbeatPort:    salsa.HeartbeatPort,
+		Listen:           ":" + strconv.Itoa(salsa.TelemetryPort),
+		TelemetryTimeout: DefaultTelemetryTimeout,
 	}
 	if cfg.PS5 == "" {
 		return Config{}, ErrNoPS5
@@ -112,6 +126,15 @@ func ConfigFromEnv(getenv func(string) string) (Config, error) {
 				v, minHeartbeat.Seconds(), maxHeartbeat.Seconds())
 		}
 		cfg.Heartbeat = time.Duration(secs * float64(time.Second))
+	}
+	if v := getenv("TWR_ECU_TELEMETRY_TIMEOUT_SECS"); v != "" {
+		secs, err := strconv.ParseFloat(v, 64)
+		d := time.Duration(secs * float64(time.Second))
+		if err != nil || math.IsNaN(secs) || d <= 0 || secs > maxTelemetryTimeout.Seconds() {
+			return Config{}, fmt.Errorf("TWR_ECU_TELEMETRY_TIMEOUT_SECS: %q is not a number of seconds above 0 and at most %v",
+				v, maxTelemetryTimeout.Seconds())
+		}
+		cfg.TelemetryTimeout = d
 	}
 	return cfg, nil
 }
