@@ -19,7 +19,8 @@ import (
 	telemetryv1 "github.com/those-who-run/contracts/gen/go/twr/telemetry/v1"
 )
 
-// The recordings with goldens: all of salsa's testdata/v1/. AC1 names the Suzuka
+// The recordings with goldens: all of salsa's testdata/v1/, and internal/track's
+// Suzuka joined mid-race (paddock#75's AC1). paddock#33's AC1 names the Suzuka
 // and SUGO restarts ones; the rest are held to v1 the same way.
 var goldenFixtures = []string{
 	"real-nuc-suzuka-no-stop-2026-10-15",
@@ -29,6 +30,7 @@ var goldenFixtures = []string{
 	"real-quali-restart-quit-2026-10-14",
 	"real-nuc-willow-springs-pit-stop-2026-10-17",
 	"real-nuc-sugo-two-stops-2026-10-18",
+	"real-nuc-suzuka-joined-mid-race-2026-10-18",
 }
 
 // roundedFixtures are recordings in v1's format 1, with values rounded to fewer
@@ -147,8 +149,8 @@ func asStored(out []Output) []stored {
 				Event: "session.started", Session: sessions[o.Session],
 				CarCode: s.GetCarCode(), TotalLaps: s.GetTotalLaps(), FuelAtStart: ptr(s.GetFuelAtStart()),
 			}
-			if s.GetJoinedPartWay() {
-				line.JoinedOnLap = ptr(all[s.GetFirstSeq()].GetLap())
+			if s.JoinedOnLap != nil {
+				line.JoinedOnLap = ptr(s.GetJoinedOnLap())
 			}
 			lines = append(lines, line)
 		case o.Lap != nil:

@@ -28,6 +28,11 @@ and ends a session exactly where v1 did, with v1's rules ported from its
   `session.ended`'s summary the final one, which can differ (paddock#34). Outside a field, `position` and
   `final_position` are left out, where v1 stored GT7's 1; `finishing_position`
   is set only for a lap race that ended at the flag.
+- **Joined part way.** A session whose first frame is a race frame past lap 1,
+  with nothing before it (ecu came up mid-session), is joined part way:
+  `session.started` carries `joined_part_way` and `joined_on_lap`, its start
+  is unknown, no track is named before a line, and the rules are told
+  (`Context.Joined`), as v1's `joined_part_way` (paddock#75).
 - **End reasons.** At the flag, quit (a loading screen with the lap counter
   reset), back to a menu or the track screen (`END_REASON_MENU`, contracts
   v0.2.0), restarted, the next session started, the input ended (`EndOfInput`,
