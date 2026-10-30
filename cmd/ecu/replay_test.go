@@ -500,12 +500,14 @@ func TestALongReplayLeavesItsStatusIdle(t *testing.T) {
 	srv := bustest.WithStreams(t)
 	kv := bustest.AddKV(t, srv.JetStream(), "live")
 	saved := statusGrace
-	statusGrace = 200 * time.Millisecond
+	// Long enough for the last write's four calls on a loaded CI runner, with
+	// the race detector on (200 ms ran out there, paddock#76's PR).
+	statusGrace = 600 * time.Millisecond
 	t.Cleanup(func() { statusGrace = saved })
 	in := readAll(t, openRecording(t, recordingPath(t, suzuka)))
 	n := len(in) / 2 // mid-race: the session is open when the recording ends
-	// Paced at 1, about 1 s: five times the grace.
-	path := synthetic(t, n, func(i int) float64 { return float64(i) / float64(n) })
+	// Paced at 1, about 3 s: five times the grace.
+	path := synthetic(t, n, func(i int) float64 { return 3 * float64(i) / float64(n) })
 	got := runReplay(t, nil, "--speed", "1", "--run", "long", "--nats", srv.URL(), path)
 	if got.code != 0 {
 		t.Fatalf("exit %d, stderr %q, log %s", got.code, got.stderr, got.stdout)
