@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.1.9](https://github.com/those-who-run/ecu/compare/v0.1.8...v0.1.9) (2026-10-30)
+
+
+### Features
+
+* **race:** pauses, flagged and frozen (session.paused, session.resumed) ([#46](https://github.com/those-who-run/ecu/issues/46)) ([ae1f1c1](https://github.com/those-who-run/ecu/commit/ae1f1c19d45ab2394c8868b9765f6e935240add4))
+* **race:** telemetry lost and restored, live only ([#44](https://github.com/those-who-run/ecu/issues/44)) ([abb5593](https://github.com/those-who-run/ecu/commit/abb5593d8501e9698a7d1391d3e57c2cc396dba3))
+* **race:** the start check: a drive, a replay or a demo ([#47](https://github.com/those-who-run/ecu/issues/47)) ([d23280a](https://github.com/those-who-run/ecu/commit/d23280ab1e985b17c8affa55af9100c872f2e965))
+* **rules:** the telemetry rule (telemetry) ([#48](https://github.com/those-who-run/ecu/issues/48)) ([153fee5](https://github.com/those-who-run/ecu/commit/153fee5d27a5be3c5f3e0b402192601da45ed1aa))
+* **rules:** the temps rule and car.alarm ([#45](https://github.com/those-who-run/ecu/issues/45)) ([b7458ab](https://github.com/those-who-run/ecu/commit/b7458abd4f1ace4d991bda5daed5e431cf52f6bd))
+
 ## [0.1.8](https://github.com/those-who-run/ecu/compare/v0.1.7...v0.1.8) (2026-10-29)
 
 
