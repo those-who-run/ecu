@@ -2,7 +2,9 @@
 one recording, as JSON lines (those-who-run/paddock#33).
 
 Made once from v1 at tag v1.0.0 (those-who-run/those-who-run), for each recording in
-salsa's testdata/v1/, with v1's own replay into a store of its own:
+salsa's testdata/v1/ and for internal/track's
+real-nuc-suzuka-joined-mid-race-2026-10-18 (paddock#75), with v1's own replay into a
+store of its own:
 
     those-who-run replay tests/fixtures/NAME.jsonl.gz --store STORE \
         --clock 2026-01-01T00:00:00

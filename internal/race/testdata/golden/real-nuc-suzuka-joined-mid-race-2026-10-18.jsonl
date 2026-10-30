@@ -1,0 +1,4 @@
+{"event": "session.started", "session": 1, "type": "race", "car_code": 1689, "total_laps": 0, "fuel_at_start": 100.0, "joined_on_lap": 7}
+{"event": "lap.completed", "session": 1, "lap": 7, "lap_time_ms": 150511, "complete": true, "fuel_start": 100.0, "fuel_end": 100.0, "fuel_used": 0.0, "position": 1, "frames": 241}
+{"event": "lap.completed", "session": 1, "lap": 8, "lap_time_ms": null, "complete": false, "fuel_start": 100.0, "fuel_end": 100.0, "fuel_used": 0.0, "position": 1, "frames": 97}
+{"event": "session.ended", "session": 1, "laps_completed": 1, "fuel_used": 0.0, "final_position": 1, "finished": false, "kind": "timed_field"}
