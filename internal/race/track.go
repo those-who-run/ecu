@@ -43,10 +43,20 @@ func sameDecision(a, b track.Match) bool {
 // at Spa (2026-10-18, those-who-run/those-who-run#275) an ambiguous pair gave way
 // to an ambiguous nothing, and the session was saved without a track. Each change
 // is a SessionTrackChanged on the frame s.
+//
+// One departure from v1, the maintainer's decision (paddock#81, 2026-10-30): "no
+// layout fits" replaces a held verdict that names no layout. That verdict was only
+// that several layouts near the start still fit, and the detector has since ruled
+// every one out, so keeping it would say the track is still to be found when it
+// is a track the table lacks or gets wrong. At Fuji on 2026-10-29 the session kept
+// its pre-race "50 layouts near the start still fit" to the end, on v1 and on ecu.
+// The detector's verdict is none only when nothing fits: Observe never gives its
+// "no position data yet", and a verdict held at a session's open is never none.
 func (m *Machine) applyTrack(match track.Match, s *state, t time.Time) {
 	sess := m.session
 	if held := sess.track; held != nil {
-		if ranksBelow(match, *held) && (held.TrackID == 0 || m.tracks.IsAlive(held.TrackID)) {
+		noneFits := match.Confidence == track.None && held.TrackID == 0
+		if ranksBelow(match, *held) && !noneFits && (held.TrackID == 0 || m.tracks.IsAlive(held.TrackID)) {
 			return
 		}
 		if sameDecision(match, *held) {

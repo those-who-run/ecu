@@ -5,19 +5,63 @@ import (
 	"encoding/hex"
 	"math"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 )
 
-// v1Table is the sha256 of v1's src/those_who_run/data/tracks.csv at v1.0.0.
-const v1Table = "7fabb9897295d077563358cdc59be45997818361684f0404aa0cb470aa1c6a60"
+// v1TableSum is the sha256 of v1's src/those_who_run/data/tracks.csv at v1.0.0.
+const v1TableSum = "7fabb9897295d077563358cdc59be45997818361684f0404aa0cb470aa1c6a60"
 
-// AC3 and R1: the table is v1's tracks.csv at v1.0.0, byte for byte, and reads as
-// v1 read it: 108 layouts, 105 with geometry, and lengths only on the two rows we
-// learned ourselves, from 100001.
+// amendments are ecu's changes to v1's table, each a field of a row as v1.0.0 had
+// it and as ecu has it (README.md, "Track detection", says why).
+var amendments = []struct {
+	id      int32
+	v1, ecu string
+}{
+	// paddock#81: Fuji's maxx, from the live race of 2026-10-29, which reached
+	// x 667.4.
+	{fuji, "615.2125244140625", "670.0"},
+	{fujiShort, "615.6531372070312", "670.0"},
+}
+
+// v1CSV is tracks.csv with the amendments undone: v1's at v1.0.0.
+func v1CSV(tb testing.TB) string {
+	tb.Helper()
+	lines := strings.Split(tableCSV, "\n")
+	for _, a := range amendments {
+		prefix := strconv.Itoa(int(a.id)) + ","
+		i := slices.IndexFunc(lines, func(l string) bool { return strings.HasPrefix(l, prefix) })
+		if i < 0 || strings.Count(lines[i], ","+a.ecu+",") != 1 {
+			tb.Fatalf("row %d: no field %s to undo", a.id, a.ecu)
+		}
+		lines[i] = strings.Replace(lines[i], ","+a.ecu+",", ","+a.v1+",", 1)
+	}
+	return strings.Join(lines, "\n")
+}
+
+// v1Table is the table as v1.0.0 has it.
+func v1Table(tb testing.TB) []Track {
+	tb.Helper()
+	tracks, err := parseTable(v1CSV(tb))
+	if err != nil {
+		tb.Fatal(err)
+	}
+	return tracks
+}
+
+// AC3 and R1: the table is v1's tracks.csv at v1.0.0, byte for byte but for the
+// amendments, and reads as v1 read it: 108 layouts, 105 with geometry, and lengths
+// only on the two rows we learned ourselves, from 100001.
 func TestTheTableIsV1s(t *testing.T) {
-	if sum := sha256.Sum256([]byte(tableCSV)); hex.EncodeToString(sum[:]) != v1Table {
-		t.Errorf("tracks.csv sha256 %x, v1's is %s", sum, v1Table)
+	if sum := sha256.Sum256([]byte(v1CSV(t))); hex.EncodeToString(sum[:]) != v1TableSum {
+		t.Errorf("tracks.csv without the amendments: sha256 %x, v1's is %s", sum, v1TableSum)
+	}
+	for _, a := range amendments {
+		tr, _ := ByID(a.id)
+		if want, _ := strconv.ParseFloat(a.ecu, 64); tr.Box.MaxX != want {
+			t.Errorf("%d: maxx %v, want %s", a.id, tr.Box.MaxX, a.ecu)
+		}
 	}
 	tracks := Table()
 	var geometry int

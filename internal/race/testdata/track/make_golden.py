@@ -7,6 +7,13 @@ environment (`uv sync --extra engineer`), for each of v1's recordings:
 
     python3 make_golden.py RECORDING > NAME.jsonl
 
+The table is ecu's internal/track/tracks.csv, which is v1's but for the rows
+README.md's "Track detection" lists (Fuji's box, paddock#81): copy it over v1's
+src/those_who_run/data/tracks.csv first. The goldens of the three recordings whose
+verdicts that changes (their candidates' order, past the eighth) were written
+again with it, on 2026-10-30; the rest are as v1.0.0's own table gave them.
+The Fuji race's, from internal/track/testdata/live/, was written with it too.
+
 It replays the recording as v1's `replay` does, with no rules (they do not touch
 the track), into a store of its own, and writes one line per event, in order:
 
