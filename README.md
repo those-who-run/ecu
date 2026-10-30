@@ -151,10 +151,22 @@ enough to speak and store, and publishes `session.track` each time it changes
 v1.0.0, in [`internal/race/track.go`](internal/race/track.go).
 
 - **Fed by the race state.** Every frame goes to the detector, a session open
-  or not, but those of a start held by the start check and of a replay or a
-  demo after it (as v1's engine). A restart (the car teleported back to the grid) resets it; a menu or
+  or not: a held start's frames once the start check judges it, and the frames
+  the machine ignores, after a replay or a demo or a session ended paused,
+  too. A restart (the car teleported back to the grid) resets it; a menu or
   a loading screen at lap 0 resets it by itself, so a rolling start keeps what
   it saw before the line. A session joined part way tells it so (`Join`).
+- **It sees the frames the machine ignores.** Departing from v1, whose engine
+  fed its detector only the frames it stepped: after a GT7 demo, at Michelin
+  Raceway Road Atlanta on 2026-10-30, v1 and ecu 0.1.9 never showed it the
+  menus and loading screens that start it over, so it took lap 1's tick, on
+  Road Atlanta's line, for a teleport from the demo's circuit, and named the
+  race "probable Sardegna - Road Track - A" when the path cut that layout's
+  line part way round lap 1, until a full lap confirmed Road Atlanta. Now the
+  tick names Road Atlanta as the session opens.
+  [`internal/track/testdata/live/`](internal/track/testdata/live) has that
+  race, cut as `make_road_atlanta_fixture.py` there says. None of v1's 25
+  recordings changes.
 - **Never downgraded on a blip.** The session's verdict changes only for one
   that ranks higher (confidence, then naming a layout), or when the layout it
   holds has been ruled out by the detector. A change of candidates or wording

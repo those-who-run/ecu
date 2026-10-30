@@ -193,8 +193,10 @@ func (m *Machine) endPaused(s *state, t time.Time, why Why) {
 // ignore is a frame the machine does not step, after a session ended paused (v1's
 // ended_paused): only the frame goes out, with telemetry.restored when it ends a
 // loss, and only the rules that watch the feed run on it (Context.Ignored). The
-// context keeps what the step set before (Restored).
+// context keeps what the step set before (Restored). The track detector still
+// sees it (seeTrack).
 func (m *Machine) ignore(s *state) {
+	m.seeTrack(s)
 	m.ctx.Run, m.ctx.Time, m.ctx.Cur, m.ctx.Ignored = m.run, s.received, s.view(), true
 	m.prev, m.prevTime = s, s.received
 	m.runRules()
