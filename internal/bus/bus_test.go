@@ -471,6 +471,10 @@ func TestAServerStoppedMidReplay(t *testing.T) {
 			id = "race.position:" + m.Run() + ":" + strconv.Itoa(int(o.Position.GetAt()))
 		case o.Finished != nil:
 			id = "race.finished:1"
+		case o.Paused != nil:
+			id = "session.paused:" + strconv.Itoa(int(o.Paused.GetPause()))
+		case o.Resumed != nil:
+			id = "session.resumed:" + strconv.Itoa(int(o.Resumed.GetPause()))
 		default:
 			id = "session.ended:1"
 		}
