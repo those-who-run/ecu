@@ -248,6 +248,22 @@ func New() *Detector { return &Detector{} }
 // Reset forgets everything: call on a race start or restart.
 func (d *Detector) Reset() { *d = Detector{} }
 
+// Resume starts the detector from the stops a session had before an ecu restart
+// (paddock#76): done are the stops it completed, numbered from 1, and open the
+// stop the car was in, nil when it was not in the pit lane. The next stop takes
+// the next number, the stints and the laps' roles count them, and an open stop is
+// left as at rest, so the car driving out closes it as a stop, never as an entry
+// withdrawn: the earlier run had published the entry. The frame before the
+// restart is not known, so the first frame after it changes nothing.
+func (d *Detector) Resume(done []Stop, open *Stop) {
+	d.Reset()
+	d.stops = append([]Stop(nil), done...)
+	if open != nil {
+		o := *open
+		d.open, d.rested = &o, true
+	}
+}
+
 // InPitLane says the car is in the pit lane: a stop is open (Status().InPitLane,
 // without copying the stops).
 func (d *Detector) InPitLane() bool { return d.open != nil }

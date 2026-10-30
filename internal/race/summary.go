@@ -18,10 +18,10 @@ import (
 // lap, a pit change, the track and the kind. Ending the session is then adding
 // what only the end knows (ended_at, ended_paused, the finish and the end frame's
 // own figures) and publishing it. The running summary is the contracts'
-// SessionSummary itself, so paddock#76 can write it into the KV's
-// OpenSession.summary. Reading it back is more than taking that value: some of its
-// fields are written each frame from the session's own (session's comment says
-// which), and those must be rebuilt from it first. gaps stay empty until then.
+// SessionSummary itself, which the KV's OpenSession.summary carries (continue.go,
+// paddock#76). Reading it back is more than taking that value: some of its fields
+// are written each frame from the session's own (session's comment says which),
+// and continue.go rebuilds those from it first.
 
 // minStintFuel is v1's MIN_STINT_FUEL: a stint that burnt less is left out of
 // fuel_burned_by_stint (a stop straight after another, a stint the flag cut short).
@@ -115,8 +115,10 @@ func (m *Machine) summaryAsOf(s *state) {
 	sess := m.session
 	sum := sess.summary
 	paused := m.pauses.pausedFor(s.t)
-	sum.DrivingMs = drivingMillis(s.t - sess.startT - paused)
-	sum.PausedMs = pausedMillis(paused)
+	// After an ecu restart, the time driven and paused before it, then this run's
+	// (v1's end_session adds before's driving_ms and paused_ms).
+	sum.DrivingMs = drivingMillis(s.t-sess.startT-paused) + sess.drivenBefore
+	sum.PausedMs = pausedMillis(paused) + sess.pausedBefore
 	sum.FuelAtEnd, sum.FuelCapacity = s.fuel, s.fuelCapacity
 	sum.TotalCars = nil
 	if cars := s.totalCars; cars > 0 {
@@ -154,7 +156,7 @@ func (m *Machine) summaryPits(status pit.Status) {
 	sess := m.session
 	sess.stints.onPit(status)
 	sess.summary.PitStops = nil
-	pitSummary(sess.summary, status)
+	pitSummary(sess.summary, status, sess.pits.before)
 	sess.summary.FuelBurnedByStint, sess.summary.FuelStints = sess.stints.used()
 }
 

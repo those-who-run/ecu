@@ -116,6 +116,7 @@ func (m *Machine) publishFinalLap(s *state, t time.Time) {
 // on, with the one before it.
 func (m *Machine) publishPosition(previous int32, s *state, t time.Time) {
 	sess := m.session
+	m.published = s.racePosition()
 	seq := strconv.FormatUint(uint64(s.seq), 10)
 	m.out = append(m.out, Output{
 		Event:   m.event(sess.id+":race.position:"+m.run+":"+seq, t),

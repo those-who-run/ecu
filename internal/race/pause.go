@@ -68,7 +68,10 @@ type pauses struct {
 
 	count     int32 // the session's pauses published, the <pause> of the last
 	published bool  // session.paused went out for the pause in progress
-	limit     float64
+	// paused is the pause in progress's session.paused, as published, for the
+	// open session's KV record (continue.go, paddock#76); nil when none went out.
+	paused *eventsv1.SessionPaused
+	limit  float64
 }
 
 // pauseMark is what the clock read on a frame: a pause began or ended on it, and
@@ -111,7 +114,7 @@ func (c *pauses) observe(s *state, p *salsa.Packet, at time.Time) pauseMark {
 // reset is v1's PauseClock.reset, at a session's start: no pause counted yet. A
 // pause in progress stays one.
 func (c *pauses) reset() {
-	c.secs, c.count, c.published = 0, 0, false
+	c.secs, c.count, c.published, c.paused = 0, 0, false, nil
 }
 
 // pausedFor is v1's paused_for: the session's time paused up to t, the pause in
@@ -149,16 +152,17 @@ func (m *Machine) pauseEvents(s *state) {
 	case mark.began && sess != nil:
 		c.count++
 		c.published = true
+		c.paused = &eventsv1.SessionPaused{
+			SessionId: sess.id, Kind: mark.kind, SinceT: mark.sinceT, Since: timestamppb.New(mark.since),
+			PausedMs: pausedMillis(mark.secs), At: s.seq, Pause: c.count,
+		}
 		m.out = append(m.out, Output{
 			Event:   m.event(sess.id+":session.paused:"+strconv.Itoa(int(c.count)), t),
 			Session: sess.id,
-			Paused: &eventsv1.SessionPaused{
-				SessionId: sess.id, Kind: mark.kind, SinceT: mark.sinceT, Since: timestamppb.New(mark.since),
-				PausedMs: pausedMillis(mark.secs), At: s.seq, Pause: c.count,
-			},
+			Paused:  c.paused,
 		})
 	case mark.ended && c.published && sess != nil:
-		c.published = false
+		c.published, c.paused = false, nil
 		m.out = append(m.out, Output{
 			Event:   m.event(sess.id+":session.resumed:"+strconv.Itoa(int(c.count)), t),
 			Session: sess.id,

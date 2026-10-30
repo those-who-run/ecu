@@ -4,6 +4,8 @@ import (
 	"strconv"
 	"time"
 
+	"google.golang.org/protobuf/proto"
+
 	eventsv1 "github.com/those-who-run/contracts/gen/go/twr/events/v1"
 )
 
@@ -255,13 +257,21 @@ func (m *Machine) applyKind(s *state, t time.Time) {
 	sess := m.session
 	v := m.kinds.verdict()
 	sess.kind = &v
-	sess.summary.Kind, sess.summary.SessionType = v.message(), v.kind
+	kind := v.message()
+	// Continued after an ecu restart (paddock#76): the start was seen before it,
+	// so a verdict of the same kind keeps it, as v1's set_kind did.
+	if before := sess.kindBefore; before != nil && before.GetSessionType() == v.kind &&
+		before.GetStart() != eventsv1.StartType_START_TYPE_UNSPECIFIED {
+		kind.Start = before.GetStart()
+		kind.Evidence += "; continued after an engineer restart"
+	}
+	sess.summary.Kind, sess.summary.SessionType = kind, v.kind
 	seq := strconv.FormatUint(uint64(s.seq), 10)
 	m.out = append(m.out, Output{
 		Event:   m.event(sess.id+":session.kind:"+m.run+":"+seq, t),
 		Session: sess.id,
 		Kind: &eventsv1.SessionKindChanged{
-			SessionId: sess.id, Kind: v.message(), At: s.seq, RunId: m.run,
+			SessionId: sess.id, Kind: proto.CloneOf(kind), At: s.seq, RunId: m.run,
 		},
 	})
 }

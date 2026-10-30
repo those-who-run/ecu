@@ -88,7 +88,7 @@ func TestAReplayAtMaxPublishesEveryFrameAndEvent(t *testing.T) {
 	want := &fakePublisher{}
 	// Dated as the replay dates them, so the payloads' times match too.
 	dated := &pacer{clock: defaultClock, t0: in[0].T}
-	_ = drive(t.Context(), &slice{all: in}, dated.at, machine(), nil, want, nil, nil)
+	_ = drive(t.Context(), &slice{all: in}, dated.at, machine(), nil, want, nil, nil, nil)
 	// An event the session can have more than once a frame apart, such as
 	// session.track, ends its id in <run>:<seq>: the run is compared as <run>,
 	// the direct run's here and the replay's (its frames') in the stream.
@@ -534,5 +534,41 @@ func TestALongReplayLeavesItsStatusIdle(t *testing.T) {
 	}
 	if !st.GetIdle() || st.GetRacesStarted() != 1 || int(st.GetPackets()) != n {
 		t.Errorf("the replay's last status: %v", &st)
+	}
+}
+
+// paddock#76, the restart pair as paddock's CI runs it: two replays under one
+// --src, the first with --keep-open, the second's --clock 8.7 s after the first's
+// last frame, give one session: one session.started, one session.continued, one
+// session.ended at the end of the second, and the ecu bucket's key cleared.
+func TestARestartPairOfReplays(t *testing.T) {
+	srv := bustest.WithStreams(t)
+	kv := bustest.AddKV(t, srv.JetStream(), "ecu")
+	before, joined := trackRecording(t, beforeRestart), trackRecording(t, joinedMidRace)
+	in := readAll(t, openRecording(t, before))
+	last := defaultClock.Add(seconds(in[len(in)-1].T - in[0].T))
+	if got := runReplay(t, nil, "--nats", srv.URL(), "--speed", "max", "--src", "pair", "--keep-open", before); got.code != 0 {
+		t.Fatalf("the first replay: exit %d, stderr %q, log %s", got.code, got.stderr, got.stdout)
+	}
+	if _, err := kv.Get(t.Context(), "sessions.open.pair"); err != nil {
+		t.Fatalf("the first replay kept no session: %v", err)
+	}
+	clock := last.Add(8700 * time.Millisecond).Format(time.RFC3339Nano)
+	if got := runReplay(t, nil, "--nats", srv.URL(), "--speed", "max", "--src", "pair", "--clock", clock, joined); got.code != 0 {
+		t.Fatalf("the second replay: exit %d, stderr %q, log %s", got.code, got.stderr, got.stdout)
+	}
+	count := map[string]int{}
+	for _, m := range srv.Read("EVENTS", 0) {
+		for _, what := range []string{"session.started", "session.continued", "session.ended"} {
+			if strings.HasSuffix(m.Subject, "."+what) {
+				count[what]++
+			}
+		}
+	}
+	if count["session.started"] != 1 || count["session.continued"] != 1 || count["session.ended"] != 1 {
+		t.Errorf("events %v, want one session started, continued and ended", count)
+	}
+	if _, err := kv.Get(t.Context(), "sessions.open.pair"); err == nil {
+		t.Error("the key is still there after the session ended")
 	}
 }
