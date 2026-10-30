@@ -59,7 +59,10 @@ func TestHealthzGoesIdleAfterTheLastFrame(t *testing.T) {
 	at := func(r salsa.Received) time.Time { return src.start.Add(time.Duration(r.T * float64(time.Second))) }
 	ctx, cancel := context.WithCancel(t.Context())
 	driven := make(chan struct{})
-	go func() { defer close(driven); _ = drive(ctx, src, at, machine(), nil, &fakePublisher{}, nil, tracker) }()
+	go func() {
+		defer close(driven)
+		_ = drive(ctx, src, at, machine(), nil, &fakePublisher{}, nil, tracker, nil)
+	}()
 	for i := range 10 {
 		src.packets <- racePacket(int32(i+1), 1, false)
 	}

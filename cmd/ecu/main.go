@@ -21,6 +21,11 @@
 // a number of seconds, ends one paused once a pause has lasted that long. Unset or
 // 0, the default, there is no limit.
 //
+// A stop ends no session (paddock#76): ecu keeps the open session in the `ecu` KV
+// bucket, sessions.open.live, and the next run continues it when it joins the
+// same race within TWR_ECU_CONTINUE_WINDOW_SECS of the last frame (600 s unless
+// set; 0 never continues), or ends it, END_REASON_ENGINEER_STOPPED: keep.go.
+//
 // ecu says what it is doing in the `live` KV bucket (paddock#88): ecu.status.live,
 // and while a session is open ecu.session.live, ecu.pit.live and ecu.fuel.live,
 // written from a goroutine of their own (internal/status), never from the frame
@@ -58,6 +63,7 @@ import (
 	"github.com/those-who-run/ecu/internal/rules"
 	_ "github.com/those-who-run/ecu/internal/rules/all" // every rule
 	"github.com/those-who-run/ecu/internal/service"
+	"github.com/those-who-run/ecu/internal/sessions"
 	"github.com/those-who-run/ecu/internal/status"
 	"github.com/those-who-run/salsa"
 )
@@ -126,6 +132,10 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout,
 	if err == nil {
 		limit, err = pauseLimit(getenv)
 	}
+	var window time.Duration
+	if err == nil {
+		window, err = continueWindow(getenv)
+	}
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, err)
 		return 2
@@ -176,11 +186,21 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout,
 		logger.ErrorContext(ctx, "stopped", "err", err)
 		return 1
 	}
+	// The session the last run left open (paddock#76) is read before the drive
+	// takes its first packet, so the first frame can continue it.
+	ecuKV, err := pub.KV(sessions.Bucket)
+	if err != nil {
+		closeRec()
+		logger.ErrorContext(ctx, "stopped", "err", err)
+		return 1
+	}
+	keeper := sessions.New(ecuKV, busCfg.Src, 0, pub, logger)
 	src := live.Open(liveCfg, logger)
 	tracker := newTracker(busCfg.Src, liveCfg.TelemetryTimeout, eng, func() bool { return src.Stats().Listening })
-	var driving, writing atomic.Bool
+	var driving, writing, keepingAlive atomic.Bool
 	driving.Store(true)
 	writing.Store(true)
+	keepingAlive.Store(true)
 	driveCtx, stopDrive := context.WithCancel(ctx)
 	driven := make(chan struct{})
 	go func() {
@@ -191,7 +211,18 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout,
 		m := race.New(ulid.Make)
 		m.SetPauseLimit(limit)
 		m.WatchTelemetry(liveCfg.TelemetryTimeout) // live only (paddock#87)
-		_ = drive(driveCtx, src, at, m, eng, pub, rec, tracker)
+		// Read here, not before serving: with NATS still out of reach, /healthz
+		// answers meanwhile, and the packets wait in the listener.
+		// Not read, it is read again in the background, and the drive takes it
+		// while the run has opened no session (keeping.restoreLate).
+		kp := &keeping{k: keeper, now: time.Now, window: window}
+		if open, rev, ok := loadKept(driveCtx, ecuKV, busCfg.Src, logger); ok {
+			keeper.Loaded(rev)
+			m.Restore(open, window)
+		} else {
+			kp.late = loadLate(driveCtx, ecuKV, busCfg.Src, logger)
+		}
+		_ = drive(driveCtx, src, at, m, eng, pub, rec, tracker, kp)
 	}()
 	writeCtx, stopWriting := context.WithCancel(context.WithoutCancel(ctx))
 	written := make(chan struct{})
@@ -200,19 +231,29 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout,
 		defer writing.Store(false)
 		status.NewWriter(tracker, kv, logger).Run(writeCtx, statusGrace)
 	}()
-	// The drive ends, with the session it holds, and the status says so; the
-	// source stops, so nothing writes to the recorder once it closes; then the
-	// recorder closes, then the publisher (deferred above).
+	// The record's last write goes after the status's, each with its own grace.
+	keepCtx, stopKeeping := context.WithCancel(context.WithoutCancel(ctx))
+	keptDone := make(chan struct{})
+	go func() {
+		defer close(keptDone)
+		defer keepingAlive.Store(false)
+		keeper.Run(keepCtx, statusGrace)
+	}()
+	// The drive ends, keeping the session it holds (no end: paddock#76), and the
+	// status says so; the source stops, so nothing writes to the recorder once it
+	// closes; then the recorder closes, then the publisher (deferred above).
 	defer func() {
 		stopDrive()
 		<-driven
 		tracker.Stop()
 		stopWriting()
 		<-written
+		stopKeeping()
+		<-keptDone
 		_ = src.Close()
 		closeRec()
 	}()
-	health := healthOf(tracker, map[string]*atomic.Bool{"drive": &driving, "status": &writing}, pub.Connected)
+	health := healthOf(tracker, map[string]*atomic.Bool{"drive": &driving, "status": &writing, "sessions": &keepingAlive}, pub.Connected)
 	if err := service.Run(ctx, cfg, logger, version, health); err != nil {
 		logger.ErrorContext(ctx, "stopped", "err", err)
 		return 1
@@ -290,16 +331,26 @@ func (o observed) Publish(outs []race.Output) {
 
 // drive runs each packet src gives through the race state and publishes what it
 // gives, recording the packet first when rec is set, until src ends or ctx is done.
-// at gives a packet's wall-clock time. At the end the open session ends: as the
-// input ended (EndOfInput) at the end of a recording, as ecu stopping (Stop)
-// otherwise. It returns what stopped src, nil at its end: a replay tells a bad
-// recording from an interrupted one by it. While m watches the feed (live,
-// paddock#87), it waits for a packet no later than when the feed counts as lost,
-// and then publishes the loss (next). With st set, st sees the race state after
-// each step and tick (paddock#88).
+// at gives a packet's wall-clock time. It returns what stopped src, nil at its
+// end: a replay tells a bad recording from an interrupted one by it. While m
+// watches the feed (live, paddock#87), it waits for a packet no later than when
+// the feed counts as lost, and then publishes the loss (next). With st set, st
+// sees the race state after each step and tick (paddock#88).
+//
+// With kp set (paddock#76), the open session's record is kept through kp's
+// Keeper, and a stop ends no session: it keeps the record as of the last frame,
+// for the next run to continue or end. While m waits on a record an earlier run
+// left, kp's clock, when set, checks the continue window once a second with no
+// frames coming. At the end of the input the open session ends as the input
+// ended (EndOfInput), unless kp keeps it open. Without kp, a stop ends the open
+// session as ecu stopping (Stop).
 func drive(ctx context.Context, src salsa.Source, at func(salsa.Received) time.Time, m *race.Machine,
-	eng *rules.Engine, pub publisher, rec *record.Writer, st *status.Tracker,
+	eng *rules.Engine, pub publisher, rec *record.Writer, st *status.Tracker, kp *keeping,
 ) error {
+	var now func() time.Time
+	if kp != nil {
+		pub, now = kept{pub, m, kp.k}, kp.now
+	}
 	if st != nil {
 		pub = observed{pub, m, st}
 	}
@@ -308,18 +359,27 @@ func drive(ctx context.Context, src salsa.Source, at func(salsa.Received) time.T
 		m.Rules(eng.Step)
 	}
 	for {
-		r, err := next(ctx, src, m, pub)
-		if errors.Is(err, io.EOF) {
+		r, err := next(ctx, src, m, pub, now)
+		if errors.Is(err, io.EOF) && (kp == nil || !kp.keepOpen) {
 			pub.Publish(m.EndOfInput())
 			return nil
 		}
 		if err != nil {
-			pub.Publish(m.Stop())
+			if kp == nil {
+				pub.Publish(m.Stop())
+			} else {
+				// R2: a graceful stop publishes no session.ended.
+				kp.k.Put(m.Open())
+			}
+			if errors.Is(err, io.EOF) {
+				return nil
+			}
 			return err
 		}
 		if rec != nil {
 			rec.Write(r)
 		}
+		kp.restoreLate(m)
 		pub.Publish(m.Step(race.Received{Received: r, Time: at(r)}))
 	}
 }
@@ -347,19 +407,34 @@ const lossGrace = time.Millisecond
 // next is src's next packet. While m watches the feed, it waits no later than
 // m.LostAt, on the wall clock, which live's packet times are on; when none came by
 // then, it publishes what m.Tick and the rules that watch the feed make of the
-// loss, and waits on. A source's Next keeps a packet that comes as its context
-// ends for the next call, as live's does.
-func next(ctx context.Context, src salsa.Source, m *race.Machine, pub publisher) (salsa.Received, error) {
+// loss, and waits on. While m waits on a recorded session and now is set, it
+// also wakes once a second to publish what m.Expire makes of the continue window
+// (paddock#76). A source's Next keeps a packet that comes as its context ends
+// for the next call, as live's does.
+func next(ctx context.Context, src salsa.Source, m *race.Machine, pub publisher, now func() time.Time) (salsa.Received, error) {
 	for {
-		due, ok := m.LostAt()
-		if !ok {
+		due, watching := m.LostAt()
+		expiring := now != nil && m.Waiting()
+		if !watching && !expiring {
 			return src.Next(ctx)
 		}
-		wait, cancel := context.WithDeadline(ctx, due)
+		deadline := due
+		if expiring {
+			if tick := now().Add(expireEvery); !watching || tick.Before(due) {
+				deadline = tick
+			}
+		}
+		wait, cancel := context.WithDeadline(ctx, deadline)
 		r, err := src.Next(wait)
 		cancel()
 		if err == nil || ctx.Err() != nil || !errors.Is(err, context.DeadlineExceeded) {
 			return r, err
+		}
+		if expiring {
+			pub.Publish(m.Expire(now()))
+		}
+		if !watching || time.Now().Before(due) {
+			continue
 		}
 		// A packet that came as the deadline passed can still be waiting (live's
 		// Next picks at random between it and the deadline), or the drive was
@@ -375,6 +450,10 @@ func next(ctx context.Context, src salsa.Source, m *race.Machine, pub publisher)
 		pub.Publish(m.Tick(time.Now()))
 	}
 }
+
+// expireEvery is how often the continue window is checked with no frames
+// coming (paddock#76, R5; v1's watchdog let go of held cards once a second).
+const expireEvery = time.Second
 
 // rulesEnv names the rules file.
 const rulesEnv = "TWR_ECU_RULES_FILE"

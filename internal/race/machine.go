@@ -29,8 +29,8 @@
 // pauses, flagged and frozen, from v1's PauseClock and Engine._end_paused
 // (pause.go here, paddock#77), and the session's summary, v1's summary.json from
 // SessionStore.end_session, kept as a running summary all session (summary.go
-// here, paddock#86). What else v1's engine reads (continuing after a restart) is
-// not here yet.
+// here, paddock#86), and continuing a session after an ecu restart, from v1's
+// SessionStore._continue and continue_mismatch (continue.go here, paddock#76).
 package race
 
 import (
@@ -95,7 +95,9 @@ const (
 	// WhyInputEnded is the input coming to its end, as a replayed recording does,
 	// with the session open (Machine.EndOfInput).
 	WhyInputEnded
-	// WhyStopped is ecu stopping with the session open (Machine.Stop).
+	// WhyStopped is ecu stopping with the session open: the end of a session an
+	// earlier run left open that this one does not continue (continue.go,
+	// paddock#76), or Machine.Stop.
 	WhyStopped
 	// WhyMenu is straight back to a menu or the track screen before the flag (v1's
 	// race_ended on a menu or track-screen frame).
@@ -199,6 +201,10 @@ type Output struct {
 	Paused  *eventsv1.SessionPaused
 	Resumed *eventsv1.SessionResumed
 
+	// Continued is a session an earlier ecu run left open, continued by this one
+	// (continue.go, paddock#76), with the id <sid>:session.continued:<run>.
+	Continued *eventsv1.SessionContinued
+
 	// TelemetryLost and TelemetryRestored are the watchdog's (feed.go,
 	// paddock#87): <sid>:telemetry.lost:<run>:<seq> with a session open and
 	// <run>:telemetry.lost:<seq> with none, and the same for restored, seq being
@@ -217,6 +223,12 @@ type Output struct {
 	// Why is why the session ended, set with Ended; SessionEnded's reason is
 	// Why.Reason().
 	Why Why
+	// Kept says Ended ends the session an earlier ecu run left open, from its KV
+	// record (continue.go, paddock#76): the caller publishes it only once it has
+	// cleared that record, with a revision check, so two runs never both end it.
+	// NotContinued says, in words, why it was not continued.
+	Kept         bool
+	NotContinued string
 }
 
 // Message is the contracts message the output carries.
@@ -250,6 +262,8 @@ func (o Output) Message() proto.Message {
 		return o.Paused
 	case o.Resumed != nil:
 		return o.Resumed
+	case o.Continued != nil:
+		return o.Continued
 	case o.Callout != nil:
 		return o.Callout
 	case o.Discarded != nil:
@@ -278,12 +292,15 @@ type Machine struct {
 	finish      finish // the race's finish, by the flag or timed (v1's Engine.finished)
 	finalLap    bool   // the final lap was announced (v1's FinalLapRule.announced)
 	places      places // the settled position (v1's PositionRule)
+	published   int32  // the place the session's last race.position gave, 0 for none
 	kinds       kinds  // the session's kind (v1's Engine.kinds)
 	tracks      *track.Detector
 	pits        *pit.Detector
 	session     *session
 	pauses      pauses // the pause clock (pause.go, v1's Engine.pauses)
 	endedPaused bool   // the session ended in a pause: ignored until the next start
+	kept        kept   // the session an earlier run left open (continue.go, paddock#76)
+	opened      bool   // the run has opened a session: too late for Restore
 
 	out    []Output
 	now    time.Time // when ecu received the packet being taken, or the tick's time
@@ -315,16 +332,31 @@ type session struct {
 	// sawFrame and summaryAsOf write the summary's fuel_burned, fuel stints,
 	// driving_ms, paused_ms and total_cars from these fields on every frame, so a
 	// summary read back after an ecu restart (paddock#76) is not enough alone:
-	// the continuing run must rebuild these from it first, as v1's
+	// the continuing run rebuilds these from it first (continue.go), as v1's
 	// SessionStore._continue did: startT and startWall for this run, fuelBurned,
-	// stints and lastCars, the pause clock's seconds, and the time driven and
-	// paused before the restart, to add to this run's.
+	// stints and lastCars, and the time driven and paused before the restart, to
+	// add to this run's (the pause clock counts this run's from 0).
 	summary    *eventsv1.SessionSummary
 	startT     float64    // this run's first frame's t, for the time driven (v1's start_t)
 	startWall  time.Time  // ... and when ecu received it (v1's start_wall)
 	stints     fuelStints // the fuel burnt, stint by stint (v1's fuel_stints)
 	fuelBurned float64    // every drop added up (v1's fuel_burned)
 	lastCars   int32      // the last field size seen, 0 for none (v1's last_cars)
+
+	// For the KV record and a continued session (continue.go, paddock#76).
+	lastSeen     time.Time // when ecu received the session's last frame
+	lastLap      int32     // ... and its lap counter
+	drivenBefore int32     // the time driven before an ecu restart, in ms
+	pausedBefore int32     // ... and paused
+	// gapLap is the lap an ecu restart fell in, until it closes: one lap, not
+	// complete, with GT7's time for it (R4), from the summary's last gap.
+	gapLap int32
+	// carried says the session's track verdict was carried over the restart
+	// (TrackVerdict.carried), until the next verdict replaces it.
+	carried bool
+	// kindBefore is the kind verdict before the restart, whose start a verdict
+	// of the same kind keeps (v1's set_kind).
+	kindBefore *eventsv1.SessionKind
 }
 
 // newSession is a session that opens on s, its running summary empty until its
@@ -389,10 +421,14 @@ func (m *Machine) Step(r Received) []Output {
 	s.pause = m.pauses.observe(&s, &r.Packet, r.Time)
 	s.frame, s.received = frame(m.seq, r.T, s.phase, &r.Packet), r.Time
 	m.ctx = Context{}
-	m.out = []Output{{
+	// The session an earlier run left open ends first once the continue window
+	// has passed, as if the timer had fired (continue.go, paddock#76).
+	m.out = nil
+	m.expire(r.Time)
+	m.out = append(m.out, Output{
 		Event: m.event(m.run+":frame:"+strconv.FormatUint(uint64(m.seq), 10), r.Time),
 		Frame: s.frame,
-	}}
+	})
 	// After a loss, telemetry.restored goes first after the frame (feed.go).
 	m.restore(&s, r.Time)
 	// The start check (start.go, paddock#74) holds a start GT7's flag is off for,
@@ -437,7 +473,7 @@ func (m *Machine) step(s *state) {
 		m.pauses.reset()
 		m.lastDriving = nil
 		m.finish = finish{}
-		m.finalLap, m.places = false, places{}
+		m.finalLap, m.places, m.published = false, places{}, 0
 		m.kinds = kinds{}
 		m.pits.Reset()
 		m.joined, m.trackChanges = joinedPartWay(prev, s), nil
@@ -564,7 +600,8 @@ func (m *Machine) EndOfInput() []Output { return m.close(WhyInputEnded) }
 
 // Stop ends the open session, if there is one, on the last frame, because ecu is
 // stopping (END_REASON_ENGINEER_STOPPED): paused, as of the pause's start, when it
-// stops in a pause.
+// stops in a pause. ecu keeps the session for the next run instead (Open,
+// paddock#76); Stop is for a drive that keeps nothing.
 func (m *Machine) Stop() []Output { return m.close(WhyStopped) }
 
 func (m *Machine) close(why Why) []Output {
@@ -584,7 +621,14 @@ func (m *Machine) event(id string, t time.Time) ce.Event {
 }
 
 // start opens a session on its first driving frame (v1's SessionStore.start_session).
+// The first start of the run decides the session an earlier run left open
+// (continue.go): a join that matches it continues it, and anything else ends it
+// first.
 func (m *Machine) start(s *state, t time.Time, joined bool) {
+	m.opened = true
+	if m.resume(s, t, joined) {
+		return
+	}
 	id := m.sessionID()
 	m.session = newSession(id, s)
 	started := &eventsv1.SessionStarted{
@@ -620,6 +664,7 @@ func (m *Machine) start(s *state, t time.Time, joined bool) {
 // observe is v1's SessionStore.observe: a driving frame joins the lap in progress,
 // and a crossing closes the lap.
 func (m *Machine) observe(prev, s *state, t time.Time) {
+	m.session.lastSeen, m.session.lastLap = t, s.lap
 	if s.inRace() || racingFrame(prev, s) {
 		m.session.lap.add(s)
 		if p := s.racePosition(); p != 0 {
@@ -651,6 +696,13 @@ func (m *Machine) closeLap(lap int32, s *state, t time.Time, complete bool) {
 		last = frames.penult
 		sess.lap.add(s)
 	}
+	// The lap an ecu restart fell in (paddock#76, R4): not all of it was seen, so
+	// it is not complete, but GT7 still timed it, as v1's _flush_lap stored it. The
+	// rules still hear of the crossing (timed).
+	timed := complete
+	if sess.gapLap > 0 && lap == sess.gapLap {
+		complete, sess.gapLap = false, 0
+	}
 	used := round3(sess.lapStartFuel - s.fuel)
 	ev := &eventsv1.LapCompleted{
 		SessionId:   sess.id,
@@ -667,19 +719,21 @@ func (m *Machine) closeLap(lap int32, s *state, t time.Time, complete bool) {
 	// lap_time rule decided on the frame that posted the time.
 	role := sess.laps.pits.LapRole(lap)
 	ev.PitRole = pitRole(role)
-	if complete {
+	if timed {
 		m.ctx.Lap = &ClosedLap{Lap: lap, TimeMs: max(s.lastLapMs, 0), Role: role}
 	}
-	if complete && s.lastLapMs > 0 {
+	if timed && s.lastLapMs > 0 {
 		m.ctx.Lap.Counts = countsForBest(lap, s, role)
 		ev.LapTimeMs = s.lastLapMs
+	}
+	if complete && s.lastLapMs > 0 {
 		ev.CountsForBest = countsForBest(lap, s, role)
 		sess.laps.timed = append(sess.laps.timed, timedLap{lap: lap, ms: s.lastLapMs, counts: ev.CountsForBest})
 	}
 	// Outside a field the position is left out, by the verdict at the lap's end.
 	if p := s.racePosition(); p != 0 && !solo(m.kinds.kind()) {
 		ev.Position = &p
-		if complete {
+		if timed {
 			m.ctx.Lap.Position = p
 		}
 	}

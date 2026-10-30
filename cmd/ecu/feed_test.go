@@ -57,7 +57,7 @@ func feedDrive(t *testing.T, timeout, gap time.Duration, before, after []salsa.P
 	pub := &fakePublisher{}
 	ctx, cancel := context.WithCancel(t.Context())
 	driven := make(chan struct{})
-	go func() { defer close(driven); _ = drive(ctx, src, at, m, eng, pub, nil, nil) }()
+	go func() { defer close(driven); _ = drive(ctx, src, at, m, eng, pub, nil, nil, nil) }()
 	for _, p := range before {
 		src.packets <- p
 	}
@@ -169,7 +169,7 @@ func TestAPacketAtTheDeadlineIsNoLoss(t *testing.T) {
 	m.Step(race.Received{Received: salsa.Received{Packet: racePacket(1, 1, true)}, Time: time.Now()})
 	src := &racy{p: racePacket(2, 1, true)}
 	pub := &fakePublisher{}
-	r, err := next(t.Context(), src, m, pub)
+	r, err := next(t.Context(), src, m, pub, nil)
 	if err != nil || r.PacketID != 2 || src.calls != 2 || len(pub.outs) != 0 {
 		t.Errorf("got packet %d, %v after %d calls, published %v; want packet 2 and no loss", r.PacketID, err, src.calls, pub.outs)
 	}

@@ -18,7 +18,7 @@ that takes `salsa` packets one at a time and gives, for each, its frame and the
 events it gives rise to, `session.started`, `pit.entered`, `pit.exited`,
 `pit.teleport`, `race.final_lap`, `race.position`, `session.track`,
 `session.kind`, `session.paused`, `session.resumed`, `lap.completed`, `lap.best`, `race.finished`,
-`session.ended` and `session.discarded`, as the `contracts` messages. It opens a session, closes a lap
+`session.ended`, `session.discarded` and `session.continued`, as the `contracts` messages. It opens a session, closes a lap
 and ends a session exactly where v1 did, with v1's rules ported from its
 `state.py`, `engine.py` and `store.py` at v1.0.0 (paddock#33).
 
@@ -36,7 +36,9 @@ and ends a session exactly where v1 did, with v1's rules ported from its
 - **End reasons.** At the flag, quit (a loading screen with the lap counter
   reset), back to a menu or the track screen (`END_REASON_MENU`, contracts
   v0.2.0), restarted, the next session started, the input ended (`EndOfInput`,
-  the end of a recording) and ecu stopped (`Stop`). A timed race ended after
+  the end of a recording) and ecu stopped (`END_REASON_ENGINEER_STOPPED`: a
+  session the last run left open that this one does not continue,
+  [After a restart](#after-a-restart)). A timed race ended after
   its timed finish is `END_REASON_TIMED_FINISH` ([The finish](#the-finish)),
   and a timed session left for a menu before it, as a time trial always is,
   `END_REASON_MENU`. A session can also end in a pause ([Pauses](#pauses)),
@@ -274,6 +276,7 @@ overflowed, the heartbeats sent and failed, and the listener's restarts.
 | `TWR_ECU_HEARTBEAT_SECS` | `2` | Seconds between heartbeats, from 0.01 to 3,600. |
 | `TWR_ECU_RECORDINGS_DIR` | unset: no recording | The directory each drive is recorded in ([Recording](#recording)). |
 | `TWR_ECU_PAUSE_LIMIT_SECS` | unset: no limit | Seconds a pause may last before it ends the session paused ([Pauses](#pauses)); 0 or more, 0 is no limit. |
+| `TWR_ECU_CONTINUE_WINDOW_SECS` | `600` | Seconds after the last frame within which a restarted ecu continues the session ([After a restart](#after-a-restart)); 0 or more, 0 never continues. `ecu replay` reads it too. |
 | `TWR_ECU_RULES_FILE` | unset: v1's defaults | The rules file, v1's rules YAML ([The callouts](#the-callouts)); `ecu replay` reads it too. |
 | `TWR_ECU_TELEMETRY_TIMEOUT_SECS` | `3` | Seconds with no packet that count as the feed lost ([Telemetry lost and restored](#telemetry-lost-and-restored)), above 0 and at most 3,600. |
 
@@ -365,6 +368,7 @@ docker run --rm -v "$PWD:/recordings" ghcr.io/those-who-run/twr-ecu \
 | `--src` | `replay-<stem>-<suffix>` | The source token: `parity`, or `replay-<run>`. `live` is refused. |
 | `--run` | none | Publish under `replay-<run>`, with no suffix. Not with `--src`. |
 | `--clock` | `2026-01-01T00:00:00Z` | The first frame's wall-clock time: ISO 8601, UTC unless it says (`2026-10-31T20:05:09+01:00`), or epoch seconds. |
+| `--keep-open` | off | At the end, keep the open session in the `ecu` bucket, as a stopped ecu does, instead of ending it: the first half of a restart pair ([After a restart](#after-a-restart)). |
 | `--nats` | `TWR_NATS_URL`, then `nats://127.0.0.1:4222` | The NATS server. |
 
 - **The source.** By default `replay-<stem>-<suffix>`: the file name without
@@ -390,13 +394,19 @@ docker run --rm -v "$PWD:/recordings" ghcr.io/those-who-run/twr-ecu \
 - **Exit codes.** `0` once everything is published. `1` for a recording that
   cannot be read: the message names the file and the line
   (`x.jsonl:4: ...`); what came before the bad line is published, and its
-  session ended as ecu stopped. `2` for a NATS server not reached within 10 s,
+  session kept in the `ecu` bucket, as a stop keeps it. `2` for a NATS server not reached within 10 s,
   one that did not take everything by the end of the 30 s (any frame or event
   dropped, which the final `published` log line counts, or a final flush that
   failed), or a bad flag. ecu waits for the connection to close before it
   exits, so nothing is logged after its last line. `130`
-  when SIGINT or SIGTERM stops it, the open session ended as ecu stopped; a
-  signal while it waits for the server at the end cuts that wait to 1 s.
+  when SIGINT or SIGTERM stops it, the open session kept in the `ecu` bucket,
+  as live's stop keeps it; a signal while it waits for the server at the end
+  cuts that wait to 1 s.
+- **A restart pair.** A replay starts from the session the replay before it
+  under the same source left open, as live does: two replays under one
+  `--src`, the first with `--keep-open` and the second with `--clock` set after
+  the first's last frame, are an ecu restart in the middle of a race
+  ([After a restart](#after-a-restart)).
 
 Not here yet, and still paddock#35's: `--seed` for the ULIDs (session and
 event ids are random on each run until then), `--from` and `--to`, and the
@@ -587,7 +597,8 @@ and never ends a session on its own.
   `Machine.Tick`, live only, paddock#87: `END_REASON_TELEMETRY_LOST`), a
   frozen pause as a flagged one, when the
   frames stop in it (`END_REASON_INPUT_ENDED` at the end of a recording,
-  `END_REASON_ENGINEER_STOPPED` when ecu stops), or once a pause has lasted
+  `END_REASON_ENGINEER_STOPPED` when ecu stopped in it and the next run does
+  not continue the session, [After a restart](#after-a-restart)), or once a pause has lasted
   `TWR_ECU_PAUSE_LIMIT_SECS` (`END_REASON_PAUSE_LIMIT`, on the frame the
   limit passes; off by default). The frames after it are ignored until the
   next start: only the frame goes out, and no rule sees it.
@@ -703,13 +714,10 @@ is the callouts' (paddock#93, #94).
   each lap, the laps and the best laps; each pit change, the stints and the
   stops; each verdict, the track and the kind. Ending the session adds only
   what the end knows (`ended_at`, `ended_paused`, `finished`, the total time
-  and the finishing position) and publishes it. Continuing a session after an
-  ecu restart (paddock#76) can keep this value in the KV, but reading it back
-  also means rebuilding what its per-frame fields are written from (the
-  session's comment in `machine.go` lists them: the run's start, the fuel
-  burnt and its stints, the last field, the pause clock and the time driven
-  and paused before the restart), as v1's `_continue` did. `gaps` is empty
-  until then.
+  and the finishing position) and publishes it. The KV's record of the open
+  session carries this value, and a run that continues the session after an
+  ecu restart rebuilds what its per-frame fields are written from
+  ([After a restart](#after-a-restart)); `gaps` lists each restart.
 - **Fuel.** `fuel_burned` is every drop in the level added up, so a refuel
   does not cancel what was burnt before it; `fuel_stints` is the same stint
   by stint, a stint ending where the pit detector says a stop was done, and
@@ -730,6 +738,62 @@ is the callouts' (paddock#93, #94).
   it from v1.0.0, but for three named departures: no position outside a
   field, the best lap where contracts v0.2.3 differs, and a held start's
   `started_at`, its first held frame's where v1's clock read the verdict's.
+
+## After a restart
+
+A restart in the middle of a race does not split it (paddock#76, v1's
+`continue_mismatch`, `SessionStore._continue` and `release_held` at v1.0.0):
+[`internal/race/continue.go`](internal/race/continue.go) decides, and
+[`internal/sessions`](internal/sessions) keeps the record.
+
+- **The record.** While a session is open, ecu keeps it in the `ecu` KV bucket
+  under `sessions.open.<src>` (contracts' `OpenSession`): at its start, each
+  lap, pit entry, exit or withdrawal, pause and resume, and when ecu stops. It
+  is written from a goroutine of its own, never from the frame path, and a
+  write that fails is tried again each second. The record is cleared when the
+  session ends.
+- **A stop ends no session.** SIGTERM keeps the record as of the last frame,
+  a pause in progress included, and publishes no `session.ended`: a departure
+  from what ecu did before (`END_REASON_ENGINEER_STOPPED` at the stop), by the
+  triage's decision.
+- **The next run.** It reads the record at start (tried for 10 s; live tries
+  again every 5 s after that, and takes it while it has opened no session). Its
+  first start decides it, as v1's did: a session joined part way within
+  `TWR_ECU_CONTINUE_WINDOW_SECS` (600 s) of the record's last frame, in the
+  same car, with GT7's cars-on-track flag, lap total and field the same, and
+  not on an earlier lap, continues it: the same id, `session.continued` with
+  the gap (its start, its end and its lap), and the track carried over
+  (`carried`), which the detector may still rule out (paddock#81 R4). The laps,
+  stints and stops (the pit detector starts from them), the `<entry>` and
+  `<pause>` counts the ids use, the fuel burnt by stint, the time driven and
+  paused, the kind's start, `race.final_lap` and the last place
+  `race.position` gave all carry on. The lap the gap falls in is one lap, not
+  complete, with GT7's time for it, from the summary's last gap.
+- **Not continued.** Anything else, a start seen from the grid, or the
+  window passing first (checked once a second with no frames, and on each
+  frame), ends the recorded session from its record alone,
+  `END_REASON_ENGINEER_STOPPED`: the lap it was on as a partial lap, a stop it
+  was in as an open stop, and ended paused, as of the pause's start, when it
+  was in one.
+- **Never read.** A run that could not read the record before its first
+  session reads the key before its first write: a record of another session
+  there is ended from it, as above, before the run writes over it. Live keeps
+  trying while the bucket is missing; a replay outside the stack keeps
+  nothing.
+- **Once.** That end is published only after ecu has cleared the record it
+  read, with a revision check (a KV compare-and-set): of two runs that read it,
+  one clears it and ends the session, and the other ends nothing. The end's
+  `Nats-Msg-Id` is the backup. It can reach `EVENTS` after the new session's
+  `session.started`: each is keyed by its session's id.
+- **A line crossed in the gap.** The lap the record was on is kept as a
+  partial lap of the summary, as v1's shutdown flushed it, and the lap the run
+  joins on is the gap's.
+- **Tests.** Suzuka's restart pair (the old pod's view, then the new pod's 8.7 s
+  later), continued, with another car, 11 min apart and with a window of 0,
+  gives what v1.0.0 let go of in each, field for field, as `make_golden.py` in
+  [`internal/race/testdata/continue/`](internal/race/testdata/continue) wrote
+  it; restarts cut into one recording check the pit lane, a pause, the kind
+  and a carried track ruled out.
 
 ## The callouts
 
@@ -838,6 +902,7 @@ rule.
 | `twr.v1.<src>.evt.<sid>.race.finished` | the race reached its finish, by the flag or timed | `EVENTS` |
 | `twr.v1.<src>.evt.<sid>.session.ended` | a session ended | `EVENTS` |
 | `twr.v1.<src>.evt.<sid>.session.discarded` | a held start was a replay or a demo, not a drive | `EVENTS` |
+| `twr.v1.<src>.evt.<sid>.session.continued` | this run continued the session the last run left open ([After a restart](#after-a-restart)) | `EVENTS` |
 | `twr.v1.<src>.evt.<sid>.telemetry.lost`, `.telemetry.restored`, or `evt._.` with no session open | the packets stopped for the timeout, or came back (live only) | `EVENTS` |
 | `twr.v1.<src>.callout.p0`, `.p1`, `.p2` | a callout, on its priority's level ([The callouts](#the-callouts)) | `CALLOUTS` |
 
@@ -856,7 +921,8 @@ rule.
   `<src>:<sid>:lap.completed:<n>`, `<src>:<sid>:lap.best:<n>` (the lap whose
   end changed the best), `<src>:<sid>:race.finished:1`,
   `<src>:<sid>:session.paused:<pause>`, `<src>:<sid>:session.resumed:<pause>`,
-  `<src>:<sid>:session.ended:1` or `<src>:<sid>:session.discarded:1`, with
+  `<src>:<sid>:session.ended:1`, `<src>:<sid>:session.discarded:1` or
+  `<src>:<sid>:session.continued:<run>`, with
   the subject's `<src>`, so two replays
   under different sources are not deduplicated against each other.
   `telemetry.lost` and `telemetry.restored` are

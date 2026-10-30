@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"time"
 
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	eventsv1 "github.com/those-who-run/contracts/gen/go/twr/events/v1"
@@ -21,21 +22,28 @@ import (
 // (contracts v0.2.3): every entry, withdrawn or not, for pit.entered's and
 // pit.teleport's <entry>, and the stops completed, for pit.exited's <stop>.
 // They are the session's, not the detector's, so a session continued after an
-// ecu restart can carry them on (TODO(paddock#76): start them from the stops
-// before the restart). They only go up: when the detector resets inside a
-// session (the lap counter goes back without a restart the machine sees), the
-// ids carry on, but the summary's stops come from the detector and number from
-// 1 again, so PitExited's stop.stop and the summary's can disagree. v1's
-// summary does the same; paddock#76 settles it with the restore.
+// ecu restart carries them on from its KV record (continue.go, paddock#76): radio
+// takes an <entry> it has had in the session as a resend (radio#23). They only go
+// up: when the detector resets inside a session (the lap counter goes back
+// without a restart the machine sees), the ids carry on, but the summary's stops
+// come from the detector and number from 1 again, so PitExited's stop.stop and
+// the summary's can disagree. v1's summary does the same.
 type pitCounts struct {
 	entries int32 // every entry, the open one included
 	stops   int32 // the stops completed
 	// The open entry's number and its PitEntered's times and seq, for its
-	// PitExited or PitTeleport.
+	// PitExited or PitTeleport, and the PitEntered itself, for the KV record.
 	entry      int32
 	enteredT   float64
 	enteredAt  time.Time
 	enteredSeq uint32
+	entered    *eventsv1.PitEntered
+	// earlierRun says the open entry was published by an earlier ecu run, so
+	// enteredSeq is not a seq of this run's.
+	earlierRun bool
+	// before are the stops completed before an ecu restart, as their PitExited
+	// and the summary carried them: the summary keeps them as they were.
+	before []*eventsv1.PitStop
 }
 
 // observePits feeds the detector the frame f, received at t, and publishes an
@@ -58,6 +66,7 @@ func (m *Machine) observePits(f *telemetryv1.Frame, t time.Time) {
 		stop := status.Stops[len(status.Stops)-1]
 		pits.entries++
 		pits.entry, pits.enteredT, pits.enteredAt, pits.enteredSeq = pits.entries, stop.EntryT, t, f.GetSeq()
+		pits.earlierRun = false
 		ev := &eventsv1.PitEntered{
 			SessionId:  sess.id,
 			Entry:      pits.entries,
@@ -72,6 +81,7 @@ func (m *Machine) observePits(f *telemetryv1.Frame, t time.Time) {
 		if p := stop.PositionBefore; p != 0 {
 			ev.PositionBefore = &p
 		}
+		pits.entered = ev
 		m.out = append(m.out, Output{
 			Event:      m.event(sess.id+":pit.entered:"+strconv.Itoa(int(pits.entries)), t),
 			Session:    sess.id,
@@ -103,17 +113,19 @@ func (m *Machine) observePits(f *telemetryv1.Frame, t time.Time) {
 		// what it was before it, so the stop count stays and the next entry
 		// takes the stop number again, as v1's does. The entry keeps its number.
 		jump := status.Teleports[len(status.Teleports)-1]
-		// TODO(paddock#76): leave entry_at out when the entry was published by
-		// an earlier ecu run, whose seqs this run's do not continue.
-		at := pits.enteredSeq
 		ev := &eventsv1.PitTeleport{
 			SessionId:  sess.id,
 			Entry:      pits.entry,
-			EntryAt:    &at,
 			Lap:        jump.Lap,
 			Evidence:   jump.Evidence,
 			At:         f.GetSeq(),
 			WithdrawnT: jump.T,
+		}
+		// An entry an earlier ecu run published has no seq in this run's
+		// (paddock#76).
+		if !pits.earlierRun {
+			at := pits.enteredSeq
+			ev.EntryAt = &at
 		}
 		m.out = append(m.out, Output{
 			Event:       m.event(sess.id+":pit.teleport:"+strconv.Itoa(int(pits.entry)), t),
@@ -164,11 +176,17 @@ func pitStop(s pit.Stop) *eventsv1.PitStop {
 // stop as it stood at its last change (fuel, time at rest and position from
 // the entry frame); that is not a value to go back to.
 //
-// TODO(paddock#76): a session continued after an ecu restart counts on from the
-// stops before it, as v1 does.
-func pitSummary(summary *eventsv1.SessionSummary, status pit.Status) {
+// A session continued after an ecu restart (paddock#76) counts on from the stops
+// before it, as v1 does: the detector was started from them (pit.Detector.Resume),
+// and before keeps them as they were published, as v1's summary kept
+// before.pit_stops, rather than read back through the detector's figures.
+func pitSummary(summary *eventsv1.SessionSummary, status pit.Status, before []*eventsv1.PitStop) {
 	summary.Stints = status.Stint()
-	for _, s := range status.Stops {
+	for i, s := range status.Stops {
+		if i < len(before) {
+			summary.PitStops = append(summary.PitStops, proto.CloneOf(before[i]))
+			continue
+		}
 		summary.PitStops = append(summary.PitStops, pitStop(s))
 	}
 }

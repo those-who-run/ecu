@@ -27,6 +27,10 @@ type KV struct {
 // ErrNoKey is Get's error for a key with no value.
 var ErrNoKey = errors.New("no such key")
 
+// ErrNoBucket is in each call's error while the bucket is not there: the
+// bootstrap has not made it.
+var ErrNoBucket = errors.New("no such bucket")
+
 // KV is the bucket of that name on the publisher's connection.
 func (p *Publisher) KV(bucket string) (*KV, error) {
 	// A JetStream context of its own: the publisher's allows one async publish in
@@ -48,6 +52,9 @@ func (k *KV) bind(ctx context.Context) (jetstream.KeyValue, error) {
 		return k.kv, nil
 	}
 	kv, err := k.js.KeyValue(ctx, k.bucket)
+	if errors.Is(err, jetstream.ErrBucketNotFound) {
+		return nil, fmt.Errorf("bucket %s: %w (%w)", k.bucket, ErrNoBucket, err)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("bucket %s: %w", k.bucket, err)
 	}
@@ -88,4 +95,58 @@ func (k *KV) Get(ctx context.Context, key string) ([]byte, error) {
 		return nil, err
 	}
 	return e.Value(), nil
+}
+
+// ErrRevision is DeleteIf's error when the key's value is no longer the
+// revision given: another writer changed or cleared it since.
+var ErrRevision = errors.New("the key's revision has moved on")
+
+// Entry is key's value and its revision, or ErrNoKey when it has none.
+func (k *KV) Entry(ctx context.Context, key string) ([]byte, uint64, error) {
+	kv, err := k.bind(ctx)
+	if err != nil {
+		return nil, 0, err
+	}
+	e, err := kv.Get(ctx, key)
+	if errors.Is(err, jetstream.ErrKeyNotFound) {
+		return nil, 0, ErrNoKey
+	}
+	if err != nil {
+		return nil, 0, err
+	}
+	return e.Value(), e.Revision(), nil
+}
+
+// PutRev sets key to value and gives the revision the value has.
+func (k *KV) PutRev(ctx context.Context, key string, value []byte) (uint64, error) {
+	kv, err := k.bind(ctx)
+	if err != nil {
+		return 0, err
+	}
+	return kv.Put(ctx, key, value)
+}
+
+// DeleteIf removes key's value only while it is still at revision rev, a KV
+// compare-and-set (paddock#76): ErrRevision when another writer has changed or
+// cleared it since, so of two runs that read the same value only one clears it.
+func (k *KV) DeleteIf(ctx context.Context, key string, rev uint64) error {
+	kv, err := k.bind(ctx)
+	if err == nil {
+		err = kv.Delete(ctx, key, jetstream.LastRevision(rev))
+	}
+	if wrongRevision(err) {
+		return ErrRevision
+	}
+	return err
+}
+
+// wrongRevision says err is the server's "wrong last sequence", which a
+// replicated stream reports under another code.
+func wrongRevision(err error) bool {
+	if errors.Is(err, jetstream.ErrKeyExists) {
+		return true
+	}
+	var apiErr *jetstream.APIError
+	return errors.As(err, &apiErr) && (apiErr.ErrorCode == jetstream.JSErrCodeStreamWrongLastSequence ||
+		apiErr.ErrorCode == jetstream.JSErrCodeStreamWrongLastSequenceConstant)
 }

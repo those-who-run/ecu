@@ -100,7 +100,9 @@ func (t *Tracker) Observe(l race.Live, outs []race.Output) {
 		}
 	}
 	for _, o := range outs {
-		if o.Started != nil {
+		// A session continued after an ecu restart is a start of this run's, as
+		// v1 counted it (paddock#76).
+		if o.Started != nil || o.Continued != nil {
 			t.races++
 		}
 	}

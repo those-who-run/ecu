@@ -22,6 +22,7 @@ import (
 	"github.com/those-who-run/ecu/internal/live"
 	"github.com/those-who-run/ecu/internal/race"
 	"github.com/those-who-run/ecu/internal/service"
+	"github.com/those-who-run/ecu/internal/sessions"
 	"github.com/those-who-run/ecu/internal/status"
 	"github.com/those-who-run/salsa"
 )
@@ -63,6 +64,12 @@ var defaultClock = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 // drives the race state with it and publishes what it gives, exactly as live does
 // from the packet on, then ends the open session, flushes and exits. It returns the
 // exit code. It never records and needs no PS5.
+//
+// Like live, it starts from the session a run before it under the same source
+// left open in the `ecu` bucket (paddock#76): with --keep-open, a replay ends
+// with its session kept there, as a stopped ecu leaves it, rather than ended, so
+// a second replay under the same --src, its --clock set after the first's last
+// frame, continues it or ends it. That is a restart pair.
 func replay(ctx context.Context, args []string, getenv func(string) string, stdin io.Reader, stdout, stderr io.Writer) int {
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -79,6 +86,8 @@ func replay(ctx context.Context, args []string, getenv func(string) string, stdi
 	speed := flags.String("speed", "1", "1 for the recorded pacing, any factor above 0, or max for no waiting")
 	clock := flags.String("clock", "", "the first frame's wall-clock time: ISO 8601 (UTC unless it says) or epoch seconds "+
 		"(default 2026-01-01T00:00:00Z)")
+	keepOpen := flags.Bool("keep-open", false, "at the end, keep the open session in the ecu bucket for the next replay "+
+		"under the same --src, as a stopped ecu does, instead of ending it")
 	path, err := parseInterspersed(flags, args)
 	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -99,6 +108,10 @@ func replay(ctx context.Context, args []string, getenv func(string) string, stdi
 	}
 	if err == nil && *clock != "" {
 		start, err = parseClock(*clock)
+	}
+	var window time.Duration
+	if err == nil {
+		window, err = continueWindow(getenv)
 	}
 	busCfg := bus.Config{URL: *url}
 	if err == nil {
@@ -158,13 +171,43 @@ func replay(ctx context.Context, args []string, getenv func(string) string, stdi
 		status.NewWriter(tracker, kv, logger).Run(writeCtx, statusGrace)
 	}()
 
+	// The session a replay before it under the same source left open
+	// (--keep-open), to continue or end, as live's (paddock#76).
+	ecuKV, err := pub.KV(sessions.Bucket)
+	if err != nil {
+		stopWriting()
+		<-written
+		closeQuickly(ctx, pub)
+		_, _ = fmt.Fprintln(stderr, "ecu replay:", err)
+		return exitNATS
+	}
+	open, rev, read := loadKept(ctx, ecuKV, busCfg.Src, logger)
+	keeper := sessions.New(ecuKV, busCfg.Src, rev, waiting{ctx, pub}, logger)
+	keeper.Replay()
+	if read {
+		keeper.Loaded(rev)
+	}
+	// The record's last write goes after the status's, each with its own grace.
+	keepCtx, stopKeeping := context.WithCancel(context.WithoutCancel(ctx))
+	keptDone := make(chan struct{})
+	go func() {
+		defer close(keptDone)
+		keeper.Run(keepCtx, statusGrace)
+	}()
+
 	paced := &pacer{src: rec, speed: factor, clock: start}
-	failed := drive(ctx, paced, paced.at, race.New(ulid.Make), eng, waiting{ctx, pub}, nil, tracker)
-	// The status's last values, the session ended and the replay idle, go before
-	// the publisher closes.
+	m := race.New(ulid.Make)
+	m.Restore(open, window)
+	// A replay's frames carry their own clock, so the window is checked on each
+	// step, not by a timer.
+	failed := drive(ctx, paced, paced.at, m, eng, waiting{ctx, pub}, nil, tracker, &keeping{k: keeper, keepOpen: *keepOpen})
+	// The status's last values, the session ended and the replay idle, and the
+	// open session's record go before the publisher closes.
 	tracker.Stop()
 	stopWriting()
 	<-written
+	stopKeeping()
+	<-keptDone
 
 	logger.InfoContext(ctx, "replayed: flushing", "packets", paced.n)
 

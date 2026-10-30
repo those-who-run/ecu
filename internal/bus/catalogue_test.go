@@ -504,3 +504,48 @@ func TestACarAlarmIsInTheCatalogue(t *testing.T) {
 		t.Errorf("stats %+v, want the event acknowledged", s)
 	}
 }
+
+// paddock#76: a continued session goes on its own subject, with the catalogue's
+// ce-type and <src>:<sid>:session.continued:<run>.
+func TestASessionContinuedIsInTheCatalogue(t *testing.T) {
+	r := newRig(t, "parity")
+	const sid, run = "01JBUSSESSION0000000000000", "01JBUSRUN000000000000000000"
+	sub, err := r.nc.SubscribeSync("twr.v1.parity.evt." + sid + ".>")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.nc.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	r.pub.Publish([]race.Output{{
+		Event:     ce.Event{ID: sid + ":session.continued:" + run, Source: race.Source, Time: epoch},
+		Session:   sid,
+		Continued: &eventsv1.SessionContinued{SessionId: sid, RunId: run, At: 1},
+	}})
+	msg, err := sub.NextMsg(5 * time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "twr.v1.parity.evt." + sid + ".session.continued"; msg.Subject != want {
+		t.Errorf("subject %s, want %s", msg.Subject, want)
+	}
+	var found bool
+	for _, e := range catalogue(t) {
+		if !matches(e.pattern, msg.Subject) {
+			continue
+		}
+		found = true
+		if got := msg.Header.Get(ce.TypeHeader); got != e.ceType {
+			t.Errorf("ce-type %s; subjects.yaml says %s", got, e.ceType)
+		}
+		if id := msg.Header.Get(ce.IDHeader); !followsScheme(e.msgID, id, map[string]string{"src": "parity", "sid": sid, "run": run}) {
+			t.Errorf("id %q, want the scheme %q", id, e.msgID)
+		}
+	}
+	if !found {
+		t.Errorf("%s is not in subjects.yaml", msg.Subject)
+	}
+	if s := r.close(t); s.Events != 1 {
+		t.Errorf("stats %+v, want the event acknowledged", s)
+	}
+}

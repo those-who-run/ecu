@@ -63,7 +63,7 @@ func (m *Machine) applyTrack(match track.Match, s *state, t time.Time) {
 			return
 		}
 	}
-	sess.track = &match
+	sess.track, sess.carried = &match, false
 	sess.summary.Track = verdict(match)
 	m.trackChanges = append(m.trackChanges, sess.track)
 	seq := strconv.FormatUint(uint64(s.seq), 10)
@@ -93,7 +93,7 @@ func (m *Machine) applyTrack(match track.Match, s *state, t time.Time) {
 func (m *Machine) finalTrack() {
 	final := m.tracks.Match()
 	if held := m.session.track; held != nil && sameDecision(final, *held) && final.Family == held.Family {
-		m.session.track = &final
+		m.session.track, m.session.carried = &final, false
 		m.session.summary.Track = verdict(final)
 	}
 }
@@ -127,8 +127,8 @@ var confidences = map[track.Confidence]eventsv1.TrackConfidence{
 // published (the maintainer's decision on ecu#17). Fit is rounded to 3 decimals,
 // as v1 rounds it.
 //
-// Carried is always false: a session continued after an ecu restart, which starts
-// with the track it had (v1's carried_track), is paddock#76's, not here yet.
+// Carried is false: continue.go sets it on the verdict a session continued after
+// an ecu restart starts with (paddock#76).
 func verdict(m track.Match) *eventsv1.TrackVerdict {
 	v := &eventsv1.TrackVerdict{
 		Name:       m.Name,

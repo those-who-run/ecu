@@ -247,3 +247,31 @@ func TestAStopLeftOnLapZeroIsDone(t *testing.T) {
 		t.Errorf("pit lane %v %v", secs, ok)
 	}
 }
+
+// paddock#76: a detector resumed after an ecu restart counts on from the stops
+// before it, and a stop the car was in closes as a stop when the car drives out,
+// never as an entry withdrawn, even with no rest seen since.
+func TestAResumedDetectorCountsOn(t *testing.T) {
+	d := New()
+	done := []Stop{{Number: 1, InLap: 2, OutLap: 2, ExitT: 30, Exited: true}}
+	d.Resume(done, &Stop{Number: 2, InLap: 3, EntryT: -10, FuelBefore: 20, FuelAfter: 20})
+	if s := d.Status(); !s.InPitLane || s.Stint() != 2 || s.LapRole(2) != RoleInOut || s.LapRole(3) != RoleIn {
+		t.Fatalf("status %+v", s)
+	}
+	changes := observeAll(d, fr(0, speed(60), x(0)), fr(1, speed(60), x(10)), fr(2, lap(4), speed(101), x(40)))
+	if changes[0] != Unchanged || changes[2] != Exited {
+		t.Fatalf("changes %v, want the exit on the last", changes)
+	}
+	s := d.Status()
+	if len(s.Stops) != 2 || s.Stops[1].Number != 2 || s.Stops[1].OutLap != 4 || s.Stint() != 3 || len(s.Teleports) != 0 {
+		t.Errorf("status %+v", s)
+	}
+	if secs, ok := s.Stops[1].PitLaneSecs(); !ok || !near(secs, 12) {
+		t.Errorf("pit lane %v %v, want from the entry's time", secs, ok)
+	}
+	// The next entry is stop 3.
+	observeAll(d, fr(3, lap(4), x(100)), fr(3.02, lap(4), phase(loading), x(300)), fr(3.04, lap(4), speed(60), x(300)))
+	if s := d.Status(); !s.InPitLane || s.Stops[2].Number != 3 {
+		t.Errorf("the next entry %+v", s)
+	}
+}

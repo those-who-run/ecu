@@ -56,3 +56,47 @@ func TestTheKVHandle(t *testing.T) {
 		t.Errorf("the ecu bucket: %v", err)
 	}
 }
+
+// paddock#76, the guard against a second session.ended (AC5, as cut): clearing
+// sessions.open with a revision check works once. A run that read the value
+// before another changed or cleared it cannot clear it.
+func TestDeleteIfIsACompareAndSet(t *testing.T) {
+	r := newRig(t, "live")
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	bustest.AddKV(t, r.js, "ecu")
+	kv, err := r.pub.KV("ecu")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const key = "sessions.open.live"
+	rev, err := kv.PutRev(ctx, key, []byte(`{"session_id":"A"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	value, got, err := kv.Entry(ctx, key)
+	if err != nil || got != rev || string(value) != `{"session_id":"A"}` {
+		t.Fatalf("entry %q at %d (%v), want A at %d", value, got, err, rev)
+	}
+	// Two runs read it at rev; the first clears it, the second cannot.
+	if err := kv.DeleteIf(ctx, key, rev); err != nil {
+		t.Fatalf("the first clear: %v", err)
+	}
+	if err := kv.DeleteIf(ctx, key, rev); !errors.Is(err, ErrRevision) {
+		t.Fatalf("the second clear: %v, want ErrRevision", err)
+	}
+	if _, _, err := kv.Entry(ctx, key); !errors.Is(err, ErrNoKey) {
+		t.Fatalf("entry after the clear: %v, want ErrNoKey", err)
+	}
+	// A value written since is not cleared on an old revision.
+	rev2, err := kv.PutRev(ctx, key, []byte(`{"session_id":"B"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := kv.DeleteIf(ctx, key, rev); !errors.Is(err, ErrRevision) {
+		t.Fatalf("a clear on an old revision: %v, want ErrRevision", err)
+	}
+	if err := kv.DeleteIf(ctx, key, rev2); err != nil {
+		t.Fatalf("a clear on the current revision: %v", err)
+	}
+}
