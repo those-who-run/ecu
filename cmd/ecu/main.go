@@ -21,6 +21,13 @@
 // a number of seconds, ends one paused once a pause has lasted that long. Unset or
 // 0, the default, there is no limit.
 //
+// ecu says what it is doing in the `live` KV bucket (paddock#88): ecu.status.live,
+// and while a session is open ecu.session.live, ecu.pit.live and ecu.fuel.live,
+// written from a goroutine of their own (internal/status), never from the frame
+// path. GET /healthz carries the same idle flag and telemetry state, with
+// whether each task is alive and NATS is connected; it answers 503 only when a
+// task has died or the telemetry listener cannot hold its port.
+//
 // `ecu replay PATH` replays a v1 recording instead, under a source of its own, and
 // exits at its end (paddock#35): replay.go. `ecu tracks detect PATH` and `ecu
 // tracks learn PATH` run v1's track tools over one, offline (paddock#300):
@@ -38,6 +45,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -50,6 +58,7 @@ import (
 	"github.com/those-who-run/ecu/internal/rules"
 	_ "github.com/those-who-run/ecu/internal/rules/all" // every rule
 	"github.com/those-who-run/ecu/internal/service"
+	"github.com/those-who-run/ecu/internal/status"
 	"github.com/those-who-run/salsa"
 )
 
@@ -161,33 +170,94 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout,
 		case <-time.After(closeAfter):
 		}
 	}()
+	kv, err := pub.KV(statusBucket)
+	if err != nil {
+		closeRec()
+		logger.ErrorContext(ctx, "stopped", "err", err)
+		return 1
+	}
 	src := live.Open(liveCfg, logger)
+	tracker := newTracker(busCfg.Src, liveCfg.TelemetryTimeout, eng, func() bool { return src.Stats().Listening })
+	var driving, writing atomic.Bool
+	driving.Store(true)
+	writing.Store(true)
 	driveCtx, stopDrive := context.WithCancel(ctx)
 	driven := make(chan struct{})
 	go func() {
 		defer close(driven)
+		defer driving.Store(false)
 		start := src.Start()
 		at := func(r salsa.Received) time.Time { return start.Add(time.Duration(r.T * float64(time.Second))) }
 		m := race.New(ulid.Make)
 		m.SetPauseLimit(limit)
 		m.WatchTelemetry(liveCfg.TelemetryTimeout) // live only (paddock#87)
-		_ = drive(driveCtx, src, at, m, eng, pub, rec)
+		_ = drive(driveCtx, src, at, m, eng, pub, rec, tracker)
 	}()
-	// The drive ends, with the session it holds, and the source stops, so
-	// nothing writes to the recorder once it closes; then the recorder closes,
-	// then the publisher (deferred above).
+	writeCtx, stopWriting := context.WithCancel(context.WithoutCancel(ctx))
+	written := make(chan struct{})
+	go func() {
+		defer close(written)
+		defer writing.Store(false)
+		status.NewWriter(tracker, kv, logger).Run(writeCtx, statusGrace)
+	}()
+	// The drive ends, with the session it holds, and the status says so; the
+	// source stops, so nothing writes to the recorder once it closes; then the
+	// recorder closes, then the publisher (deferred above).
 	defer func() {
 		stopDrive()
 		<-driven
+		tracker.Stop()
+		stopWriting()
+		<-written
 		_ = src.Close()
 		closeRec()
 	}()
-	if err := service.Run(ctx, cfg, logger, version); err != nil {
+	health := healthOf(tracker, map[string]*atomic.Bool{"drive": &driving, "status": &writing}, pub.Connected)
+	if err := service.Run(ctx, cfg, logger, version, health); err != nil {
 		logger.ErrorContext(ctx, "stopped", "err", err)
 		return 1
 	}
 	return 0
 }
+
+// newTracker is the status tracker for a drive under src (paddock#88), live or a
+// replay: what it holds comes from the race state, the run's version and src, and
+// nothing of the configuration, so no value carries a secret, the PS5's address
+// or the NATS server's (R5).
+func newTracker(src string, timeout time.Duration, eng *rules.Engine, listening func() bool) *status.Tracker {
+	cfg := status.Config{Src: src, Version: version, TelemetryTimeout: timeout, Listening: listening}
+	if eng != nil {
+		cfg.Gauge = eng.Gauge
+	}
+	return status.New(cfg)
+}
+
+// healthOf is /healthz's health (paddock#88, R4): the status's idle flag and
+// telemetry, whether each task is alive, and whether NATS is connected. ok says
+// all of it is well; the endpoint answers 503 only for a task that has died or a
+// telemetry listener that cannot hold its port, as a restart might help those,
+// while NATS the client reconnects to by itself and a PS5 that is off is normal.
+func healthOf(t *status.Tracker, tasks map[string]*atomic.Bool, connected func() bool) service.Health {
+	return func() (bool, map[string]any) {
+		h := t.Health()
+		alive := make(map[string]bool, len(tasks))
+		healthy := h["telemetry_listening"] == true
+		for name, task := range tasks {
+			alive[name] = task.Load()
+			healthy = healthy && alive[name]
+		}
+		nats := connected()
+		h["tasks"], h["nats_connected"], h["ok"] = alive, nats, healthy && nats
+		return healthy, h
+	}
+}
+
+// statusGrace is how long the status's last write may take, from when the drive
+// has ended: a var, so the tests can shorten it.
+var statusGrace = closeGrace
+
+// statusBucket is the KV bucket ecu's status goes in (contracts' subjects.yaml).
+const statusBucket = "live"
 
 // listenAddr, when set, is where the live source listens instead of :33740: the
 // tests set it, so they never bind the PS5's port.
@@ -205,6 +275,19 @@ type publisher interface {
 	Publish(outs []race.Output)
 }
 
+// observed is a publisher that hands the tracker the race state's view after
+// each step or tick it publishes (paddock#88): a copy, which never waits.
+type observed struct {
+	publisher
+	m  *race.Machine
+	st *status.Tracker
+}
+
+func (o observed) Publish(outs []race.Output) {
+	o.publisher.Publish(outs)
+	o.st.Observe(o.m.Live(), outs)
+}
+
 // drive runs each packet src gives through the race state and publishes what it
 // gives, recording the packet first when rec is set, until src ends or ctx is done.
 // at gives a packet's wall-clock time. At the end the open session ends: as the
@@ -212,10 +295,14 @@ type publisher interface {
 // otherwise. It returns what stopped src, nil at its end: a replay tells a bad
 // recording from an interrupted one by it. While m watches the feed (live,
 // paddock#87), it waits for a packet no later than when the feed counts as lost,
-// and then publishes the loss (next).
+// and then publishes the loss (next). With st set, st sees the race state after
+// each step and tick (paddock#88).
 func drive(ctx context.Context, src salsa.Source, at func(salsa.Received) time.Time, m *race.Machine,
-	eng *rules.Engine, pub publisher, rec *record.Writer,
+	eng *rules.Engine, pub publisher, rec *record.Writer, st *status.Tracker,
 ) error {
+	if st != nil {
+		pub = observed{pub, m, st}
+	}
 	if eng != nil {
 		// The rules read each frame as the machine leaves it (paddock#89).
 		m.Rules(eng.Step)

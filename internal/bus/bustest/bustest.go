@@ -275,6 +275,54 @@ func AddStream(t testing.TB, js jetstream.JetStream, name string) {
 	}
 }
 
+// buckets are paddock's deploy/nats/kv at 4b9ff66, the buckets the bootstrap
+// creates (paddock#36, paddock#88).
+//
+//go:embed kv/*.json
+var buckets embed.FS
+
+// AddKV creates the bucket kv/<name>.json defines, "live" or "ecu", and returns it.
+func AddKV(t testing.TB, js jetstream.JetStream, name string) jetstream.KeyValue {
+	t.Helper()
+	data, err := buckets.ReadFile("kv/" + name + ".json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var def struct {
+		Bucket        string `json:"bucket"`
+		Description   string `json:"description"`
+		History       uint8  `json:"history"`
+		Storage       string `json:"storage"`
+		Replicas      int    `json:"replicas"`
+		MaxValueSize  int32  `json:"max_value_size"`
+		MaxBucketSize int64  `json:"max_bucket_size"`
+	}
+	if err := json.Unmarshal(data, &def); err != nil {
+		t.Fatalf("%s: %v", name, err)
+	}
+	storage := jetstream.FileStorage
+	if def.Storage == "memory" {
+		storage = jetstream.MemoryStorage
+	}
+	kv, err := js.CreateKeyValue(context.Background(), jetstream.KeyValueConfig{
+		Bucket: def.Bucket, Description: def.Description, History: def.History, Storage: storage,
+		Replicas: def.Replicas, MaxValueSize: def.MaxValueSize, MaxBytes: def.MaxBucketSize,
+	})
+	if err != nil {
+		t.Fatalf("%s: %v", name, err)
+	}
+	return kv
+}
+
+// JetStream is a connection to the server and its JetStream context, closed when
+// the test ends.
+func (s *Server) JetStream() jetstream.JetStream {
+	s.t.Helper()
+	nc, js := s.connect()
+	s.t.Cleanup(nc.Close)
+	return js
+}
+
 // WithStreams starts a server with the streams named, "telemetry", "events" and
 // "callouts", or all three when none is named, for a test that publishes through internal/bus and
 // reads back with Read and Count.

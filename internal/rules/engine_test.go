@@ -372,6 +372,12 @@ func TestAGaugeIsShown(t *testing.T) {
 	if g := e.Gauges(); g["fuel_laps_remaining"] != 2.5 {
 		t.Errorf("gauges %v", g)
 	}
+	if v, ok := e.Gauge("fuel_laps_remaining"); !ok || v != 2.5 {
+		t.Errorf("Gauge: %v %v, want 2.5", v, ok)
+	}
+	if _, ok := e.Gauge("none"); ok {
+		t.Error("Gauge of a name no rule shows is ok")
+	}
 }
 
 type gauged struct{ stub }

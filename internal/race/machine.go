@@ -572,6 +572,12 @@ func (m *Machine) start(s *state, t time.Time, joined bool) {
 		total := s.totalLaps
 		started.TotalLaps = &total
 	}
+	// Joined part way, the lap it was joined on (v1's store.start_session,
+	// paddock#75).
+	if joined {
+		lap := s.lap
+		started.JoinedOnLap = &lap
+	}
 	m.out = append(m.out, Output{
 		Event:   m.event(id+":session.started:1", t),
 		Session: id,

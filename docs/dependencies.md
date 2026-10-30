@@ -27,7 +27,7 @@ the test reads.
 
 | Module | Why |
 | --- | --- |
-| `github.com/nats-io/nats.go` | The NATS client: `internal/bus` publishes the frames with it, and the events through its `jetstream` package, which acknowledges each (paddock#34); the tests read the streams back with it. |
+| `github.com/nats-io/nats.go` | The NATS client: `internal/bus` publishes the frames with it, and the events through its `jetstream` package, which acknowledges each (paddock#34), and writes the `live` KV with it (paddock#88); the tests read the streams back with it. |
 | `github.com/oklog/ulid/v2` | Session and run ids are ULIDs (paddock#33); the race state mints them with it. |
 | `github.com/those-who-run/contracts` | The frame and event messages ecu publishes, and `ce`, their CloudEvents headers. |
 | `github.com/those-who-run/salsa` | The GT7 packets the race state reads, and v1's recordings, which its tests replay. |
