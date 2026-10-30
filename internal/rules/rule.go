@@ -50,6 +50,22 @@ type Callout struct {
 	// at the crossing's time). Its Time is created_at. nil is the frame raised on.
 	// at is always the frame raised on.
 	AsOf *race.View
+	// Alarm is the car alarm the same firing raises (contracts' CarAlarmRaised,
+	// paddock#97: the temps rule), nil for none. The rule sets what fired; the
+	// engine stamps session_id, at and run_id and publishes it as an event on the
+	// frame raised on, whatever the pit lane does with the callout. It is not
+	// published with no session open.
+	Alarm *eventsv1.CarAlarmRaised
+}
+
+// Watcher is a rule that also runs when no frame comes: on the telemetry
+// watchdog's tick (race.Context.Tick, paddock#87), where it reads ctx.Lost. On a
+// tick the engine runs only the watchers. The telemetry rule (paddock#98) is one:
+// v1's TelemetryVoice, fed by the watchdog. It reads ctx.Restored on the frame
+// that ends the loss, as any rule reads a frame.
+type Watcher interface {
+	Rule
+	WatchesFeed()
 }
 
 // Gauge is a rule that has a value to show between callouts (R8), such as the
@@ -64,7 +80,7 @@ type Builder func(s *Settings) Rule
 
 // Order is v1's rule registry order (rules/__init__.py's REGISTRY), the order the
 // rules run in on each frame. A rule's name is its key in the rules file. The
-// telemetry rule (paddock#98) is not a frame rule and is not here.
+// telemetry rule (paddock#98), outside v1's registry, joins it as a Watcher.
 var Order = []string{"lap_time", "fuel", "final_lap", "position", "start_brief", "race_summary", "temps"}
 
 var builders = map[string]Builder{}

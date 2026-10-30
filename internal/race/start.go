@@ -119,6 +119,12 @@ type startCheck struct {
 	ignoring   eventsv1.DiscardReason
 }
 
+// quiet says the start check holds a start, or ignores the frames after a replay
+// or a demo: the rules hear of nothing meanwhile.
+func (c *startCheck) quiet() bool {
+	return len(c.held) > 0 || c.ignoring != eventsv1.DiscardReason_DISCARD_REASON_UNSPECIFIED
+}
+
 // hold is v1's Engine.process before _step: it holds a start GT7's flag is off
 // for, gives the verdict on it, and ignores the frames after a replay or a demo.
 // It says whether it took the frame; when it did not, the frame goes through the
@@ -131,18 +137,26 @@ func (m *Machine) hold(s *state) bool {
 		v := c.observe(s)
 		c.see(s) // after: a menu that ends the start is no news of it
 		if v == verdictNone {
+			m.quietContext(s)
 			return true
 		}
 		held := c.held
 		c.held = nil
 		if v == verdictDrive {
 			m.prev, m.prevTime = c.before, c.beforeTime
-			for _, h := range held {
+			// The packet that ends the hold may be the first after a loss: its
+			// telemetry.restored (feed.go) stays on its own frame's Context.
+			restored := m.ctx.Restored
+			for i, h := range held {
 				m.ctx = Context{}
+				if i == len(held)-1 {
+					m.ctx.Restored = restored
+				}
 				m.step(h)
 			}
 			return true
 		}
+		m.quietContext(s)
 		m.discard(held, v)
 		return true
 	}
@@ -158,15 +172,24 @@ func (m *Machine) hold(s *state) bool {
 		// 2026-10-30, paddock#74).
 		c.ignoring = eventsv1.DiscardReason_DISCARD_REASON_UNSPECIFIED
 		c.start(s)
+		m.quietContext(s)
 		m.prev, m.prevTime = s, s.received
 		return true
 	}
 	if c.ignoring != eventsv1.DiscardReason_DISCARD_REASON_UNSPECIFIED && !starting {
+		m.quietContext(s)
 		m.prev, m.prevTime = s, s.received
 		return true
 	}
 	c.ignoring = eventsv1.DiscardReason_DISCARD_REASON_UNSPECIFIED
 	return false
+}
+
+// quietContext is the Context of a frame the check takes without stepping it:
+// the frame alone, which the rules are not given (Machine.Context still reads
+// it).
+func (m *Machine) quietContext(s *state) {
+	m.ctx.Run, m.ctx.Time, m.ctx.Cur = m.run, s.received, s.view()
 }
 
 // discard ends a session still open on the frame before the held start, as v1's

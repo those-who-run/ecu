@@ -303,3 +303,55 @@ func TestAHeldDriveAfterAReplayRunsNormally(t *testing.T) {
 		t.Errorf("got\n%v\nwant\n%v", whats, want)
 	}
 }
+
+// paddock#87 with paddock#74: the feed lost while a start is held is
+// telemetry.lost with no session, and the rules are not told, as they are told
+// of no held frame; nothing ends or opens. The feed back, the start is still
+// held, and the flag coming on makes it a drive from its first frame, the rules
+// told of the return on the frame it came on.
+func TestALossDuringAHoldOpensAndEndsNothing(t *testing.T) {
+	var h hand
+	h.add(0, false, 50) // 1: the grid
+	h.add(1, false, 50) // 2: the start, the flag off: held
+	h.add(1, false, 50) // 3
+	h.add(1, true, 50)  // 4: the flag on, after the loss: a drive
+	m := New(testIDs())
+	m.WatchTelemetry(3 * time.Second)
+	var ruled []uint32
+	m.Rules(func(ctx *Context) []Output {
+		if ctx.Tick {
+			t.Error("the rules were told of a loss during the hold")
+		}
+		ruled = append(ruled, ctx.Cur.Seq)
+		if (ctx.Restored != nil) != (ctx.Cur.Seq == 4) {
+			t.Errorf("frame %d: restored %v, want it on frame 4 alone", ctx.Cur.Seq, ctx.Restored)
+		}
+		return nil
+	})
+	for _, r := range h.all[:3] {
+		m.Step(r)
+	}
+	lost := m.Tick(h.all[2].Time.Add(5 * time.Second))
+	if len(lost) != 1 || lost[0].TelemetryLost == nil || lost[0].Session != "" {
+		t.Fatalf("tick: %v, want one telemetry.lost with no session", lost)
+	}
+	back := h.all[3]
+	back.Time = h.all[2].Time.Add(6 * time.Second)
+	var whats []string
+	for _, o := range m.Step(back) {
+		switch {
+		case o.TelemetryRestored != nil:
+			whats = append(whats, "restored")
+		case o.Started != nil:
+			whats = append(whats, "started "+itoa(o.Started.GetFirstSeq()))
+		case o.Ended != nil, o.Discarded != nil:
+			whats = append(whats, "ended or discarded")
+		}
+	}
+	if want := []string{"restored", "started 2"}; !slices.Equal(whats, want) {
+		t.Errorf("frame 4: %v, want %v", whats, want)
+	}
+	if want := []uint32{1, 2, 3, 4}; !slices.Equal(ruled, want) {
+		t.Errorf("the rules saw %v, want %v", ruled, want)
+	}
+}

@@ -3,6 +3,7 @@ package rules_test
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -47,6 +48,19 @@ var accepted = map[string]map[string]string{
 		// "lap twelve" with no lap closed behind it, and ecu's lap_time, which calls
 		// the closed lap, says nothing (paddock#91).
 		"session 1 frame 864 lap_time delta_slower p20 hold": "https://github.com/those-who-run/paddock/issues/83#issuecomment-6504879235",
+	},
+}
+
+// pending are callouts ecu raises that v1 did not, by recording and the line's
+// show(), each with the open paddock issue that removes it. Each must still be
+// raised: the issue's PR deletes its line when its fix lands.
+var pending = map[string]map[string]string{
+	"real-nuc-sugo-restarts-2026-10-18": {
+		// 45 s of identical in_race frames on lap 2 are GT7's frozen pause: v1's
+		// PauseClock read them as paused and evaluated no rule, so the rears held
+		// at 179 °C never reached 5 s. ecu reads frozen frames as driving until
+		// paddock#77 (its AC1: no callout in the frozen stream).
+		"session 1 frame 554 temps template_tyre_hot p14 hold": "https://github.com/those-who-run/paddock/issues/77",
 	},
 }
 
@@ -129,8 +143,17 @@ func TestEveryCalloutIsV1sOnEveryRecording(t *testing.T) {
 				want = append(want, l.show())
 			}
 			var got []string
+			extra := maps.Clone(pending[name])
 			for _, l := range published(rulestest.Replay(t, name)) {
+				if why, ok := extra[l.show()]; ok {
+					t.Logf("pending: %s (%s)", l.show(), why)
+					delete(extra, l.show())
+					continue
+				}
 				got = append(got, l.show())
+			}
+			for line, why := range extra {
+				t.Errorf("pending %s (%s) is no longer raised: delete its line", line, why)
 			}
 			slices.Sort(got)
 			slices.Sort(want)

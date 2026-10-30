@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strconv"
+	"strings"
 	"time"
 
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -110,7 +111,9 @@ func (e *Engine) Gauges() map[string]float64 {
 // Step runs the rules on the frame ctx, the machine's Context after its Step,
 // and returns the callouts to publish, as outputs: the ones held in the pit lane
 // and released on this frame first, then this frame's, rule by rule in Order and
-// each rule's in the order it raised them, as v1's queue took them.
+// each rule's in the order it raised them, as v1's queue took them. A callout
+// that carries a car alarm (Callout.Alarm) has its car.alarm event just before
+// it, published whatever the pit lane does with the callout.
 //
 // The pit lane (contracts' PitLane): from the frame of the entry to the frame of
 // the exit, a callout raised is published at once when its rule's pit_lane is
@@ -125,6 +128,10 @@ func (e *Engine) Gauges() map[string]float64 {
 // and id stay those of the frame it was raised on (v1's _release). A session
 // that ends without a finish with callouts held never publishes them, nor does a
 // start: v1 kept them until the next start, which cleared them.
+//
+// On the telemetry watchdog's tick (ctx.Tick, paddock#87), no frame came: only
+// the rules that watch the feed (Watcher) run, as v1's watchdog fed only its
+// TelemetryVoice, and what they raise goes as any rule's does.
 func (e *Engine) Step(ctx *race.Context) []race.Output {
 	if ctx.Started {
 		e.forget()
@@ -138,9 +145,15 @@ func (e *Engine) Step(ctx *race.Context) []race.Output {
 	}
 	inLane := ctx.Pits.InPitLane
 	for _, r := range e.rules {
+		if _, watches := r.rule.(Watcher); ctx.Tick && !watches {
+			continue
+		}
 		for i, c := range e.evaluate(r, ctx) {
 			e.stats.Raised[r.name]++
 			msg := e.callout(r, ctx, c, i+1)
+			if c.Alarm != nil && ctx.Session != "" {
+				out = append(out, alarm(ctx, c.Alarm))
+			}
 			if inLane {
 				switch r.s.PitLane {
 				case eventsv1.PitLane_PIT_LANE_DROP:
@@ -206,7 +219,8 @@ func (e *Engine) recover(r slot, in string) {
 }
 
 // callout is the contracts' Callout for c, which rule r raised as the n-th of the
-// frame ctx. Its id is <run>:callout:<seq>:<rule>:<n>, from the frame it was
+// frame ctx. Its id is <run>:callout:<seq>:<rule>:<n>, or
+// <run>:callout:<seq>:tick:<rule>:<n> on the watchdog's tick, from the frame it was
 // raised on, so the same frames and run id give the same ids (R7); the publisher
 // puts <src>: in front, as for an event.
 func (e *Engine) callout(r slot, ctx *race.Context, c Callout, n int) *eventsv1.Callout {
@@ -223,6 +237,12 @@ func (e *Engine) callout(r slot, ctx *race.Context, c Callout, n int) *eventsv1.
 		maxAge = e.maxAge
 	}
 	seq := strconv.FormatUint(uint64(ctx.Cur.Seq), 10)
+	// A tick's Cur is the last frame, which a rule may have raised on already:
+	// tick in the id keeps the two apart, so CALLOUTS never dedupes one against
+	// the other. A frame has one tick at most: the next loss needs a new frame.
+	if ctx.Tick {
+		seq += ":tick"
+	}
 	msg := &eventsv1.Callout{
 		SessionId: ctx.Session,
 		Id:        ctx.Run + ":callout:" + seq + ":" + r.name + ":" + strconv.Itoa(n),
@@ -240,6 +260,17 @@ func (e *Engine) callout(r slot, ctx *race.Context, c Callout, n int) *eventsv1.
 		msg.HoldUntil = timestamppb.New(created.Add(secs(r.s.HoldSecs)))
 	}
 	return msg
+}
+
+// alarm is the car.alarm event a rule raised beside a callout on the frame ctx
+// (contracts' CarAlarmRaised): its id is <sid>:car.alarm:<check>:<run>:<seq>, the
+// publisher putting <src>: in front. It is published at once, as any event: the
+// pit lane holds or drops only the callout.
+func alarm(ctx *race.Context, a *eventsv1.CarAlarmRaised) race.Output {
+	a.SessionId, a.At, a.RunId = ctx.Session, ctx.Cur.Seq, ctx.Run
+	check := strings.ToLower(strings.TrimPrefix(a.GetCheck().String(), "CAR_CHECK_"))
+	id := ctx.Session + ":car.alarm:" + check + ":" + ctx.Run + ":" + strconv.FormatUint(uint64(ctx.Cur.Seq), 10)
+	return race.Output{Event: ce.Event{ID: id, Source: race.Source, Time: ctx.Time}, Session: ctx.Session, Alarm: a}
 }
 
 func output(c *eventsv1.Callout) race.Output {
