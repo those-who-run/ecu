@@ -66,6 +66,8 @@ of the end of the step, so a rule sees it on the same frame v1's did.
 | `prev` passed to `evaluate` (`seen`) | `ctx.Prev`: the last driving frame across a pause or loading screen; nil before the first frame |
 | `on_bridge(phase)` | `ctx.Bridged`: `PHASE_LOADING` or `PHASE_PAUSED` when `Prev` bridged such frames |
 | evaluate is called (`in_race or racing_frame(seen, state)`) | `ctx.Racing` |
+| `PauseClock`: a frozen frame is `PAUSED` before the rules see it | `ctx.Cur.Phase` is `PHASE_PAUSED` on a paused frame, flagged or frozen, so `ctx.Racing` is false and nothing is said in a pause (paddock#77) |
+| `_step` not called after `_end_paused`, until the next start | `ctx.Ignored`: the engine runs no rule on the frame |
 | `lap_completed`, `lap_time_posted`, `racing_frame` | `race.LapCompleted(ctx.Prev, &ctx.Cur)` and the others |
 | `posted_lap` with the time, deduped by the rule, and race_summary's `_start_lap` | `ctx.Posted` (`Lap`, `TimeMs`, `StartLap`): every frame a time posts, closed lap or not (SUGO replay frame 864). The rule keeps the first per lap, as v1's did |
 | `self.joined` | `ctx.Joined` |

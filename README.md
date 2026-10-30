@@ -17,7 +17,7 @@ acceptance criterion, `Part of those-who-run/paddock#N` otherwise
 that takes `salsa` packets one at a time and gives, for each, its frame and the
 events it gives rise to, `session.started`, `pit.entered`, `pit.exited`,
 `pit.teleport`, `race.final_lap`, `race.position`, `session.track`,
-`session.kind`, `lap.completed`, `lap.best`, `race.finished` and `session.ended`, as the `contracts` messages. It opens a session, closes a lap
+`session.kind`, `session.paused`, `session.resumed`, `lap.completed`, `lap.best`, `race.finished` and `session.ended`, as the `contracts` messages. It opens a session, closes a lap
 and ends a session exactly where v1 did, with v1's rules ported from its
 `state.py`, `engine.py` and `store.py` at v1.0.0 (paddock#33).
 
@@ -33,7 +33,7 @@ and ends a session exactly where v1 did, with v1's rules ported from its
   the end of a recording) and ecu stopped (`Stop`). A timed race ended after
   its timed finish is `END_REASON_TIMED_FINISH` ([The finish](#the-finish)),
   and a timed session left for a menu before it, as a time trial always is,
-  `END_REASON_MENU`.
+  `END_REASON_MENU`. A session can also end in a pause ([Pauses](#pauses)).
 
 - **No clock, no NATS, no files.** Each packet comes with the time ecu received
   it, which becomes its frame's `ce-time`; a session's `started_at` is its
@@ -200,6 +200,7 @@ overflowed, the heartbeats sent and failed, and the listener's restarts.
 | `TWR_ECU_PS5_IP` | none: required | The PS5's IP address, where the heartbeat goes. |
 | `TWR_ECU_HEARTBEAT_SECS` | `2` | Seconds between heartbeats, from 0.01 to 3,600. |
 | `TWR_ECU_RECORDINGS_DIR` | unset: no recording | The directory each drive is recorded in ([Recording](#recording)). |
+| `TWR_ECU_PAUSE_LIMIT_SECS` | unset: no limit | Seconds a pause may last before it ends the session paused ([Pauses](#pauses)); 0 or more, 0 is no limit. |
 | `TWR_ECU_RULES_FILE` | unset: v1's defaults | The rules file, v1's rules YAML ([The callouts](#the-callouts)); `ecu replay` reads it too. |
 
 The ports: UDP 33740 in (the PS5 sends there, to the address the heartbeat
@@ -394,6 +395,52 @@ frame and publishes the session's entries, exits and withdrawn entries, as v1's
   from v1.0.0, the six v1 opens no session on with every start taken for a
   drive (SUGO's replay then finishes at the flag, as v1's engine would).
 
+## Pauses
+
+[`internal/race/pause.go`](internal/race/pause.go) is v1's `PauseClock` and
+the pause half of `Engine.process` (paddock#77). A pause is not driving time,
+and never ends a session on its own.
+
+- **Two shapes.** GT7 flags most pauses: its frames are paused for as long as
+  the pause menu is up. From the pause menu it can send a frozen stream
+  instead: frames marked in the race that do not change at all (position,
+  velocity, speed, revs, pedals, fuel, lap, rotation and spin), the car
+  stopped in mid-air at racing speed. Identical for 1 s with the car over
+  1 km/h, a frame is read as paused, and the pause is dated from the first
+  identical frame. Below 1 km/h identical frames are a car standing still.
+- **First in the step.** The frame is read before anything else sees it: it
+  goes out as `PHASE_PAUSED`, and the start check, the detectors, the rules
+  and the lap store read it so. No rule evaluates on a paused frame, so
+  nothing is said in a pause, and the frame after it is compared with the
+  last driving frame (`Bridged` `PHASE_PAUSED`), as v1's rules had it.
+- **The events.** `session.paused` on the frame a pause is read on, in an open
+  session, with how it began (`PAUSE_KIND_FLAGGED`, or `PAUSE_KIND_FROZEN`
+  for a frozen stream, read 1 s after its first frame), its start on the
+  frames' clock and in UTC, and the session's time paused before it;
+  `session.resumed` on the first frame after it, with its length and the
+  session's time paused so far. A pause is numbered from 1 in the session.
+  A pause that GT7 flags and then freezes, as SUGO 2026-10-18's 45 s before
+  a restart does, is one flagged pause, as v1 read it. A pause the session
+  ends in has no `session.resumed`; one that ends on a frame that also ends
+  the session (a quit or a restart from the pause menu) has, before the end.
+- **The summary.** `paused_ms` is the session's time paused, on the frames'
+  clock, so a replay gives the same totals. `driving_ms` and `ended_at` are
+  paddock#86's.
+- **Ending paused.** The session ends paused (`ended_paused`), on its last
+  frame, when the feed is lost during the pause (`Machine.FeedLost`,
+  `END_REASON_TELEMETRY_LOST`; paddock#87 wires the watchdog to it), when the
+  frames stop in it (`END_REASON_INPUT_ENDED` at the end of a recording,
+  `END_REASON_ENGINEER_STOPPED` when ecu stops), or once a pause has lasted
+  `TWR_ECU_PAUSE_LIMIT_SECS` (`END_REASON_PAUSE_LIMIT`, on the frame the
+  limit passes; off by default). The frames after it are ignored until the
+  next start: only the frame goes out, and no rule sees it.
+- **Tests.** On every one of v1's 25 recordings, the pauses read in an open
+  session, their frames and times, and each summary's `paused_ms` and
+  `ended_paused` are v1's, as `make_golden.py` in
+  [`internal/race/testdata/pause/`](internal/race/testdata/pause) wrote them
+  from v1.0.0, with every start taken for a drive. No callout is raised on a
+  paused frame of any of them.
+
 ## The laps
 
 [`internal/race/laps.go`](internal/race/laps.go) is the lap model: what each
@@ -571,6 +618,8 @@ rule.
 | `twr.v1.<src>.evt.<sid>.session.started` | a session began | `EVENTS` |
 | `twr.v1.<src>.evt.<sid>.session.track` | the session's track verdict changed | `EVENTS` |
 | `twr.v1.<src>.evt.<sid>.session.kind` | the session's kind verdict changed | `EVENTS` |
+| `twr.v1.<src>.evt.<sid>.session.paused` | the session paused, flagged or frozen | `EVENTS` |
+| `twr.v1.<src>.evt.<sid>.session.resumed` | the session's pause ended | `EVENTS` |
 | `twr.v1.<src>.evt.<sid>.pit.entered` | the car came into the pit lane | `EVENTS` |
 | `twr.v1.<src>.evt.<sid>.pit.exited` | the car left the pit lane, with its stop | `EVENTS` |
 | `twr.v1.<src>.evt.<sid>.pit.teleport` | a pit entry was no stop, and is withdrawn | `EVENTS` |
@@ -595,7 +644,8 @@ rule.
   `<src>:<sid>:pit.exited:<stop>`, `<src>:<sid>:pit.teleport:<entry>`,
   `<src>:<sid>:race.final_lap:1`, `<src>:<sid>:race.position:<run>:<seq>`,
   `<src>:<sid>:lap.completed:<n>`, `<src>:<sid>:lap.best:<n>` (the lap whose
-  end changed the best), `<src>:<sid>:race.finished:1` or
+  end changed the best), `<src>:<sid>:race.finished:1`,
+  `<src>:<sid>:session.paused:<pause>`, `<src>:<sid>:session.resumed:<pause>` or
   `<src>:<sid>:session.ended:1`, with
   the subject's `<src>`, so two replays
   under different sources are not deduplicated against each other. An event

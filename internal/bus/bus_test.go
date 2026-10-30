@@ -163,7 +163,7 @@ func TestAReplayLandsInTheStreams(t *testing.T) {
 	if len(evs) != len(events) {
 		t.Fatalf("EVENTS holds %d events, want %d", len(evs), len(events))
 	}
-	var started, laps, bests, tracks, kinds, entered, exited, finalLaps, positions, finished, ended int
+	var started, laps, bests, tracks, kinds, entered, exited, finalLaps, positions, finished, ended, paused, resumed int
 	for i, msg := range evs {
 		want := events[i]
 		var gotMsg proto.Message
@@ -202,6 +202,12 @@ func TestAReplayLandsInTheStreams(t *testing.T) {
 		case want.Ended != nil:
 			ended++
 			gotMsg, what, id = &eventsv1.SessionEnded{}, "session.ended", "session.ended:1"
+		case want.Paused != nil:
+			paused++
+			gotMsg, what, id = &eventsv1.SessionPaused{}, "session.paused", "session.paused:"+strconv.Itoa(int(want.Paused.GetPause()))
+		case want.Resumed != nil:
+			resumed++
+			gotMsg, what, id = &eventsv1.SessionResumed{}, "session.resumed", "session.resumed:"+strconv.Itoa(int(want.Resumed.GetPause()))
 		}
 		e, err := ce.Decode(header(msg), msg.Data(), gotMsg)
 		if err != nil {
@@ -216,10 +222,10 @@ func TestAReplayLandsInTheStreams(t *testing.T) {
 		checkHeaders(t, header(msg), e, want.Event, "parity:"+want.Session+":"+id)
 	}
 	if started != 1 || laps != 6 || bests != 2 || tracks == 0 || kinds == 0 || entered != 1 || exited != 1 ||
-		finalLaps != 1 || positions != 2 || finished != 1 || ended != 1 {
-		t.Errorf("%d starts, %d laps, %d bests, %d tracks, %d kinds, %d pit entries, %d pit exits, %d final laps, %d positions, %d finishes, %d ends; "+
-			"want 1, 6 (the race's laps), 2 (laps 2 and 5), some, some, 1, 1, 1, 2, 1 and 1",
-			started, laps, bests, tracks, kinds, entered, exited, finalLaps, positions, finished, ended)
+		finalLaps != 1 || positions != 2 || finished != 1 || ended != 1 || paused != 1 || resumed != 1 {
+		t.Errorf("%d starts, %d laps, %d bests, %d tracks, %d kinds, %d pit entries, %d pit exits, %d final laps, %d positions, %d finishes, %d ends, "+
+			"%d pauses, %d resumes; want 1, 6 (the race's laps), 2 (laps 2 and 5), some, some, 1, 1, 1, 2, 1, 1, 1 and 1 (2 s on lap 1)",
+			started, laps, bests, tracks, kinds, entered, exited, finalLaps, positions, finished, ended, paused, resumed)
 	}
 
 	// The start's source is the subject's <src> (ecu#11's review), and its

@@ -21,9 +21,10 @@
 // v1's FinalLapRule and PositionRule (position.go here, paddock#84), and the lap
 // model: each lap's pit role and whether it counts for the best, from
 // Engine._step's lap_time rule, and the best, from results.best_lap with
-// contracts v0.2.3's one difference (laps.go here, paddock#83). What else v1's engine reads (replays and demo races
-// held at the start, continuing after a restart and the frozen pause) is not here
-// yet.
+// contracts v0.2.3's one difference (laps.go here, paddock#83), and the pauses, flagged
+// and frozen, from v1's PauseClock and Engine._end_paused (pause.go here,
+// paddock#77). What else v1's engine reads (replays and demo races held at the
+// start, and continuing after a restart) is not here yet.
 package race
 
 import (
@@ -96,12 +97,18 @@ const (
 	// WhyTimedFinish is the end of a session after its timed finish (v1's
 	// race_ended once Engine._timed_finish had set finished).
 	WhyTimedFinish
+	// WhyFeedLost is the feed lost during a pause (Machine.FeedLost, v1's
+	// _end_paused "the feed was lost").
+	WhyFeedLost
+	// WhyPauseLimit is a pause that lasted the pause limit (Machine.SetPauseLimit,
+	// v1's _end_paused "paused for N min").
+	WhyPauseLimit
 )
 
 var whyNames = map[Why]string{
 	WhyFinished: "finished", WhyQuit: "quit", WhyRestart: "restart", WhyStart: "start",
 	WhyInputEnded: "input ended", WhyStopped: "stopped", WhyMenu: "menu",
-	WhyTimedFinish: "timed finish",
+	WhyTimedFinish: "timed finish", WhyFeedLost: "feed lost", WhyPauseLimit: "pause limit",
 }
 
 func (w Why) String() string {
@@ -130,6 +137,10 @@ func (w Why) Reason() eventsv1.EndReason {
 		return eventsv1.EndReason_END_REASON_MENU
 	case WhyTimedFinish:
 		return eventsv1.EndReason_END_REASON_TIMED_FINISH
+	case WhyFeedLost:
+		return eventsv1.EndReason_END_REASON_TELEMETRY_LOST
+	case WhyPauseLimit:
+		return eventsv1.EndReason_END_REASON_PAUSE_LIMIT
 	default:
 		return eventsv1.EndReason_END_REASON_UNKNOWN
 	}
@@ -137,7 +148,7 @@ func (w Why) Reason() eventsv1.EndReason {
 
 // Output is a frame or an event, with its CloudEvents id and time: exactly one of
 // Frame, Started, Lap, Best, Track, Kind, PitEntered, PitExited, PitTeleport,
-// FinalLap, Position, Finished, Ended and Callout is set, each the contracts message of that name
+// FinalLap, Position, Finished, Paused, Resumed, Ended and Callout is set, each the contracts message of that name
 // (Callout is the rule engine's, internal/rules). SessionStarted's
 // source is left empty: only the publisher knows the <src> it publishes under, and
 // sets it (internal/bus).
@@ -151,8 +162,9 @@ type Output struct {
 	// seq of the frame it changed on, <sid>:pit.entered:<entry>,
 	// <sid>:pit.exited:<stop> and <sid>:pit.teleport:<entry> for the pits,
 	// <sid>:race.final_lap:1 and <sid>:race.position:<run>:<seq> for the final
-	// lap and a settled position, and <sid>:race.finished:1 for the finish. An event's id is the catalogue's
-	// without its <src>: the publisher puts <src>: in front (paddock#279).
+	// lap and a settled position, <sid>:race.finished:1 for the finish, and
+	// <sid>:session.paused:<pause> and <sid>:session.resumed:<pause> for a pause.
+	// An event's id is the catalogue's without its <src>: the publisher puts <src>: in front (paddock#279).
 	Event ce.Event
 	// Session is the id of the session an event belongs to; "" for a frame.
 	Session string
@@ -171,6 +183,9 @@ type Output struct {
 	FinalLap    *eventsv1.RaceFinalLapStarted
 	Position    *eventsv1.RacePositionChanged
 	Finished    *eventsv1.RaceFinished
+
+	Paused  *eventsv1.SessionPaused
+	Resumed *eventsv1.SessionResumed
 
 	// Callout is a callout the rule engine raised (internal/rules, paddock#89),
 	// on twr.v1.<src>.callout.<level>: never the machine's own.
@@ -208,6 +223,10 @@ func (o Output) Message() proto.Message {
 		return o.Position
 	case o.Finished != nil:
 		return o.Finished
+	case o.Paused != nil:
+		return o.Paused
+	case o.Resumed != nil:
+		return o.Resumed
 	case o.Callout != nil:
 		return o.Callout
 	default:
@@ -232,6 +251,8 @@ type Machine struct {
 	tracks      *track.Detector
 	pits        *pit.Detector
 	session     *session
+	pauses      pauses // the pause clock (pause.go, v1's Engine.pauses)
+	endedPaused bool   // the session ended in a pause: ignored until the next start
 
 	out    []Output
 	ctx    Context // the frame as the rules read it (context.go, paddock#89)
@@ -290,6 +311,9 @@ func (m *Machine) Run() string { return m.run }
 func (m *Machine) Step(r Received) []Output {
 	m.seq++
 	s := newState(m.seq, r.T, &r.Packet)
+	// A frozen frame is read as the pause it is before anything else sees it, the
+	// frame that goes out included (v1's Engine.process).
+	began, ended := m.pauses.observe(&s, &r.Packet, r.Time)
 	s.frame, s.received = frame(m.seq, r.T, s.phase, &r.Packet), r.Time
 	m.ctx = Context{}
 	m.out = []Output{{
@@ -297,10 +321,23 @@ func (m *Machine) Step(r Received) []Output {
 		Frame: s.frame,
 	}}
 
-	// Engine._step, the parts that open, close and end.
+	// Engine.process: the frames after a session ended paused are ignored until
+	// the next start, and a pause that lasts the limit ends the session paused,
+	// on this frame, which is not stepped.
 	prev := m.prev
 	restarted := raceRestarted(prev, &s)
 	starting := raceStarted(prev, &s) || restarted
+	if m.endedPaused && !starting {
+		return m.ignore(&s, r.Time)
+	}
+	m.endedPaused = false
+	m.pauseEvents(&s, r.Time, began, ended)
+	if m.pauseLimitPassed(&s) {
+		m.endPaused(&s, r.Time, WhyPauseLimit)
+		return m.ignore(&s, r.Time)
+	}
+
+	// Engine._step, the parts that open, close and end.
 	if starting {
 		if m.session != nil && prev != nil {
 			why := WhyStart
@@ -309,6 +346,7 @@ func (m *Machine) Step(r Received) []Output {
 			}
 			m.end(prev, m.prevTime, why)
 		}
+		m.pauses.reset()
 		m.lastDriving = nil
 		m.finish = finish{}
 		m.finalLap, m.places = false, places{}
@@ -378,7 +416,7 @@ func (m *Machine) Step(r Received) []Output {
 		m.applyKind(&s, r.Time)
 	}
 
-	ended := raceEnded(prev, &s)
+	raceEnd := raceEnded(prev, &s)
 	if m.session != nil {
 		m.observe(seen, &s, r.Time)
 	}
@@ -391,11 +429,11 @@ func (m *Machine) Step(r Received) []Output {
 	// closes on the flag frame.
 	m.observeFinish(seen, &s, r.Time, kindBefore)
 	m.ctx.Finished = m.finish.kind != eventsv1.FinishKind_FINISH_KIND_UNSPECIFIED
-	if ended && s.phase != phaseFinished && !m.ctx.Finished && m.lastDriving != nil {
+	if raceEnd && s.phase != phaseFinished && !m.ctx.Finished && m.lastDriving != nil {
 		last := m.lastDriving.view()
 		m.ctx.EndedEarly = &last
 	}
-	if m.session != nil && ended {
+	if m.session != nil && raceEnd {
 		m.finalTrack()
 		// v1's set_pits on a race's end, before end_session: the lap the session
 		// ends in takes its role from the pits as they are now.
@@ -415,7 +453,7 @@ func (m *Machine) Step(r Received) []Output {
 	if s.inRace() {
 		driving := s
 		m.lastDriving = &driving
-	} else if ended {
+	} else if raceEnd {
 		m.lastDriving = nil
 	}
 	m.prev, m.prevTime = &s, r.Time
@@ -423,16 +461,22 @@ func (m *Machine) Step(r Received) []Output {
 }
 
 // EndOfInput ends the open session, if there is one, on the last frame, because
-// the input came to its end, as a replayed recording does (END_REASON_INPUT_ENDED).
+// the input came to its end, as a replayed recording does (END_REASON_INPUT_ENDED):
+// paused, as of the pause's start, when the frames stop in a pause.
 func (m *Machine) EndOfInput() []Output { return m.close(WhyInputEnded) }
 
 // Stop ends the open session, if there is one, on the last frame, because ecu is
-// stopping (END_REASON_ENGINEER_STOPPED).
+// stopping (END_REASON_ENGINEER_STOPPED): paused, as of the pause's start, when it
+// stops in a pause.
 func (m *Machine) Stop() []Output { return m.close(WhyStopped) }
 
 func (m *Machine) close(why Why) []Output {
 	m.out = nil
-	if m.session != nil && m.prev != nil {
+	switch {
+	case m.session == nil || m.prev == nil:
+	case m.pauses.open:
+		m.endPaused(m.prev, m.prevTime, why)
+	default:
 		m.end(m.prev, m.prevTime, why)
 	}
 	return m.out
@@ -580,6 +624,11 @@ func (m *Machine) end(s *state, t time.Time, why Why) {
 		summary.Kind = sess.kind.message()
 	}
 	pitSummary(summary, m.pits.Status())
+	// The pause clock's view of the session (v1's _end_session): its time paused
+	// up to s, and whether it ends in a pause (endPaused). When that pause began
+	// is the summary's ended_at, paddock#86's with driving_ms.
+	summary.PausedMs = millis(m.pauses.pausedFor(s.t))
+	summary.EndedPaused = m.endedPaused
 	if final != 0 && !solo(kind) {
 		summary.FinalPosition = &final
 		if why == WhyFinished && kind == eventsv1.SessionType_SESSION_TYPE_LAP_RACE {

@@ -125,7 +125,15 @@ func (e *Engine) Gauges() map[string]float64 {
 // and id stay those of the frame it was raised on (v1's _release). A session
 // that ends without a finish with callouts held never publishes them, nor does a
 // start: v1 kept them until the next start, which cleared them.
+//
+// A frame the machine ignored (ctx.Ignored: after a session ended paused) runs
+// no rule, as v1 never stepped it. A paused frame, flagged or frozen, is not
+// Racing, so no rule evaluates on it, and the frame after a pause compares
+// against the last driving frame with Bridged PHASE_PAUSED (paddock#77).
 func (e *Engine) Step(ctx *race.Context) []race.Output {
+	if ctx.Ignored {
+		return nil
+	}
 	if ctx.Started {
 		e.forget()
 		for _, r := range e.rules {

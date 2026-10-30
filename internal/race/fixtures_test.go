@@ -106,9 +106,8 @@ func run(all []Received) []Output {
 // frozen is the seqs (from 1) of the frames v1's PauseClock (pause.py at v1.0.0)
 // reads as GT7's frozen pause stream and turns into paused frames: an IN_RACE frame
 // with the car moving, identical in what changes while driving to the frames of the
-// last 1 s or more. Reading the freeze is out of scope for paddock#33, so v1 keeps
-// such frames out of a lap where the machine doesn't; the goldens' frame counts are
-// compared without them.
+// last 1 s or more. It is a second reading of pause.go's, kept apart from it, which
+// TestTheFrozenPauseIsInLapTwoOfTheFirstSugoRace holds the machine to.
 func frozen(all []Received) map[uint32]bool {
 	type still struct {
 		pos, vel         salsa.Vec3

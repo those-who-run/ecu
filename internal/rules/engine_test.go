@@ -412,3 +412,14 @@ func TestThePitLaneAppliesAtTheFlag(t *testing.T) {
 		t.Errorf("position: %d dropped, want 1", d)
 	}
 }
+
+// A frame the machine ignored, after a session ended paused, runs no rule and
+// resets none, as v1 never stepped it (paddock#77).
+func TestAnIgnoredFrameRunsNoRule(t *testing.T) {
+	var n int
+	r := &stub{raise: func(*race.Context) []Callout { n++; return []Callout{{Kind: "k"}} }}
+	e := testEngine(t, nil, "lap_time", r)
+	if out := e.Step(&race.Context{Ignored: true, Racing: true, Started: true}); out != nil || n != 0 || r.resets != 0 {
+		t.Errorf("ignored frame: %d outputs, %d evaluations, %d resets", len(out), n, r.resets)
+	}
+}

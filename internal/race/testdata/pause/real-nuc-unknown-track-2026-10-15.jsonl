@@ -1,0 +1,3 @@
+{"event": "session.started", "session": 1, "frame": 1}
+{"event": "session.paused", "session": 1, "frame": 217, "kind": "frozen", "since_frame": 215, "paused_ms": 0}
+{"event": "session.ended", "session": 1, "paused_ms": 3020, "ended_paused": true}

@@ -2,6 +2,7 @@ package race
 
 import (
 	"bytes"
+	"slices"
 	"testing"
 	"time"
 
@@ -102,7 +103,8 @@ func TestAStartWhileASessionIsOpenEndsIt(t *testing.T) {
 	d.add(0, salsa.FlagPaused, 50, -1, 3) // 2: paused, the lap counter reset
 	d.add(0, 0, 50, -1, 3)                // 3: the track screen
 	d.add(1, 0, 50, -1, 3)                // 4: a start
-	evs := events(run(d.all))
+	// Frame 2's pause and frame 3's end of it are pause_test.go's.
+	evs := slices.DeleteFunc(events(run(d.all)), func(o Output) bool { return o.Paused != nil || o.Resumed != nil })
 	if len(evs) != 6 {
 		t.Fatalf("%d events, want 6: start, lap 1, end, then start, lap 1, end", len(evs))
 	}

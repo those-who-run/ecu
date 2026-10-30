@@ -1,0 +1,2 @@
+{"event": "session.started", "session": 1, "frame": 1}
+{"event": "session.ended", "session": 1, "paused_ms": 0, "ended_paused": false}
