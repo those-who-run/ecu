@@ -547,14 +547,14 @@ func TestARestartPairOfReplays(t *testing.T) {
 	before, joined := trackRecording(t, beforeRestart), trackRecording(t, joinedMidRace)
 	in := readAll(t, openRecording(t, before))
 	last := defaultClock.Add(seconds(in[len(in)-1].T - in[0].T))
-	if got := runReplay(t, nil, "--nats", srv.URL(), "--speed", "max", "--src", "pair", "--keep-open", before); got.code != 0 {
+	if got := runReplay(t, nil, "--nats", srv.URL(), "--speed", "max", "--run", "pair", "--keep-open", before); got.code != 0 {
 		t.Fatalf("the first replay: exit %d, stderr %q, log %s", got.code, got.stderr, got.stdout)
 	}
-	if _, err := kv.Get(t.Context(), "sessions.open.pair"); err != nil {
+	if _, err := kv.Get(t.Context(), "sessions.open.replay-pair"); err != nil {
 		t.Fatalf("the first replay kept no session: %v", err)
 	}
 	clock := last.Add(8700 * time.Millisecond).Format(time.RFC3339Nano)
-	if got := runReplay(t, nil, "--nats", srv.URL(), "--speed", "max", "--src", "pair", "--clock", clock, joined); got.code != 0 {
+	if got := runReplay(t, nil, "--nats", srv.URL(), "--speed", "max", "--run", "pair", "--clock", clock, joined); got.code != 0 {
 		t.Fatalf("the second replay: exit %d, stderr %q, log %s", got.code, got.stderr, got.stdout)
 	}
 	count := map[string]int{}
@@ -568,7 +568,7 @@ func TestARestartPairOfReplays(t *testing.T) {
 	if count["session.started"] != 1 || count["session.continued"] != 1 || count["session.ended"] != 1 {
 		t.Errorf("events %v, want one session started, continued and ended", count)
 	}
-	if _, err := kv.Get(t.Context(), "sessions.open.pair"); err == nil {
+	if _, err := kv.Get(t.Context(), "sessions.open.replay-pair"); err == nil {
 		t.Error("the key is still there after the session ended")
 	}
 }

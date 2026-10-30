@@ -183,10 +183,12 @@ func replay(ctx context.Context, args []string, getenv func(string) string, stdi
 	}
 	open, rev := loadKept(ctx, ecuKV, busCfg.Src, logger)
 	keeper := sessions.New(ecuKV, busCfg.Src, rev, waiting{ctx, pub}, logger)
+	// The record's last write goes after the status's, each with its own grace.
+	keepCtx, stopKeeping := context.WithCancel(context.WithoutCancel(ctx))
 	keptDone := make(chan struct{})
 	go func() {
 		defer close(keptDone)
-		keeper.Run(writeCtx, statusGrace)
+		keeper.Run(keepCtx, statusGrace)
 	}()
 
 	paced := &pacer{src: rec, speed: factor, clock: start}
@@ -200,6 +202,7 @@ func replay(ctx context.Context, args []string, getenv func(string) string, stdi
 	tracker.Stop()
 	stopWriting()
 	<-written
+	stopKeeping()
 	<-keptDone
 
 	logger.InfoContext(ctx, "replayed: flushing", "packets", paced.n)

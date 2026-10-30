@@ -194,10 +194,14 @@ func (k *Keeper) Flush(ctx context.Context) bool {
 		}
 		o := k.ops[0]
 		k.mu.Unlock()
-		err := k.do(ctx, o)
+		var err error
+		if !k.noBucket {
+			err = k.do(ctx, o)
+		}
 		if errors.Is(err, bus.ErrNoBucket) {
-			// A deployment without the bucket keeps nothing: said once, never
-			// waited on (a replay outside the stack has none).
+			// A deployment without the bucket keeps nothing for the rest of the
+			// run: said once, never waited on (a replay outside the stack has
+			// none).
 			if !k.noBucket {
 				k.logger.ErrorContext(ctx, "the open session cannot be kept: no bucket", "bucket", Bucket, "err", err)
 				k.noBucket = true

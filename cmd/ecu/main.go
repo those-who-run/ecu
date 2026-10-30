@@ -225,11 +225,13 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout,
 		defer writing.Store(false)
 		status.NewWriter(tracker, kv, logger).Run(writeCtx, statusGrace)
 	}()
+	// The record's last write goes after the status's, each with its own grace.
+	keepCtx, stopKeeping := context.WithCancel(context.WithoutCancel(ctx))
 	keptDone := make(chan struct{})
 	go func() {
 		defer close(keptDone)
 		defer keepingAlive.Store(false)
-		keeper.Run(writeCtx, statusGrace)
+		keeper.Run(keepCtx, statusGrace)
 	}()
 	// The drive ends, keeping the session it holds (no end: paddock#76), and the
 	// status says so; the source stops, so nothing writes to the recorder once it
@@ -240,6 +242,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout,
 		tracker.Stop()
 		stopWriting()
 		<-written
+		stopKeeping()
 		<-keptDone
 		_ = src.Close()
 		closeRec()
