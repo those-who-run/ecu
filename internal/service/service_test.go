@@ -132,7 +132,7 @@ func TestNewLoggerWritesJSONFromItsLevel(t *testing.T) {
 
 func TestHealthz(t *testing.T) {
 	rec := httptest.NewRecorder()
-	Handler("1.2.3").ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	Handler("1.2.3", nil).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/healthz", nil))
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rec.Code)
@@ -149,9 +149,33 @@ func TestHealthz(t *testing.T) {
 	}
 }
 
+// paddock#88, R4: a component's health adds its fields, and an unhealthy one
+// answers 503.
+func TestHealthzCarriesTheHealth(t *testing.T) {
+	for _, healthy := range []bool{true, false} {
+		rec := httptest.NewRecorder()
+		health := func() (bool, map[string]any) { return healthy, map[string]any{"idle": true, "status": "mine"} }
+		Handler("1.2.3", health).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+		want, status := http.StatusOK, "ok"
+		if !healthy {
+			want, status = http.StatusServiceUnavailable, "unhealthy"
+		}
+		var body map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+			t.Fatal(err)
+		}
+		if rec.Code != want || body["status"] != status || body["version"] != "1.2.3" || body["idle"] != true {
+			t.Errorf("healthy %v: %d %v, want %d with status %s and the fields", healthy, rec.Code, body, want, status)
+		}
+		if rec.Header().Get("Cache-Control") != "no-store" {
+			t.Errorf("healthy %v: cached", healthy)
+		}
+	}
+}
+
 func TestHealthzIsGetOnly(t *testing.T) {
 	rec := httptest.NewRecorder()
-	Handler("1.2.3").ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/healthz", nil))
+	Handler("1.2.3", nil).ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/healthz", nil))
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Errorf("POST /healthz status = %d, want 405", rec.Code)
 	}
@@ -165,7 +189,7 @@ func TestRunServesUntilCancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	var logs bytes.Buffer
 	done := make(chan error, 1)
-	go func() { done <- serve(ctx, ln, NewLogger(&logs, slog.LevelInfo), "test") }()
+	go func() { done <- serve(ctx, ln, NewLogger(&logs, slog.LevelInfo), "test", nil) }()
 
 	if code := get(t, "http://"+ln.Addr().String()+"/healthz"); code != http.StatusOK {
 		t.Errorf("GET /healthz status = %d", code)
@@ -192,7 +216,7 @@ func TestRunReportsAnAddressItCannotListenOn(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = held.Close() }()
-	err = Run(t.Context(), Config{Addr: held.Addr().String()}, NewLogger(io.Discard, slog.LevelInfo), "test")
+	err = Run(t.Context(), Config{Addr: held.Addr().String()}, NewLogger(io.Discard, slog.LevelInfo), "test", nil)
 	if err == nil || !strings.HasPrefix(err.Error(), "listen: ") {
 		t.Errorf("Run error = %v, want a listen error", err)
 	}
@@ -203,7 +227,7 @@ func TestRunListensOnTheConfiguredAddress(t *testing.T) {
 	defer cancel()
 	logs := newReadyLog()
 	done := make(chan error, 1)
-	go func() { done <- Run(ctx, Config{Addr: "127.0.0.1:0"}, NewLogger(logs, slog.LevelInfo), "test") }()
+	go func() { done <- Run(ctx, Config{Addr: "127.0.0.1:0"}, NewLogger(logs, slog.LevelInfo), "test", nil) }()
 	// The timeouts only stop a hung test; Run is cancelled once it serves.
 	select {
 	case <-logs.ready:
@@ -256,7 +280,7 @@ func TestServeReportsAListenerThatFails(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = ln.Close() // Serve fails at once on a closed listener
-	err = serve(t.Context(), ln, NewLogger(io.Discard, slog.LevelInfo), "test")
+	err = serve(t.Context(), ln, NewLogger(io.Discard, slog.LevelInfo), "test", nil)
 	if err == nil || errors.Is(err, http.ErrServerClosed) {
 		t.Errorf("serve on a closed listener = %v, want an error", err)
 	}

@@ -1,0 +1,19 @@
+{
+  "$comment": [
+    "ecu: ecu's own state, which no reader of live sees. Today one key per source, sessions.open.<src>: the open session and its running summary, which a restarted ecu continues or ends from (contracts' subjects.yaml; paddock#72, paddock#76).",
+    "This file is not a stream config: bootstrap.sh turns each field into the flag of the same name for nats kv add and nats kv edit.",
+    "history 1: ecu reads only the current value, and clears it with a revision check when the session ends.",
+    "max_value_size 1 MiB (1048576): the running summary carries every lap so far, a few KB for a short race and tens of KB for a long one. It is the same summary session.ended carries on EVENTS, so it is held to the same bound, the server's max_payload (1 MiB by default): a session ecu can end, it can also keep.",
+    "max_bucket_size 64 MiB (67108864): one key per source, and a replay clears its key when its session ends, so the bucket holds a few values. The limit is a backstop so the bucket cannot fill the disk.",
+    "No ttl: an open session stays until ecu ends it; whether it is continued is ecu's choice (its continue window), not the bucket's.",
+    "Discard and duplicate window are not set here: nats kv add fixes them for every bucket (discard new, so a full bucket refuses a write rather than dropping an open session).",
+    "replicas 1: one NATS server (ADR 0004). File storage, since the bucket exists to outlive a restart."
+  ],
+  "bucket": "ecu",
+  "description": "ecu's own state, the open session per source (paddock#73).",
+  "history": 1,
+  "storage": "file",
+  "replicas": 1,
+  "max_value_size": 1048576,
+  "max_bucket_size": 67108864
+}

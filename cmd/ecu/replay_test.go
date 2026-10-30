@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/those-who-run/contracts/ce"
+	statev1 "github.com/those-who-run/contracts/gen/go/twr/state/v1"
 	"github.com/those-who-run/ecu/internal/bus"
 	"github.com/those-who-run/ecu/internal/bus/bustest"
 	"github.com/those-who-run/ecu/internal/race"
@@ -87,7 +88,7 @@ func TestAReplayAtMaxPublishesEveryFrameAndEvent(t *testing.T) {
 	want := &fakePublisher{}
 	// Dated as the replay dates them, so the payloads' times match too.
 	dated := &pacer{clock: defaultClock, t0: in[0].T}
-	_ = drive(t.Context(), &slice{all: in}, dated.at, machine(), nil, want, nil)
+	_ = drive(t.Context(), &slice{all: in}, dated.at, machine(), nil, want, nil, nil)
 	// An event the session can have more than once a frame apart, such as
 	// session.track, ends its id in <run>:<seq>: the run is compared as <run>,
 	// the direct run's here and the replay's (its frames') in the stream.
@@ -454,5 +455,40 @@ func TestAFailedFlushExitsTwo(t *testing.T) {
 	got := runReplay(t, nil, "--speed", "max", "--src", "parity", "--nats", bustest.Stalled(t, false), path)
 	if got.code != 2 || !strings.Contains(got.stderr, "the final flush failed") {
 		t.Errorf("exit %d, stderr %q; want 2 and the flush named", got.code, got.stderr)
+	}
+}
+
+// paddock#88, R1 and R6: a replay writes its status under its own source, never
+// live's, and leaves it idle with the session's keys gone at its end.
+func TestAReplayWritesItsOwnStatus(t *testing.T) {
+	srv := bustest.WithStreams(t)
+	kv := bustest.AddKV(t, srv.JetStream(), "live")
+	path := recordingPath(t, suzuka)
+	got := runReplay(t, nil, "--speed", "max", "--run", "status", "--nats", srv.URL(), path)
+	if got.code != 0 {
+		t.Fatalf("exit %d, stderr %q, log %s", got.code, got.stderr, got.stdout)
+	}
+	keys, err := kv.ListKeys(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var all []string
+	for k := range keys.Keys() {
+		all = append(all, k)
+	}
+	if len(all) != 1 || all[0] != "ecu.status.replay-status" {
+		t.Fatalf("keys %v, want ecu.status.replay-status alone", all)
+	}
+	e, err := kv.Get(t.Context(), "ecu.status.replay-status")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var st statev1.EcuStatus
+	if err := ce.Unmarshal(e.Value(), &st); err != nil {
+		t.Fatal(err)
+	}
+	if st.GetSource() != "replay-status" || !st.GetIdle() || st.GetActivity() != statev1.Activity_ACTIVITY_IDLE ||
+		st.GetRacesStarted() != 1 || int(st.GetPackets()) != len(readAll(t, openRecording(t, path))) {
+		t.Errorf("the replay's last status: %v", &st)
 	}
 }

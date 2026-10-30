@@ -19,8 +19,10 @@ import (
 	"github.com/oklog/ulid/v2"
 
 	"github.com/those-who-run/ecu/internal/bus"
+	"github.com/those-who-run/ecu/internal/live"
 	"github.com/those-who-run/ecu/internal/race"
 	"github.com/those-who-run/ecu/internal/service"
+	"github.com/those-who-run/ecu/internal/status"
 	"github.com/those-who-run/salsa"
 )
 
@@ -46,6 +48,9 @@ var (
 	replayGrace    = 30 * time.Second
 	interruptGrace = time.Second
 )
+
+// statusGrace is how long the status's last write may take at the end.
+const statusGrace = 5 * time.Second
 
 // replayOptions are the publisher's limits for a replay: the defaults, which the
 // tests shrink so the replay waits on the hand-over often.
@@ -140,8 +145,34 @@ func replay(ctx context.Context, args []string, getenv func(string) string, stdi
 	}
 	logger.InfoContext(ctx, "replaying", "recording", path, "src", busCfg.Src, "speed", *speed, "clock", start.Format(time.RFC3339Nano))
 
+	// The replay's status goes under its own source, never live's (paddock#88,
+	// R6), from a goroutine of its own, as live's does.
+	kv, err := pub.KV(statusBucket)
+	if err != nil {
+		closeQuickly(ctx, pub)
+		_, _ = fmt.Fprintln(stderr, "ecu replay:", err)
+		return exitNATS
+	}
+	tracker := newTracker(busCfg.Src, live.DefaultTelemetryTimeout, eng, nil)
+	writeCtx, stopWriting := context.WithCancel(context.WithoutCancel(ctx))
+	written := make(chan struct{})
+	go func() {
+		defer close(written)
+		// Cut to interruptGrace once a signal comes, as the flush is.
+		grace, cancel := context.WithTimeout(context.WithoutCancel(ctx), statusGrace)
+		defer cancel()
+		cut := interruptGrace
+		defer context.AfterFunc(ctx, func() { time.AfterFunc(cut, cancel) })()
+		status.NewWriter(tracker, kv, logger).Run(writeCtx, grace)
+	}()
+
 	paced := &pacer{src: rec, speed: factor, clock: start}
-	failed := drive(ctx, paced, paced.at, race.New(ulid.Make), eng, waiting{ctx, pub}, nil)
+	failed := drive(ctx, paced, paced.at, race.New(ulid.Make), eng, waiting{ctx, pub}, nil, tracker)
+	// The status's last values, the session ended and the replay idle, go before
+	// the publisher closes.
+	tracker.Stop()
+	stopWriting()
+	<-written
 
 	logger.InfoContext(ctx, "replayed: flushing", "packets", paced.n)
 
