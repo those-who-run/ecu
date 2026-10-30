@@ -1,6 +1,7 @@
 package race
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -57,7 +58,12 @@ func (r joinedRun) noTrackBefore(t *testing.T, name string) {
 
 // AC1: Suzuka, joined on lap 7 of a timed race: session.started says joined on
 // lap 7, every session.kind has the start unknown, and no track is named until
-// the line is crossed, when it is Suzuka Circuit, never Lago Maggiore.
+// the line is crossed, when it is Suzuka Circuit: Lago Maggiore is never named as
+// the track. AC1 is read as the named track only, as v1 has it: frame 1's
+// ambiguous verdict, which names none, lists four Lago Maggiore layouts among its
+// candidates (790 East End Reverse, 795 East End, 1231 East Reverse, 1226 East),
+// v1's own candidates, pinned below so the gap shows; leaving them out would be a
+// departure from v1 for an issue of its own.
 func TestSuzukaJoinedOnLap7(t *testing.T) {
 	const name = "real-nuc-suzuka-joined-mid-race-2026-10-18"
 	r := replayJoined(t, name)
@@ -73,6 +79,16 @@ func TestSuzukaJoinedOnLap7(t *testing.T) {
 		}
 	}
 	r.noTrackBefore(t, name)
+	if len(r.tracks) == 0 || r.tracks[0].GetAt() != 1 {
+		t.Fatal("no verdict on frame 1")
+	}
+	var cands []int32
+	for _, c := range r.tracks[0].GetTrack().GetCandidates() {
+		cands = append(cands, c.GetTrackId())
+	}
+	if want := []int32{790, 846, 442, 795, 1231, 1226, 356, 449}; !slices.Equal(cands, want) {
+		t.Errorf("frame 1's candidates %v, want v1's %v", cands, want)
+	}
 	named := false
 	for _, tr := range r.tracks {
 		got := tr.GetTrack().GetName()
