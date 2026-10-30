@@ -332,6 +332,40 @@ func TestTheEngineStampsEachCallout(t *testing.T) {
 	check(cs[2], 25, asOf.Time, asOf.Time.Add(30*time.Second), 0, eventsv1.PitLane_PIT_LANE_SPEAK)
 }
 
+// paddock#97, R5: a callout that carries a car alarm has its car.alarm event on
+// the frame raised on, just before it, stamped with the session, frame and run
+// and with the catalogue's id, even when the pit lane holds the callout; with no
+// session open there is no event.
+func TestACarAlarmIsPublishedBesideItsCallout(t *testing.T) {
+	raise := &stub{raise: func(*race.Context) []Callout {
+		return []Callout{{Kind: "template_tyre_hot", Alarm: &eventsv1.CarAlarmRaised{
+			Check: eventsv1.CarCheck_CAR_CHECK_TYRE_HOT, ValueC: 125, ThresholdC: 120,
+		}}}
+	}}
+	e := testEngine(t, nil, "temps", raise)
+	out := e.Step(frame(7, false))
+	if len(out) != 2 || out[0].Alarm == nil || out[1].Callout == nil {
+		t.Fatalf("outputs %v, want the alarm then the callout", out)
+	}
+	a := out[0]
+	if a.Event.ID != "sid:car.alarm:tyre_hot:run:7" || a.Session != "sid" || !a.Event.Time.Equal(epoch.Add(7*time.Second)) ||
+		a.Alarm.GetSessionId() != "sid" || a.Alarm.GetAt() != 7 || a.Alarm.GetRunId() != "run" || a.Alarm.GetValueC() != 125 {
+		t.Errorf("alarm %v, %v", a.Event, a.Alarm)
+	}
+	if a.Message() != a.Alarm {
+		t.Error("the output's message is not the alarm")
+	}
+	out = e.Step(frame(8, true))
+	if len(out) != 1 || out[0].Alarm == nil {
+		t.Errorf("in the lane: %v, want the alarm alone, the callout held", out)
+	}
+	none := frame(9, false)
+	none.Session = ""
+	if out := e.Step(none); len(out) != 1 || out[0].Callout == nil {
+		t.Errorf("no session: %v, want the callout alone", out)
+	}
+}
+
 // R8: a rule with a gauge shows it through the engine.
 func TestAGaugeIsShown(t *testing.T) {
 	e := testEngine(t, nil, "fuel", &gauged{})
