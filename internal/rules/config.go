@@ -41,7 +41,7 @@ var defaults = map[string]common{
 	"start_brief":  {priority: 8, pitLane: eventsv1.PitLane_PIT_LANE_HOLD},
 	"race_summary": {priority: 25, pitLane: eventsv1.PitLane_PIT_LANE_SPEAK, maxAge: 30},
 	"temps":        {priority: 14, pitLane: eventsv1.PitLane_PIT_LANE_HOLD},
-	"telemetry":    {priority: 5, pitLane: eventsv1.PitLane_PIT_LANE_HOLD},
+	"telemetry":    {priority: 5, pitLane: eventsv1.PitLane_PIT_LANE_SPEAK}, // v1's watchdog skipped the lane's quiet
 }
 
 var pitLanes = map[string]eventsv1.PitLane{

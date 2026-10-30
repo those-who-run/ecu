@@ -74,8 +74,8 @@ type Builder func(s *Settings) Rule
 
 // Order is v1's rule registry order (rules/__init__.py's REGISTRY), the order the
 // rules run in on each frame. A rule's name is its key in the rules file. The
-// telemetry rule (paddock#98), outside v1's registry, joins it as a Watcher.
-var Order = []string{"lap_time", "fuel", "final_lap", "position", "start_brief", "race_summary", "temps"}
+// telemetry rule (paddock#98), outside v1's registry, joins it last as a Watcher.
+var Order = []string{"lap_time", "fuel", "final_lap", "position", "start_brief", "race_summary", "temps", "telemetry"}
 
 var builders = map[string]Builder{}
 

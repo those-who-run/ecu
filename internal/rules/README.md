@@ -12,7 +12,7 @@ hold, expiry and pit-lane policy. radio only phrases and speaks them.
   settings and the rules file (`config.go`), and `Engine` (`engine.go`).
 - Each rule is **a package of its own**, `internal/rules/<name>` without the
   underscore: `laptime`, `fuel`, `finallap`, `position`, `startbrief`,
-  `racesummary`, `temps`. Its types can't collide with another rule's.
+  `racesummary`, `temps`, `telemetry`. Its types can't collide with another rule's.
 - `internal/rules/all` imports every rule's package, so a program gets them all
   with one blank import.
 - Everything here is under `internal/` for now (the maintainer's default). The
@@ -118,7 +118,8 @@ contract's script key ("The kinds ecu sends, by rule" in `callout.proto`), and
 
 Order within a frame: the released callouts, then each rule's in
 `rules.Order` (v1's registry order: lap_time, fuel, final_lap, position,
-start_brief, race_summary, temps), each in the order raised. v1 ran
+start_brief, race_summary, temps, then telemetry, a `rules.Watcher` outside
+v1's registry), each in the order raised. v1 ran
 `on_finish` and `on_end` after every rule's `evaluate`; here each rule raises
 everything in one `Evaluate`. Rules that read the closed lap see it on the
 frame it closes, against `race.final_lap` and `race.position`. The parity diff
