@@ -542,8 +542,6 @@ func TestAQuitAndBackToTheMenuAreToldApart(t *testing.T) {
 	}{
 		{"real-quali-restart-quit-2026-10-14", []Why{WhyRestart, WhyQuit}},
 		{"real-nuc-spa-pit-cut-quit-2026-10-18", []Why{WhyQuit}},
-		{"real-nuc-tokyo-east-race-2026-10-15", []Why{WhyMenu}},
-		{"real-nuc-tsukuba-brz-drift-2026-10-15", []Why{WhyMenu}},
 		{"real-nuc-spa-time-trial-2026-10-18", []Why{WhyMenu}},
 		{"real-race-2laps-2026-10-14", []Why{WhyMenu, WhyFinished}},
 		{"real-nuc-suzuka-timed-race-2026-10-16", []Why{WhyTimedFinish}},
@@ -567,7 +565,8 @@ func TestAQuitAndBackToTheMenuAreToldApart(t *testing.T) {
 // second event with an id it holds as a duplicate. Two changes of the track on
 // one frame are one session.track (seven of v1's recordings have them), and the
 // kind changes at most once a frame (session.kind, paddock#82). Every recording
-// publishes both. The pit stops' recordings publish pit.entered and pit.exited,
+// publishes both, but the replay and the demos, which publish a
+// session.discarded (paddock#74) and neither. The pit stops' recordings publish pit.entered and pit.exited,
 // SUGO's two of each, and Spa's an entry alone; none publishes a pit.teleport.
 func TestEveryEventIDIsUnique(t *testing.T) {
 	pits := map[string]int{
@@ -593,7 +592,11 @@ func TestEveryEventIDIsUnique(t *testing.T) {
 			}
 			seen[o.Event.ID] = true
 		}
-		for _, what := range []string{":session.track:", ":session.kind:"} {
+		whats := []string{":session.track:", ":session.kind:"}
+		if _, ok := discards[name]; ok {
+			whats = []string{":session.discarded:"}
+		}
+		for _, what := range whats {
 			if !slices.ContainsFunc(slices.Collect(maps.Keys(seen)), func(id string) bool { return strings.Contains(id, what) }) {
 				t.Errorf("%s: no %s event", name, strings.Trim(what, ":"))
 			}

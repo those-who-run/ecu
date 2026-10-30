@@ -5,7 +5,6 @@ Made once from v1 at tag v1.0.0 (those-who-run/those-who-run), in v1's own
 environment (`uv sync --extra engineer`), for each of v1's recordings:
 
     python3 make_golden.py RECORDING > NAME.jsonl
-    python3 make_golden.py --drive RECORDING > NAME.jsonl
 
 It replays the recording as v1's `replay` does, with every rule on and the
 bundled script off (`script: false`: DEFAULT_RULES as they are), into a store of
@@ -25,9 +24,6 @@ its own, and writes one line per event, in order:
 
 Nothing in v1 is changed: the engine's, the store's and the rule's methods are
 wrapped on their instances.
-
---drive takes every start for a drive, as internal/race/testdata/kind/make_golden.py
-says. It is used on the recordings v1 opens no session on.
 """
 
 import copy
@@ -57,7 +53,7 @@ def callout_kind(keys: list[str]) -> str:
     return "template_quit" if "template_quit" in keys else "template"
 
 
-def main(path: Path, drive: bool) -> None:
+def main(path: Path) -> None:
     states = list(read_recording(path, strict=True))
     frame_of: dict[tuple[int, float], list[int]] = {}
     for n, s in enumerate(states, 1):
@@ -69,8 +65,6 @@ def main(path: Path, drive: bool) -> None:
         rules = build_rules(cfg["rules"])
         rule = next(r for r in rules if r.name == "race_summary")
         engine = Engine(rules, CalloutQueue(max_age=None), store)
-        if drive:
-            engine.driver.observe = lambda state: "drive"
         now = {"frame": 0, "session": 0}
         seen: dict[int, int] = {}  # id(state) of a stepped frame: its frame
         raised: list[tuple[object, dict]] = []  # each callout and its line
@@ -215,6 +209,4 @@ def main(path: Path, drive: bool) -> None:
 
 
 if __name__ == "__main__":
-    args = sys.argv[1:]
-    drive = "--drive" in args
-    main(Path([a for a in args if a != "--drive"][0]), drive)
+    main(Path(sys.argv[1]))

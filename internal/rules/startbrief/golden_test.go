@@ -115,14 +115,13 @@ func replay(t *testing.T, name string) []string {
 // R1 to R6, AC1 to AC5, AC7: on every one of v1's recordings, the rule raises
 // v1's callouts, on the same frame, with the kind and slots contracts v0.2.3
 // names for v1's phrases, v1's priority, hold, expiry and pit lane, and what
-// v1's pit lane did with them. The recordings v1 opens no session on (GT7's
-// replays and demo races) are held to v1's engine taking every start for a
-// drive (make_golden.py --drive), as ecu does until paddock#74.
+// v1's pit lane did with them. AC6 (paddock#74): the replay and the demos v1's
+// start check drops (rulestest.Discarded) get no brief.
 func TestTheStartBriefIsV1sOnEveryRecording(t *testing.T) {
 	for _, name := range rulestest.Recordings {
 		t.Run(name, func(t *testing.T) {
 			want := readGolden(t, name)
-			if len(want) == 0 {
+			if len(want) == 0 && !rulestest.Discarded[name] {
 				t.Fatal("an empty golden")
 			}
 			if got := replay(t, name); !slices.Equal(got, want) {

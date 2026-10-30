@@ -211,8 +211,12 @@ type publisher interface {
 func drive(ctx context.Context, src salsa.Source, at func(salsa.Received) time.Time, m *race.Machine,
 	eng *rules.Engine, pub publisher, rec *record.Writer,
 ) error {
+	if eng != nil {
+		// The rules read each frame as the machine leaves it (paddock#89).
+		m.Rules(eng.Step)
+	}
 	for {
-		r, err := next(ctx, src, m, eng, pub)
+		r, err := next(ctx, src, m, pub)
 		if errors.Is(err, io.EOF) {
 			pub.Publish(m.EndOfInput())
 			return nil
@@ -224,12 +228,7 @@ func drive(ctx context.Context, src salsa.Source, at func(salsa.Received) time.T
 		if rec != nil {
 			rec.Write(r)
 		}
-		outs := m.Step(race.Received{Received: r, Time: at(r)})
-		if eng != nil {
-			// The rules read the frame as the machine left it (paddock#89).
-			outs = append(outs, eng.Step(m.Context())...)
-		}
-		pub.Publish(outs)
+		pub.Publish(m.Step(race.Received{Received: r, Time: at(r)}))
 	}
 }
 
@@ -258,7 +257,7 @@ const lossGrace = time.Millisecond
 // then, it publishes what m.Tick and the rules that watch the feed make of the
 // loss, and waits on. A source's Next keeps a packet that comes as its context
 // ends for the next call, as live's does.
-func next(ctx context.Context, src salsa.Source, m *race.Machine, eng *rules.Engine, pub publisher) (salsa.Received, error) {
+func next(ctx context.Context, src salsa.Source, m *race.Machine, pub publisher) (salsa.Received, error) {
 	for {
 		due, ok := m.LostAt()
 		if !ok {
@@ -280,11 +279,8 @@ func next(ctx context.Context, src salsa.Source, m *race.Machine, eng *rules.Eng
 		if err == nil || ctx.Err() != nil || !errors.Is(err, context.DeadlineExceeded) {
 			return r, err
 		}
-		outs := m.Tick(time.Now())
-		if eng != nil && len(outs) > 0 {
-			outs = append(outs, eng.Step(m.Context())...)
-		}
-		pub.Publish(outs)
+		// The rules that watch the feed run inside Tick (race.Machine.Rules).
+		pub.Publish(m.Tick(time.Now()))
 	}
 }
 

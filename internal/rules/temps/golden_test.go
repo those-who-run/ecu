@@ -181,9 +181,9 @@ var pending = map[string]map[string]string{}
 // slots; the engine stamps v1's priority 14 and pit_lane hold; and each one comes
 // with one car.alarm on its frame naming the corners, their temperatures and the
 // threshold. Suzuka joined mid-race has no cold call (AC2); the Tsukuba drift's
-// three calls (AC1) are also pinned without the session, below. The recordings
-// v1 opens no session on are held to v1's engine taking every start for a drive
-// (make_golden.py --drive), as ecu does until paddock#74.
+// three calls (AC1) are pinned without the session, below: the replay and the
+// demos, the drift among them, are dropped by v1's start check and ecu's
+// (paddock#74) and have none.
 func TestTheCallsAreV1sOnEveryRecording(t *testing.T) {
 	total := 0
 	for _, name := range rulestest.Recordings {
@@ -208,16 +208,18 @@ func TestTheCallsAreV1sOnEveryRecording(t *testing.T) {
 			}
 		})
 	}
-	if total == 0 {
-		t.Error("no call in the goldens")
+	// v1's only calls on its recordings are the Tsukuba drift's, a demo its start
+	// check drops (paddock#74): TestTheDriftsHotRearsAreOneCallEachTime pins them.
+	if total != 0 {
+		t.Errorf("%d calls in the goldens, want none", total)
 	}
 }
 
 // AC1: the Tsukuba drift's frames fed to the rule directly, as v1's
 // test_real_drift_rears_are_one_warning_each_time fed them (run_rule: every frame
 // in a race or continuing one from the frame before), with no session and no
-// start check, since the session itself is a GT7 demo that v1 discarded and ecu
-// will (paddock#74). The hot rears are one call each time, three in all, on v1's
+// start check, since the session itself is a GT7 demo that v1 and ecu discard
+// (paddock#74). The hot rears are one call each time, three in all, on v1's
 // frames.
 func TestTheDriftsHotRearsAreOneCallEachTime(t *testing.T) {
 	r := New(DefaultConfig())

@@ -5,7 +5,6 @@ Made once from v1 at tag v1.0.0 (those-who-run/those-who-run), in v1's own
 environment (`uv sync --extra engineer`), for each of v1's recordings:
 
     python3 make_golden.py RECORDING > NAME.jsonl
-    python3 make_golden.py --drive RECORDING > NAME.jsonl
 
 It replays the recording as v1's `replay` does, with every built-in rule on as
 config.DEFAULT_RULES sets them and `script: false` (no rule's state depends on
@@ -19,10 +18,6 @@ decision, in order, on the recording's frame (counted from 1):
   slots (laps, the whole laps v1 said), its priority, hold_secs and
   expiry_secs (the rule's max_age_seconds, else the queue's 8 s), and what
   v1's engine did with it in the pit lane: spoken, held or dropped.
-
---drive takes every start for a drive, as testdata/kind/make_golden.py in
-internal/race says: on the recordings v1 opens no session on (a replay, a GT7
-demo), so the rule sees the frames ecu will until paddock#74.
 """
 
 import copy
@@ -46,7 +41,7 @@ def emit(**kw: object) -> None:
     print(json.dumps(kw))
 
 
-def main(path: Path, drive: bool) -> None:
+def main(path: Path) -> None:
     states = list(read_recording(path, strict=True))
     frame_of: dict[tuple[int, float], list[int]] = {}
     for n, s in enumerate(states, 1):
@@ -57,8 +52,6 @@ def main(path: Path, drive: bool) -> None:
     with tempfile.TemporaryDirectory() as tmp:
         store = SessionStore(Path(tmp))
         engine = Engine(rules, CalloutQueue(max_age=None), store)
-        if drive:
-            engine.driver.observe = lambda state: "drive"
         now = {"frame": 0, "session": 0}
         raised: list = []  # (callout, session, frame, kind, laps)
         outcome: dict[int, str] = {}
@@ -154,6 +147,4 @@ def main(path: Path, drive: bool) -> None:
 
 
 if __name__ == "__main__":
-    args = sys.argv[1:]
-    drive = "--drive" in args
-    main(Path([a for a in args if a != "--drive"][0]), drive)
+    main(Path(sys.argv[1]))

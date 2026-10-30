@@ -60,12 +60,16 @@ var trackFixtures = filepath.Join("..", "track", "testdata", "v1")
 // testdata/pause/make_fixture.py says how.
 var pauseFixtures = filepath.Join("testdata", "pause")
 
+// startFixtures are the start check's own recordings (testdata/start/make_fixture.py
+// says where each comes from, paddock#74).
+var startFixtures = filepath.Join("testdata", "start")
+
 // packets is every packet of a recording, with its wall-clock time: one of
-// salsa's, else one of internal/track's or of the pauses'.
+// salsa's, else one of internal/track's, the start check's or the pauses'.
 func packets(tb testing.TB, name string) []Received {
 	tb.Helper()
 	path := filepath.Join(fixtures(tb), name+".jsonl.gz")
-	for _, dir := range []string{trackFixtures, pauseFixtures} {
+	for _, dir := range []string{trackFixtures, startFixtures, pauseFixtures} {
 		if p := filepath.Join(dir, name+".jsonl.gz"); fileExists(p) {
 			path = p
 		}

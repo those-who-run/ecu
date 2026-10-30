@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/those-who-run/ecu/internal/race"
 	"github.com/those-who-run/ecu/internal/rules"
@@ -73,16 +74,20 @@ func readGolden(t *testing.T, name string) []goldenLine {
 }
 
 // published are a replay's callouts as golden lines: sessions numbered as they
-// start, and a callout published on a frame after the one it was raised on
-// released on that frame.
+// start, and a callout created after the frame it was raised on (held in the
+// pit lane) released on the frame it was published with. A callout raised on a
+// start's held frame comes out with the frame that ends the hold (paddock#74),
+// created as of its own frame: that is not a release.
 func published(out []race.Output) []goldenLine {
 	sessions := map[string]int{}
+	times := map[uint32]time.Time{}
 	var frame uint32
 	var lines []goldenLine
 	for _, o := range out {
 		switch {
 		case o.Frame != nil:
 			frame = o.Frame.GetSeq()
+			times[frame] = o.Event.Time
 		case o.Started != nil:
 			sessions[o.Session] = len(sessions) + 1
 		case o.Callout != nil:
@@ -91,7 +96,7 @@ func published(out []race.Output) []goldenLine {
 				Session: sessions[c.GetSessionId()], Frame: c.GetAt(), Rule: c.GetRule(), Kind: c.GetKind(),
 				Priority: c.GetPriority(), PitLane: strings.ToLower(strings.TrimPrefix(c.GetPitLane().String(), "PIT_LANE_")),
 			}
-			if frame != c.GetAt() {
+			if frame != c.GetAt() && !c.GetCreatedAt().AsTime().Equal(times[c.GetAt()]) {
 				l.Released = frame
 			}
 			lines = append(lines, l)
@@ -152,5 +157,25 @@ func TestEveryCalloutIsV1sOnEveryRecording(t *testing.T) {
 	}
 	if compared == 0 {
 		t.Error("no callout of a registered rule in any golden")
+	}
+}
+
+// paddock#74: over the race replay the driver watched on 2026-10-29
+// (internal/race's testdata/start, frames 134511 to 144497 of the live
+// recording), where ecu spoke a start brief and a race summary, no rule raises
+// anything; session 5, the next start (the fixture's frame 824), is briefed on
+// frame 944, as v1 briefed it.
+func TestNoCalloutOverTheReplayOf20261029(t *testing.T) {
+	var first []string
+	for _, l := range published(rulestest.Replay(t, "real-nuc-short-shift-replay-2026-10-29")) {
+		if l.Frame < 824 || l.Session != 1 {
+			t.Errorf("a callout over the replay: %s", l.show())
+		}
+		if len(first) == 0 {
+			first = append(first, l.show())
+		}
+	}
+	if want := []string{"session 1 frame 944 start_brief template p8 hold"}; !slices.Equal(first, want) {
+		t.Errorf("first callout %v, want %v", first, want)
 	}
 }

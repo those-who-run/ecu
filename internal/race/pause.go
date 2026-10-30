@@ -71,9 +71,20 @@ type pauses struct {
 	limit     float64
 }
 
+// pauseMark is what the clock read on a frame: a pause began or ended on it, and
+// the pause's figures as of that frame. A held start's frames are stepped after
+// the clock has read later ones (start.go), so each frame carries its own.
+type pauseMark struct {
+	began, ended bool
+	kind         eventsv1.PauseKind
+	sinceT       float64   // the pause's start, on the frames' clock
+	since        time.Time // ... and when ecu received that frame
+	secs         float64   // the session's time paused: before the pause that began, with the one that ended
+}
+
 // observe is v1's PauseClock.observe: s as paused when it is a frozen frame, and
 // the clock moved on. It says whether a pause began or ended on s.
-func (c *pauses) observe(s *state, p *salsa.Packet, at time.Time) (began, ended bool) {
+func (c *pauses) observe(s *state, p *salsa.Packet, at time.Time) pauseMark {
 	if k := stillOf(p); !c.seen || k != c.key {
 		c.key, c.seen, c.runT, c.runAt = k, true, s.t, at
 	}
@@ -88,13 +99,13 @@ func (c *pauses) observe(s *state, p *salsa.Packet, at time.Time) (began, ended 
 		if frozen {
 			c.sinceT, c.since = c.runT, c.runAt
 		}
-		return true, false
+		return pauseMark{began: true, kind: c.kind(), sinceT: c.sinceT, since: c.since, secs: c.secs}
 	case s.phase != phasePaused && c.open:
 		c.secs += max(s.t-c.sinceT, 0)
 		c.open = false
-		return false, true
+		return pauseMark{ended: true, kind: c.kind(), sinceT: c.sinceT, since: c.since, secs: c.secs}
 	}
-	return false, false
+	return pauseMark{}
 }
 
 // reset is v1's PauseClock.reset, at a session's start: no pause counted yet. A
@@ -132,29 +143,28 @@ func (m *Machine) SetPauseLimit(secs float64) { m.pauses.limit = max(secs, 0) }
 // pauseEvents publishes the start or the end of a pause in the open session, on
 // the frame it was read on: session.paused for a pause that began with the session
 // open, and session.resumed for one session.paused went out for.
-func (m *Machine) pauseEvents(s *state, t time.Time, began, ended bool) {
-	c := &m.pauses
-	sess := m.session
+func (m *Machine) pauseEvents(s *state) {
+	c, mark, sess, t := &m.pauses, s.pause, m.session, s.received
 	switch {
-	case began && sess != nil:
+	case mark.began && sess != nil:
 		c.count++
 		c.published = true
 		m.out = append(m.out, Output{
 			Event:   m.event(sess.id+":session.paused:"+strconv.Itoa(int(c.count)), t),
 			Session: sess.id,
 			Paused: &eventsv1.SessionPaused{
-				SessionId: sess.id, Kind: c.kind(), SinceT: c.sinceT, Since: timestamppb.New(c.since),
-				PausedMs: pausedMillis(c.secs), At: s.seq, Pause: c.count,
+				SessionId: sess.id, Kind: mark.kind, SinceT: mark.sinceT, Since: timestamppb.New(mark.since),
+				PausedMs: pausedMillis(mark.secs), At: s.seq, Pause: c.count,
 			},
 		})
-	case ended && c.published && sess != nil:
+	case mark.ended && c.published && sess != nil:
 		c.published = false
 		m.out = append(m.out, Output{
 			Event:   m.event(sess.id+":session.resumed:"+strconv.Itoa(int(c.count)), t),
 			Session: sess.id,
 			Resumed: &eventsv1.SessionResumed{
-				SessionId: sess.id, Kind: c.kind(), SinceT: c.sinceT, Since: timestamppb.New(c.since),
-				PauseMs: pausedMillis(s.t - c.sinceT), PausedMs: pausedMillis(c.secs), At: s.seq, Pause: c.count,
+				SessionId: sess.id, Kind: mark.kind, SinceT: mark.sinceT, Since: timestamppb.New(mark.since),
+				PauseMs: pausedMillis(s.t - mark.sinceT), PausedMs: pausedMillis(mark.secs), At: s.seq, Pause: c.count,
 			},
 		})
 	}
@@ -178,10 +188,10 @@ func (m *Machine) endPaused(s *state, t time.Time, why Why) {
 
 // ignore is a frame the machine does not step, after a session ended paused (v1's
 // ended_paused): only the frame goes out, with telemetry.restored when it ends a
-// loss, and the rules are told only the rules that watch the feed run. The
+// loss, and only the rules that watch the feed run on it (Context.Ignored). The
 // context keeps what the step set before (Restored).
-func (m *Machine) ignore(s *state, t time.Time) []Output {
-	m.ctx.Run, m.ctx.Time, m.ctx.Cur, m.ctx.Ignored = m.run, t, s.view(), true
-	m.prev, m.prevTime = s, t
-	return m.out
+func (m *Machine) ignore(s *state) {
+	m.ctx.Run, m.ctx.Time, m.ctx.Cur, m.ctx.Ignored = m.run, s.received, s.view(), true
+	m.prev, m.prevTime = s, s.received
+	m.runRules()
 }

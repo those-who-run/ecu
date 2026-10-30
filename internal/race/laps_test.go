@@ -139,13 +139,13 @@ func readLapGolden(t *testing.T, name string) []string {
 // and counts for the best exactly when v1's lap_time rule counted it; each
 // summary's best lap, fastest lap and GT7's best are what v1 stored, the best but
 // for the difference contracts v0.2.3 gives; and the last lap.best of each session
-// is the summary's best (R3). The recordings v1 opens no session on are held to
-// v1 with every start taken for a drive, as the finish's are.
+// is the summary's best (R3). On the replay and the demos v1's start check drops
+// (paddock#74, discards) there is no session, and no lap.
 func TestEveryLapIsV1sOnEveryRecording(t *testing.T) {
 	for _, name := range v1Recordings {
 		t.Run(name, func(t *testing.T) {
 			got, want := lapLines(t, name), readLapGolden(t, name)
-			if len(want) == 0 {
+			if _, ok := discards[name]; len(want) == 0 && !ok {
 				t.Fatal("an empty golden")
 			}
 			if !slices.Equal(got, want) {

@@ -17,7 +17,8 @@ acceptance criterion, `Part of those-who-run/paddock#N` otherwise
 that takes `salsa` packets one at a time and gives, for each, its frame and the
 events it gives rise to, `session.started`, `pit.entered`, `pit.exited`,
 `pit.teleport`, `race.final_lap`, `race.position`, `session.track`,
-`session.kind`, `session.paused`, `session.resumed`, `lap.completed`, `lap.best`, `race.finished` and `session.ended`, as the `contracts` messages. It opens a session, closes a lap
+`session.kind`, `session.paused`, `session.resumed`, `lap.completed`, `lap.best`, `race.finished`,
+`session.ended` and `session.discarded`, as the `contracts` messages. It opens a session, closes a lap
 and ends a session exactly where v1 did, with v1's rules ported from its
 `state.py`, `engine.py` and `store.py` at v1.0.0 (paddock#33).
 
@@ -49,6 +50,9 @@ and ends a session exactly where v1 did, with v1's rules ported from its
   starts, and its events' ids are `<sid>:<area>.<what>:<part>`, the
   catalogue's form in `contracts`' `subjects.yaml` without the source, which
   `internal/bus` puts in front ([Publishing](#publishing)).
+- **The start check.** A start GT7's cars-on-track flag is off for is held
+  until ecu knows whether it is a drive, a replay or a demo
+  ([The start check](#the-start-check)).
 - **Tests.** The tests replay v1's recordings from `salsa`'s `testdata/v1/` and
   compare the sessions, laps and final session kind with what v1 1.0.0 stored
   for each, in
@@ -57,6 +61,42 @@ and ends a session exactly where v1 did, with v1's rules ported from its
 - **Benchmark.** `go test -run '^$' -bench Replay ./internal/race` replays
   every recording and reports the p50, p99 and max time of a step, per frame
   and per session start, lap close and session end.
+
+## The start check
+
+GT7 sends driving frames for its own race replays and for the demo race it
+plays when the PS5 sits idle on the menu. [`internal/race/start.go`](internal/race/start.go)
+is v1's `DriverCheck` (`sessionkind.py` at v1.0.0) and the hold around it in
+`Engine.process` (paddock#74), with v1's thresholds as named constants.
+
+- **A drive at once.** A start whose first frame has the cars-on-track flag
+  set is a drive: `session.started` on that frame, with no hold. Every drive
+  since 2026-10-16 has it.
+- **The hold.** A start with the flag off is held. The machine still gives
+  each frame, but no event, and the rules (`Machine.Rules`) don't see it. It is
+  a drive as soon as the flag comes on, a replay as soon as the fuel drops more
+  than 0.05 below the highest level of the hold (with a tank), and otherwise,
+  after 3 s or 180 packets, or a pause or an end first, a demo if no loading
+  screen came since the last menu, or if no menu was seen and GT7 reports two
+  or more cars; a drive otherwise.
+- **A drive.** The held frames go through the race state and the rules in
+  turn, as if never held, so `session.started` carries the first held frame's
+  seq and time, and its id is the one minted for the hold.
+- **A replay or a demo.** `session.discarded`, with the reason, v1's evidence
+  sentence and the held frames (`first_seq` to `at`), and nothing else: a
+  session still open is ended first, on the frame before the start, and the
+  frames after are ignored, by the rules and the detectors too, until the next
+  start. The publisher logs one line for it.
+- **The feed lost meanwhile.** A loss during a hold or while a replay or a
+  demo is ignored is still `telemetry.lost`, but the rules are not told of it,
+  as of none of those frames; a hold that becomes a drive opens its session as
+  ever, the return told on its own frame.
+- **Tests.** The SUGO replay and the five demos of v1's recordings each give
+  one `session.discarded` with v1's verdict and evidence, and their goldens
+  have no session; the two-lap race's held drive goes through as if never
+  held. `testdata/start/` holds a cut of the 2026-10-29 race, where the replay
+  the driver watched gives no session and no callout, and
+  `make_fixture.py` there says how it was cut.
 
 ## Track detection
 
@@ -96,7 +136,8 @@ enough to speak and store, and publishes `session.track` each time it changes
 v1.0.0, in [`internal/race/track.go`](internal/race/track.go).
 
 - **Fed by the race state.** Every frame goes to the detector, a session open
-  or not. A restart (the car teleported back to the grid) resets it; a menu or
+  or not, but those of a start held by the start check and of a replay or a
+  demo after it (as v1's engine). A restart (the car teleported back to the grid) resets it; a menu or
   a loading screen at lap 0 resets it by itself, so a rolling start keeps what
   it saw before the line. A session joined part way tells it so (`Join`).
 - **Never downgraded on a blip.** The session's verdict changes only for one
@@ -125,9 +166,8 @@ v1.0.0, in [`internal/race/track.go`](internal/race/track.go).
   same verdict (the last of a frame's), its first 8 candidates and its
   evidence, as
   `make_golden.py` in [`internal/race/testdata/track/`](internal/race/testdata/track)
-  wrote them from v1.0.0. On the six v1 opens no session on (it drops them as a
-  replay or a GT7 demo, paddock#74), each verdict published is checked against
-  v1's detector instead.
+  wrote them from v1.0.0. The six v1 drops as a replay or a GT7 demo
+  ([The start check](#the-start-check)) have none.
 
 ## The session's kind
 
@@ -161,8 +201,7 @@ GT7 sends no mode. [`internal/race/kind.go`](internal/race/kind.go) is v1's
 - **Tests.** On every one of v1's 25 recordings, the `session.kind` events
   and each summary's kind are v1's, evidence word for word, as `make_golden.py`
   in [`internal/race/testdata/kind/`](internal/race/testdata/kind) wrote them
-  from v1.0.0. The six v1 opens no session on (paddock#74) are held to v1's
-  engine with its replay and demo check taking every start for a drive.
+  from v1.0.0. The six v1 drops as a replay or a GT7 demo have none.
 
 ## Listening to the PS5
 
@@ -441,7 +480,8 @@ and never ends a session on its own.
   identical frame. Below 1 km/h identical frames are a car standing still.
 - **First in the step.** The frame is read before anything else sees it: it
   goes out as `PHASE_PAUSED`, and the start check, the detectors, the rules
-  and the lap store read it so. No rule evaluates on a paused frame, so
+  and the lap store read it so: a frozen stream inside a start's hold settles
+  it as a flagged pause does ([The start check](#the-start-check)). No rule evaluates on a paused frame, so
   nothing is said in a pause, and the frame after it is compared with the
   last driving frame (`Bridged` `PHASE_PAUSED`), as v1's rules had it.
 - **The events.** `session.paused` on the frame a pause is read on, in an open
@@ -470,7 +510,7 @@ and never ends a session on its own.
   session, their frames and times, and each summary's `paused_ms` and
   `ended_paused` are v1's, as `make_golden.py` in
   [`internal/race/testdata/pause/`](internal/race/testdata/pause) wrote them
-  from v1.0.0, with every start taken for a drive. No callout is raised on a
+  from v1.0.0. No callout is raised on a
   paused frame of any of them. A slice of the live race of 2026-10-29,
   which `make_fixture.py` there cut, holds a pause GT7 flags and then
   freezes before a quit: two pauses, flagged then frozen, as v1 read them.
@@ -671,6 +711,7 @@ rule.
 | `twr.v1.<src>.evt.<sid>.lap.best` | the session's best lap changed | `EVENTS` |
 | `twr.v1.<src>.evt.<sid>.race.finished` | the race reached its finish, by the flag or timed | `EVENTS` |
 | `twr.v1.<src>.evt.<sid>.session.ended` | a session ended | `EVENTS` |
+| `twr.v1.<src>.evt.<sid>.session.discarded` | a held start was a replay or a demo, not a drive | `EVENTS` |
 | `twr.v1.<src>.evt.<sid>.telemetry.lost`, `.telemetry.restored`, or `evt._.` with no session open | the packets stopped for the timeout, or came back (live only) | `EVENTS` |
 | `twr.v1.<src>.callout.p0`, `.p1`, `.p2` | a callout, on its priority's level ([The callouts](#the-callouts)) | `CALLOUTS` |
 
@@ -688,8 +729,8 @@ rule.
   `<src>:<sid>:race.final_lap:1`, `<src>:<sid>:race.position:<run>:<seq>`,
   `<src>:<sid>:lap.completed:<n>`, `<src>:<sid>:lap.best:<n>` (the lap whose
   end changed the best), `<src>:<sid>:race.finished:1`,
-  `<src>:<sid>:session.paused:<pause>`, `<src>:<sid>:session.resumed:<pause>` or
-  `<src>:<sid>:session.ended:1`, with
+  `<src>:<sid>:session.paused:<pause>`, `<src>:<sid>:session.resumed:<pause>`,
+  `<src>:<sid>:session.ended:1` or `<src>:<sid>:session.discarded:1`, with
   the subject's `<src>`, so two replays
   under different sources are not deduplicated against each other.
   `telemetry.lost` and `telemetry.restored` are

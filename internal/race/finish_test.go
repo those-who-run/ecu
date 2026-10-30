@@ -132,15 +132,14 @@ func readFinishGolden(t *testing.T, name string) []string {
 // v1's engine set finished with a session open, on the same frame, flag or timed,
 // as of the same frame (the flag frame or the timed finish's crossing), with v1's
 // lap and position; its total time and best lap are what v1's summary stored, and
-// the session ends finished, with v1's total time, exactly when v1's did. The
-// recordings v1 opens no session on are held to v1's engine with its DriverCheck
-// taking every start for a drive (make_golden.py --drive), as ecu does until
-// paddock#74.
+// the session ends finished, with v1's total time, exactly when v1's did. On the
+// replay and the demos v1's start check drops (paddock#74, discards) there is no
+// session, and no finish.
 func TestTheFinishIsV1sOnEveryRecording(t *testing.T) {
 	for _, name := range v1Recordings {
 		t.Run(name, func(t *testing.T) {
 			got, want := finishLines(t, name), readFinishGolden(t, name)
-			if len(want) == 0 {
+			if _, ok := discards[name]; len(want) == 0 && !ok {
 				t.Fatal("an empty golden")
 			}
 			if !slices.Equal(got, want) {

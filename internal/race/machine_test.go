@@ -184,11 +184,11 @@ func TestWhy(t *testing.T) {
 
 func TestMessage(t *testing.T) {
 	f, s, l, e := &telemetryv1.Frame{}, &eventsv1.SessionStarted{}, &eventsv1.LapCompleted{}, &eventsv1.SessionEnded{}
-	tr := &eventsv1.SessionTrackChanged{}
+	tr, d := &eventsv1.SessionTrackChanged{}, &eventsv1.SessionDiscarded{}
 	for _, c := range []struct {
 		o    Output
 		want proto.Message
-	}{{Output{Frame: f}, f}, {Output{Started: s}, s}, {Output{Lap: l}, l}, {Output{Track: tr}, tr}, {Output{Ended: e}, e}} {
+	}{{Output{Frame: f}, f}, {Output{Started: s}, s}, {Output{Lap: l}, l}, {Output{Track: tr}, tr}, {Output{Discarded: d}, d}, {Output{Ended: e}, e}} {
 		if c.o.Message() != c.want {
 			t.Errorf("%+v: got %T", c.o, c.o.Message())
 		}

@@ -7,11 +7,10 @@ environment (`uv sync --extra engineer`), for each of v1's recordings:
     python3 make_golden.py RECORDING > NAME.jsonl
 
 It replays the recording as v1's `replay` does, with every rule on and v1's
-defaults (config.DEFAULT_RULES), and v1's start check taking every start for a
-drive, as ecu does until paddock#74 (testdata/kind/make_golden.py in
-internal/race says why; on a recording v1 opens a session on, it changes
-nothing). Nothing in v1 is changed: methods are wrapped on their instances, as
-paddock's parity/v1events.py wraps them, and the kind is named as it names it.
+defaults (config.DEFAULT_RULES), v1's start check among them, which ecu has
+too (paddock#74): a replay or a demo raises nothing. Nothing in v1 is changed:
+methods are wrapped on their instances, as paddock's parity/v1events.py wraps
+them, and the kind is named as it names it.
 
 One line per callout, in the order raised:
 
@@ -66,7 +65,6 @@ def main(path: Path) -> None:
         cfg = copy.deepcopy(DEFAULT_RULES)
         rules = build_rules(cfg["rules"])
         engine = Engine(rules, CalloutQueue(max_age=None), store)
-        engine.driver.observe = lambda state: "drive"
 
         def wrap_rule(rule):
             keys = []

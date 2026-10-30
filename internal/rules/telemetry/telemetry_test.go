@@ -25,8 +25,9 @@ type said struct {
 // stopped runs a recording live, as ecu's drive does, with the watchdog on and
 // every rule of v1's defaults, until stop is true of a frame; then the feed stops
 // for gap, the watchdog ticks at its deadline, and the rest of the recording
-// resumes gap later. It returns the telemetry rule's callouts, the frame the
-// feed stopped on, and what the machine published on the tick.
+// resumes gap later. The machine runs the rules (Machine.Rules). It returns the
+// telemetry rule's callouts, the frame the feed stopped on, and what the machine
+// published on the tick, the rules' callouts included.
 func stopped(t *testing.T, name string, stop func(*race.Context) bool, gap time.Duration) ([]said, race.View, []race.Output) {
 	t.Helper()
 	e, err := rules.New(rules.DefaultConfig(), nil)
@@ -34,6 +35,7 @@ func stopped(t *testing.T, name string, stop func(*race.Context) bool, gap time.
 		t.Fatal(err)
 	}
 	m := race.New(rulestest.IDs())
+	m.Rules(e.Step)
 	m.WatchTelemetry(timeout)
 	var out []said
 	keep := func(os []race.Output, tick bool) {
@@ -46,8 +48,7 @@ func stopped(t *testing.T, name string, stop func(*race.Context) bool, gap time.
 	var shift time.Duration
 	for _, r := range rulestest.Packets(t, name) {
 		r.Time = r.Time.Add(shift)
-		m.Step(r)
-		keep(e.Step(m.Context()), false)
+		keep(m.Step(r), false)
 		if shift == 0 && stop(m.Context()) {
 			last = m.Context().Cur
 			due, ok := m.LostAt()
@@ -57,7 +58,7 @@ func stopped(t *testing.T, name string, stop func(*race.Context) bool, gap time.
 			if lost = m.Tick(due); len(lost) == 0 {
 				t.Fatalf("no loss %v after frame %d", timeout, last.Seq)
 			}
-			keep(e.Step(m.Context()), true)
+			keep(lost, true)
 			shift = gap
 		}
 	}

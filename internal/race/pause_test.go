@@ -109,9 +109,8 @@ func pauseLines(out []Output) []string {
 // PauseClock read in an open session, flagged or frozen, on the same frames,
 // dated from the same frame, and publishes session.paused where it began and
 // session.resumed on the frame after it, with v1's times; each session's summary
-// has v1's paused_ms and ended_paused. As for the finish, the recordings v1 opens
-// no session on are held to v1 taking every start for a drive (--drive), as ecu
-// does until paddock#74.
+// has v1's paused_ms and ended_paused. The replays and demos open no session, in
+// v1 and here (paddock#74).
 func TestThePausesAreV1sOnEveryRecording(t *testing.T) {
 	var pausesSeen int
 	for _, name := range v1Recordings {
@@ -475,5 +474,44 @@ func TestIdenticalFramesAtSpeedAreAFrozenPause(t *testing.T) {
 		if o.Paused != nil || (o.Frame != nil && o.Frame.GetPhase() == phasePaused) {
 			t.Errorf("a pause at a standstill: %v", o.Message())
 		}
+	}
+}
+
+// paddock#74's gap, closed here: the pause clock reads the frame before the start
+// check does, so GT7's frozen stream inside the start's hold settles it as a
+// flagged pause does (v1's Engine.process read the PauseClock first too). The
+// start, with GT7's cars-on-track flag off, is held from frame 2; frame 3 is the
+// same as frame 2 at speed, 1 s on, so it is paused, and the hold ends there, a
+// drive, not at the 3 s window.
+func TestAFrozenPauseInTheStartHoldSettlesIt(t *testing.T) {
+	var h hand
+	h.add(0, false, 100) // 1: the track screen
+	h.add(1, false, 100) // 2: the start, held
+	h.add(1, false, 100) // 3: frame 2 again: frozen
+	h.add(1, false, 100) // 4
+	for i := range h.all {
+		h.all[i].TotalCars = 1
+		if i > 0 {
+			h.all[i].Speed = 30
+		}
+	}
+	m := New(testIDs())
+	var startedOn uint32
+	var paused *eventsv1.SessionPaused
+	for _, r := range h.all {
+		for _, o := range m.Step(r) {
+			if o.Started != nil {
+				startedOn = uint32(r.PacketID) + 1 //nolint:gosec // a handful of packets
+			}
+			if o.Paused != nil {
+				paused = o.Paused
+			}
+		}
+	}
+	if startedOn != 3 {
+		t.Errorf("the hold ended on frame %d, want 3, the frozen frame", startedOn)
+	}
+	if paused == nil || paused.GetKind() != eventsv1.PauseKind_PAUSE_KIND_FROZEN || paused.GetAt() != 3 || paused.GetSinceT() != 1 {
+		t.Errorf("paused %v, want frozen on frame 3, since frame 2", paused)
 	}
 }

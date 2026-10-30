@@ -1,3 +1,0 @@
-{"event": "session.started", "session": 1, "frame": 62}
-{"event": "race.finished", "session": 1, "frame": 864, "kind": "flag", "at": 864, "lap": 12, "position": 9, "session_kind": "lap_race"}
-{"event": "session.ended", "session": 1, "finished": true, "total_time_ms": 259953, "best_lap_ms": 82190, "best_lap": 2}

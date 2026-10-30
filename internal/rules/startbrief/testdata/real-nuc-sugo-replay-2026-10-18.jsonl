@@ -1,2 +1,0 @@
-{"event": "session.started", "session": 1, "frame": 62, "joined": false}
-{"event": "callout", "session": 1, "frame": 182, "kind": "template", "slots": {"track": "Sportsland SUGO", "laps": 12}, "priority": 8, "hold_secs": 0.0, "expiry_secs": 8.0, "pit_lane": "hold", "text": "Sportsland SUGO. Twelve laps.", "outcome": "spoken"}

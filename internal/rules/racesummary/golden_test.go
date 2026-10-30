@@ -129,7 +129,7 @@ func readGolden(t *testing.T, name string) []string {
 	if err := sc.Err(); err != nil {
 		t.Fatal(err)
 	}
-	if sessions == 0 {
+	if sessions == 0 && !rulestest.Discarded[name] {
 		t.Fatal("a golden with no session")
 	}
 	return lines
@@ -139,9 +139,8 @@ func readGolden(t *testing.T, name string) []string {
 // race_summary callouts, frame for frame: in the same session, on the same frame,
 // created as of the same frame (the timed finish's crossing), with the kind
 // contracts v0.2.3 names and the slots v1 said, priority 25, a 30 s life, no
-// hold, and spoken in the pit lane. The recordings v1 opens no session on are
-// held to v1's engine taking every start for a drive (make_golden.py --drive),
-// as ecu does until paddock#74.
+// hold, and spoken in the pit lane. The replay and the demos v1's start check
+// drops (paddock#74) have none.
 //
 // AC1, the practice then the race, "Seven laps" and "Finished sixth":
 // real-race-2laps at frames 75 and 263. AC2, P1 at the flag: suzuka-pit-stop at

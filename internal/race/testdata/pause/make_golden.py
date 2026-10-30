@@ -5,7 +5,7 @@ in an open session, and what each session stored about its pauses, as JSON lines
 Made once from v1 at tag v1.0.0 (those-who-run/those-who-run), in v1's own
 environment (`uv sync --extra engineer`), for each of v1's recordings:
 
-    python3 make_golden.py --drive RECORDING > NAME.jsonl
+    python3 make_golden.py RECORDING > NAME.jsonl
 
 It replays the recording as v1's `replay` does, with no rules (they do not change
 the pauses), into a store of its own, and writes one line per event, in order:
@@ -26,8 +26,9 @@ the pauses), into a store of its own, and writes one line per event, in order:
 
 The milliseconds are v1's round(seconds * 1000).
 
---drive takes every start for a drive, as testdata/kind/make_golden.py says;
-every golden here is made with it.
+--drive takes every start for a drive, as testdata/kind/make_golden.py says.
+The goldens here are made without it, with v1's start check, as ecu has one
+(paddock#74): the six replays and demos open no session.
 """
 
 import json
