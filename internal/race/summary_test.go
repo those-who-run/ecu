@@ -104,7 +104,8 @@ var v1Roles = map[eventsv1.PitRole]string{
 //
 // Times are compared to the millisecond, fuel levels at float32 precision for a
 // recording in v1's rounded format (roundedFixtures).
-func asV1(sum *eventsv1.SessionSummary, want v1Summary, float32s bool) v1Summary {
+func asV1(t *testing.T, sum *eventsv1.SessionSummary, want v1Summary, float32s bool) v1Summary {
+	t.Helper()
 	opt := func(p *int32) *int32 {
 		if p == nil {
 			return nil
@@ -140,6 +141,9 @@ func asV1(sum *eventsv1.SessionSummary, want v1Summary, float32s bool) v1Summary
 	}
 	soloSession := solo(sum.GetSessionType())
 	if soloSession {
+		if sum.FinalPosition != nil {
+			t.Errorf("a solo session's final position %d, want none", sum.GetFinalPosition())
+		}
 		got.FinalPosition = want.FinalPosition
 	}
 	for i, l := range sum.GetLaps() {
@@ -154,6 +158,9 @@ func asV1(sum *eventsv1.SessionSummary, want v1Summary, float32s bool) v1Summary
 			lap.Pit = &r
 		}
 		if soloSession && i < len(want.Laps) {
+			if l.Position != nil {
+				t.Errorf("a solo session's lap %d has position %d, want none", l.GetLap(), l.GetPosition())
+			}
 			lap.Position = want.Laps[i].Position
 		}
 		got.Laps = append(got.Laps, lap)
@@ -203,6 +210,10 @@ func diffs(got, want v1Summary) []string {
 	return out
 }
 
+// maxHeldSecs bounds how much later v1 dated a held start than ecu: the start
+// check's hold, 3 s in the one recording with one (real-race-2laps-2026-10-14).
+const maxHeldSecs = 5
+
 // sessionsOf is each session's session.started and session.ended, in order.
 func sessionsOf(out []Output) (started []*eventsv1.SessionStarted, ended []*eventsv1.SessionEnded) {
 	for _, o := range out {
@@ -235,13 +246,15 @@ func TestEverySummaryIsV1s(t *testing.T) {
 						i+1, sum.GetStartedAt().AsTime(), started[i].GetStartedAt().AsTime())
 				}
 				w := v1AsCompared(want[i], roundedFixtures[name])
-				// A held start: v1's clock read the verdict's frame, later than the
-				// first held frame ecu dates the session from.
-				if got := msOf(sum.GetStartedAt()); w.StartedAt > got &&
-					sum.GetStartedAt().AsTime().Equal(all[started[i].GetFirstSeq()-1].Time) {
+				// A held start, GT7's cars-on-track flag off on its first frame
+				// (start.go): v1's clock read the verdict's frame, at most
+				// maxHeldSecs later than the first held frame ecu dates it from.
+				first := all[started[i].GetFirstSeq()-1]
+				if got := msOf(sum.GetStartedAt()); !first.Flags.CarsOnTrack() &&
+					w.StartedAt > got && w.StartedAt-got <= maxHeldSecs {
 					w.StartedAt = got
 				}
-				if d := diffs(asV1(sum, want[i], roundedFixtures[name]), w); len(d) > 0 {
+				if d := diffs(asV1(t, sum, want[i], roundedFixtures[name]), w); len(d) > 0 {
 					t.Errorf("session %d:\n%s", i+1, strings.Join(d, "\n"))
 				}
 			}
@@ -416,5 +429,24 @@ func TestASessionEndedPausedEndedWhenThePauseBegan(t *testing.T) {
 	sum = endedPaused(t, m.EndOfInput()).GetSummary()
 	if !sum.GetEndedAt().AsTime().Equal(epoch.Add(10*time.Second)) || sum.GetDrivingMs() != 9000 {
 		t.Errorf("ended %v, %d ms driven; want 10 s and 9000", sum.GetEndedAt().AsTime().Sub(epoch), sum.GetDrivingMs())
+	}
+}
+
+// A session continued after an ecu restart (paddock#76) keeps its first run's
+// started_at, so one that then ends paused ended when the pause began, dated
+// from this run's first frame (v1's start_wall), not from started_at.
+func TestEndedPausedIsDatedFromThisRunsStart(t *testing.T) {
+	m := New(testIDs())
+	m.SetPauseLimit(60)
+	var out []Output
+	for i, r := range paused(61).all {
+		out = append(out, m.Step(r)...)
+		if i == 1 { // the session's first frame: it began 30 min before, in another run
+			m.session.summary.StartedAt = timestamppb.New(epoch.Add(-30 * time.Minute))
+		}
+	}
+	sum := endedPaused(t, out).GetSummary()
+	if !sum.GetEndedAt().AsTime().Equal(epoch.Add(11 * time.Second)) {
+		t.Errorf("ended %v, want 11 s: when the pause began", sum.GetEndedAt().AsTime().Sub(epoch))
 	}
 }

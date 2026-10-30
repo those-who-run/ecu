@@ -625,8 +625,12 @@ is the callouts' (paddock#93, #94).
   stops; each verdict, the track and the kind. Ending the session adds only
   what the end knows (`ended_at`, `ended_paused`, `finished`, the total time
   and the finishing position) and publishes it. Continuing a session after an
-  ecu restart (paddock#76) is to keep this value in the KV and read it back;
-  `gaps` is empty until then.
+  ecu restart (paddock#76) can keep this value in the KV, but reading it back
+  also means rebuilding what its per-frame fields are written from (the
+  session's comment in `machine.go` lists them: the run's start, the fuel
+  burnt and its stints, the last field, the pause clock and the time driven
+  and paused before the restart), as v1's `_continue` did. `gaps` is empty
+  until then.
 - **Fuel.** `fuel_burned` is every drop in the level added up, so a refuel
   does not cancel what was burnt before it; `fuel_stints` is the same stint
   by stint, a stint ending where the pit detector says a stop was done, and
@@ -634,7 +638,8 @@ is the callouts' (paddock#93, #94).
   `FuelStints`).
 - **Times.** `started_at` is `session.started`'s; `ended_at` is when the
   packet that ended the session came (the next start's, for a session a start
-  ends), or, ended in a pause, when the pause began; `driving_ms` is the
+  ends), or, ended in a pause, when the pause began, dated from the run's
+  first frame (v1's `start_wall`); `driving_ms` is the
   frames' time from the first frame to the last, less the pauses.
 - **The car.** `car_name`, on `session.started` too, is from the car table,
   [`internal/race/cars.csv`](internal/race/cars.csv): v1's `cars.csv` at

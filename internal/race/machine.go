@@ -312,8 +312,16 @@ type session struct {
 	laps         lapBook // the lap model's view of the laps (laps.go, paddock#83)
 
 	// The running summary (summary.go, paddock#86), and what it is kept from.
+	// sawFrame and summaryAsOf write the summary's fuel_burned, fuel stints,
+	// driving_ms, paused_ms and total_cars from these fields on every frame, so a
+	// summary read back after an ecu restart (paddock#76) is not enough alone:
+	// the continuing run must rebuild these from it first, as v1's
+	// SessionStore._continue did: startT and startWall for this run, fuelBurned,
+	// stints and lastCars, the pause clock's seconds, and the time driven and
+	// paused before the restart, to add to this run's.
 	summary    *eventsv1.SessionSummary
-	startT     float64    // the first frame's t, for the time driven (v1's start_t)
+	startT     float64    // this run's first frame's t, for the time driven (v1's start_t)
+	startWall  time.Time  // ... and when ecu received it (v1's start_wall)
 	stints     fuelStints // the fuel burnt, stint by stint (v1's fuel_stints)
 	fuelBurned float64    // every drop added up (v1's fuel_burned)
 	lastCars   int32      // the last field size seen, 0 for none (v1's last_cars)
@@ -323,7 +331,7 @@ type session struct {
 // session.started fills it (openSummary).
 func newSession(id string, s *state) *session {
 	return &session{
-		id: id, lapStartFuel: s.fuel, startT: s.t,
+		id: id, lapStartFuel: s.fuel, startT: s.t, startWall: s.received,
 		summary: &eventsv1.SessionSummary{}, stints: newFuelStints(),
 	}
 }

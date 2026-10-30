@@ -18,9 +18,10 @@ import (
 // lap, a pit change, the track and the kind. Ending the session is then adding
 // what only the end knows (ended_at, ended_paused, the finish and the end frame's
 // own figures) and publishing it. The running summary is the contracts'
-// SessionSummary itself, so it can be written as it stands into the KV's
-// OpenSession.summary and read back after an ecu restart (paddock#76); gaps stay
-// empty until then.
+// SessionSummary itself, so paddock#76 can write it into the KV's
+// OpenSession.summary. Reading it back is more than taking that value: some of its
+// fields are written each frame from the session's own (session's comment says
+// which), and those must be rebuilt from it first. gaps stay empty until then.
 
 // minStintFuel is v1's MIN_STINT_FUEL: a stint that burnt less is left out of
 // fuel_burned_by_stint (a stop straight after another, a stint the flag cut short).
@@ -176,12 +177,13 @@ func (m *Machine) endSummary(s *state, now time.Time, why Why) *eventsv1.Session
 		sum.FinishingPosition = proto.Int32(sum.GetFinalPosition())
 	}
 	// The pause clock's view of the session (v1's _end_session): whether it ends
-	// paused (endPaused), and, ended in a pause, it ended when that pause began, on
-	// the frames' clock from the start (v1's paused_since).
+	// paused (endPaused), and, ended in a pause, it ended when that pause began,
+	// on the frames' clock from this run's first frame (v1's paused_since and
+	// start_wall): not from started_at, which is the first run's after a restart.
 	sum.EndedPaused = m.endedPaused
 	ended := now
 	if m.pauses.open {
-		ended = minTime(now, sum.GetStartedAt().AsTime().Add(secs(max(m.pauses.sinceT-sess.startT, 0))))
+		ended = minTime(now, sess.startWall.Add(secs(max(m.pauses.sinceT-sess.startT, 0))))
 	}
 	sum.EndedAt = timestamppb.New(ended)
 	return sum
