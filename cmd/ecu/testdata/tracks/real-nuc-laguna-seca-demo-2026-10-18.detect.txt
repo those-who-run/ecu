@@ -1,0 +1,4 @@
+t=6920428.0 lap  2  ambiguous None: 49 layouts near the start still fit, line not yet crossed  [Alsace - Test Course Reverse (0.00), Kyoto Driving Park - Miyabi (0.00), Sardegna - Windmills Reverse (0.00), Sardegna - Windmills (0.00)]
+
+result: ambiguous None (None)
+exit 1

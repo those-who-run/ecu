@@ -1,0 +1,13 @@
+t=6927968.9 lap  0  ambiguous None: 71 layouts near the start still fit, line not yet crossed  [Tsukuba Circuit (0.00), BB Raceway Reverse (0.00), BB Raceway (0.00), Alsace - Test Course Reverse (0.00)]
+t=6927979.0 lap  0  ambiguous None: 78 layouts near the start still fit, line not yet crossed  [Circuit de Barcelona-Catalunya Rallycross (0.00), Willow Springs International Raceway: Horse Thief Mile Reverse (0.00), Willow Springs International Raceway: Horse Thief Mile (0.00), Tsukuba Circuit (0.00)]
+t=6927984.8 lap  1  probable  Sportsland SUGO: finish line crossed in the right direction, no full lap yet  [Sportsland SUGO (0.00, line), Willow Springs International Raceway: Horse Thief Mile Reverse (0.02), Willow Springs International Raceway: Horse Thief Mile (0.02), Brands Hatch Indy Circuit (0.01)]
+t=6928096.5 lap  2  confirmed Sportsland SUGO: finish line crossed, a full lap fits the layout (0.94)  [Sportsland SUGO (0.94, line)]
+t=6928251.6 lap  0  ambiguous None: 71 layouts near the start still fit, line not yet crossed  [Tsukuba Circuit (0.00), BB Raceway Reverse (0.00), BB Raceway (0.00), Alsace - Test Course Reverse (0.00)]
+t=6928253.1 lap  0  ambiguous None: 78 layouts near the start still fit, line not yet crossed  [Circuit de Barcelona-Catalunya Rallycross (0.00), Willow Springs International Raceway: Horse Thief Mile Reverse (0.00), Willow Springs International Raceway: Horse Thief Mile (0.00), Tsukuba Circuit (0.00)]
+t=6928258.9 lap  1  probable  Sportsland SUGO: finish line crossed in the right direction, no full lap yet  [Sportsland SUGO (0.00, line), Willow Springs International Raceway: Horse Thief Mile Reverse (0.02), Willow Springs International Raceway: Horse Thief Mile (0.02), Brands Hatch Indy Circuit (0.01)]
+t=6928304.8 lap  0  ambiguous None: 78 layouts near the start still fit, line not yet crossed  [Circuit de Barcelona-Catalunya Rallycross (0.00), Willow Springs International Raceway: Horse Thief Mile Reverse (0.00), Willow Springs International Raceway: Horse Thief Mile (0.00), Tsukuba Circuit (0.00)]
+t=6928310.6 lap  1  probable  Sportsland SUGO: finish line crossed in the right direction, no full lap yet  [Sportsland SUGO (0.00, line), Willow Springs International Raceway: Horse Thief Mile Reverse (0.02), Willow Springs International Raceway: Horse Thief Mile (0.02), Brands Hatch Indy Circuit (0.01)]
+t=6928397.0 lap  2  confirmed Sportsland SUGO: finish line crossed, a full lap fits the layout (0.99)  [Sportsland SUGO (0.99, line)]
+
+result: confirmed Sportsland SUGO (100001)
+exit 0

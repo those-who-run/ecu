@@ -240,6 +240,7 @@ type Detector struct {
 	crossed      []bool
 	lineKnown    bool // the lap counter has put the car on a layout's line
 	alive        []bool
+	ruledOut     []string // why each layout no longer fits, once it doesn't
 	match        Match
 	joined       bool // see Join
 	partial      bool // the lap in progress is the one joined part way
@@ -271,13 +272,14 @@ func New(tracks []Track, cfg Config) *Detector {
 // grid) or a new start.
 func (d *Detector) Reset() {
 	*d = Detector{
-		cfg:     d.cfg,
-		tracks:  d.tracks,
-		index:   d.index,
-		lines:   d.lines,
-		crossed: make([]bool, len(d.tracks)),
-		alive:   make([]bool, len(d.tracks)),
-		match:   noMatch,
+		cfg:      d.cfg,
+		tracks:   d.tracks,
+		index:    d.index,
+		lines:    d.lines,
+		crossed:  make([]bool, len(d.tracks)),
+		alive:    make([]bool, len(d.tracks)),
+		ruledOut: make([]string, len(d.tracks)),
+		match:    noMatch,
 	}
 	for i := range d.alive {
 		d.alive[i] = true
@@ -298,6 +300,23 @@ func (d *Detector) Match() Match { return d.match }
 func (d *Detector) IsAlive(id int32) bool {
 	i, ok := d.index[id]
 	return ok && d.alive[i]
+}
+
+// RuledOut is why the layout no longer fits, in words, and false while it still
+// does (or the detector has no such layout). It says what the detector saw, for
+// `ecu tracks detect` (paddock#300); the verdict never reads it.
+func (d *Detector) RuledOut(id int32) (string, bool) {
+	i, ok := d.index[id]
+	if !ok || d.alive[i] {
+		return "", false
+	}
+	return d.ruledOut[i], true
+}
+
+// ruleOut drops the layout, saying why.
+func (d *Detector) ruleOut(i int, why string) {
+	d.alive[i] = false
+	d.ruledOut[i] = why
 }
 
 // DistanceM is the metres driven since the reset, teleports excluded.
@@ -513,16 +532,23 @@ func (d *Detector) lapBoundary(a, b Point) {
 		}
 		t := &d.tracks[i]
 		if dist[i] > reach {
-			d.alive[i] = false
+			switch {
+			case t.Direction != direction:
+				d.ruleOut(i, fmt.Sprintf("the lap counter went up heading %s, its line is %s", direction, t.Direction))
+			default:
+				d.ruleOut(i, fmt.Sprintf("the lap counter went up %.0f m from its line, beyond %.0f m", dist[i], reach))
+			}
 			continue
 		}
 		d.crossed[i] = true
 		if !whole {
 			continue // joined part way: the line is all this lap says
 		}
-		if boxIoU(*d.box, t.Box) < d.cfg.MinFit ||
-			(t.LengthM != 0 && math.Abs(d.lapDistance-t.LengthM) > d.cfg.LengthTolerance*t.LengthM) {
-			d.alive[i] = false
+		if fit := boxIoU(*d.box, t.Box); fit < d.cfg.MinFit {
+			d.ruleOut(i, fmt.Sprintf("a whole lap fills %.2f of its box, below %.2f", fit, d.cfg.MinFit))
+		} else if t.LengthM != 0 && math.Abs(d.lapDistance-t.LengthM) > d.cfg.LengthTolerance*t.LengthM {
+			d.ruleOut(i, fmt.Sprintf("a lap of %.0f m, its length is %.0f m ± %.0f%%",
+				d.lapDistance, t.LengthM, 100*d.cfg.LengthTolerance))
 		}
 	}
 	d.lineKnown = true
@@ -536,8 +562,26 @@ func (d *Detector) lapBoundary(a, b Point) {
 func (d *Detector) eliminate() {
 	for i := range d.tracks {
 		if d.alive[i] && !boxContains(d.tracks[i].Box, *d.box, d.cfg.BoxTolerance) {
-			d.alive[i] = false
+			d.ruleOut(i, leftBox(d.tracks[i].Box, *d.box, d.cfg.BoxTolerance))
 		}
+	}
+}
+
+// leftBox says where the driven box left the layout's, for RuledOut: the first
+// side it crossed, in the table's order (x, then z; min, then max).
+func leftBox(outer, inner Box, tolerance float64) string {
+	side := func(axis string, v float64, op string, bound float64, sign string) string {
+		return fmt.Sprintf("path left its box, %s %.0f %s %.0f%s%.0f", axis, v, op, bound, sign, tolerance)
+	}
+	switch {
+	case inner.MinX < outer.MinX-tolerance:
+		return side("x", inner.MinX, "<", outer.MinX, "-")
+	case inner.MaxX > outer.MaxX+tolerance:
+		return side("x", inner.MaxX, ">", outer.MaxX, "+")
+	case inner.MinZ < outer.MinZ-tolerance:
+		return side("z", inner.MinZ, "<", outer.MinZ, "-")
+	default:
+		return side("z", inner.MaxZ, ">", outer.MaxZ, "+")
 	}
 }
 

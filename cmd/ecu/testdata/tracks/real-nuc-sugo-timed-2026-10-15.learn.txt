@@ -1,0 +1,8 @@
+lap length 3530 m over 3 completed lap(s)
+finish line at 97,-229 .. 94,-199  direction PX
+box -534 -266 537 268
+nearest existing lines: [(0, 100001, 'Sportsland SUGO'), (98, 837, 'Fuji International Speedway (Short)'), (98, 16, 'Fuji International Speedway'), (134, 1265, 'Circuit de Barcelona-Catalunya Rallycross'), (134, 125, 'Willow Springs International Raceway: Horse Thief Mile')]
+
+csv row:
+0,NAME,PX,97.394,-228.890,93.866,-199.098,-534.093,-266.038,536.974,268.006,3530
+exit 0

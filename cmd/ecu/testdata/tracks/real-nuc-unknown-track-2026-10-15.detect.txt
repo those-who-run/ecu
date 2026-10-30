@@ -1,0 +1,6 @@
+t=6664907.6 lap  1  ambiguous None: 78 layouts near the start still fit, line not yet crossed  [Willow Springs International Raceway: Horse Thief Mile Reverse (0.00), Willow Springs International Raceway: Horse Thief Mile (0.00), Tsukuba Circuit (0.00), Brands Hatch Indy Circuit (0.00)]
+t=6664908.2 lap  1  probable  Sportsland SUGO: finish line crossed in the right direction, no full lap yet  [Sportsland SUGO (0.00, line), Brands Hatch Indy Circuit (0.00), Autodrome Lago Maggiore - Centre (0.00), Autodrome Lago Maggiore - Centre Reverse (0.00)]
+t=6665007.1 lap  2  confirmed Sportsland SUGO: finish line crossed, a full lap fits the layout (1.00)  [Sportsland SUGO (1.00, line)]
+
+result: confirmed Sportsland SUGO (100001)
+exit 0

@@ -390,6 +390,57 @@ Not here yet, and still paddock#35's: `--seed` for the ULIDs (session and
 event ids are random on each run until then), `--from` and `--to`, and the
 one line per session printed at the end.
 
+## Track tools
+
+`ecu tracks detect PATH` and `ecu tracks learn PATH` are v1's `tracks detect`
+and `tracks learn` (`cli/tracks.py` and `tracktools.py` at v1.0.0) over a v1
+recording, `.jsonl`, `.jsonl.gz` or `-` (paddock#300). They work offline: no
+NATS, no PS5, no file but the one named. Frames are read through `salsa` and
+made into the frames the race state gives, as the detector's goldens are.
+
+```sh
+ecu tracks detect --from 98626 --to 131384 short-shift-2026-10-29-20261029-213510.jsonl.gz
+ecu tracks learn --id 100003 --name "Fuji International Speedway" recording.jsonl.gz
+```
+
+- **detect.** A fresh detector ([Track detection](#track-detection)) is fed
+  every frame. It prints one line per change of its decision (the time, the
+  lap, the confidence, the name, the evidence and the first 4 candidates with
+  their fit and whether their line was crossed), then the result. It exits 0
+  when the result is `confirmed` or `probable`, and 1 otherwise.
+- **learn.** It derives a `tracks.csv` row from the recording's laps, as
+  v1's `learn_track` does ([`internal/track/learn.go`](internal/track/learn.go)).
+  The finish line is where GT7's lap counter first goes up, across the
+  direction of travel and 15 m either side of the car. It also prints the
+  direction, the box over the laps from lap 1 on, the last completed lap's
+  length, and the 5 nearest finish lines in the table. It prints these and
+  the row (`--id`, default 0, and `--name`, default `NAME`), as v1 did. With
+  no completed lap it says so and exits 1. A row is added to the table by
+  hand, in its own PR.
+- **v1's output.** Every line v1 prints is printed as v1 printed it, so the
+  two diff cleanly. `TestTracksDetectIsV1sOnEveryRecording` and
+  `TestTracksLearnIsV1s` hold them to v1.0.0's output, run with ecu's table,
+  as [`cmd/ecu/testdata/tracks/make_golden.py`](cmd/ecu/testdata/tracks/make_golden.py)
+  wrote it.
+- **Beyond v1.** Each line ecu adds starts with two spaces.
+  - `--from N` and `--to N` read only frames N to N (counted from 1, both
+    included), because a live recording holds a whole outing in one file.
+  - A recording whose gzip stream ends damaged, as one cut short by a crash
+    or a kill does, is read up to the damage. A warning on standard error
+    says which frames were read. Only a recording that cannot be read at all
+    is an error (exit 2, as is a bad flag).
+  - detect says why each of the previous line's top 4 candidates that no
+    longer fits was ruled out: the path left its box (`x 667 > 615+50`), the
+    lap counter went up too far from its line or heading the other way, or a
+    whole lap missed its box or its length. When the result names no layout,
+    it lists the 4 finish lines nearest where the lap counter first went up,
+    each with why it was ruled out, or "still fits". The reasons are
+    recorded by the detector (`Detector.RuledOut`). Its verdicts never read
+    them, and the goldens show the verdicts are unchanged.
+- **Not here.** v1's `tracks list` (the maintainer's decision), `tracks
+  backfill` (stored sessions are logbook's) and a stored session as input
+  (v2 has recordings only).
+
 ## Pit stops
 
 GT7 sends no pit flag. [`internal/pit`](internal/pit) finds pit stops from its

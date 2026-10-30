@@ -29,7 +29,9 @@
 // task has died or the telemetry listener cannot hold its port.
 //
 // `ecu replay PATH` replays a v1 recording instead, under a source of its own, and
-// exits at its end (paddock#35): replay.go.
+// exits at its end (paddock#35): replay.go. `ecu tracks detect PATH` and `ecu
+// tracks learn PATH` run v1's track tools over one, offline (paddock#300):
+// tracks.go.
 package main
 
 import (
@@ -76,6 +78,9 @@ const (
 var version = "dev"
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "tracks" {
+		os.Exit(tracks(context.Background(), os.Args[2:], os.Stdin, os.Stdout, os.Stderr))
+	}
 	if len(os.Args) > 1 && os.Args[1] == "replay" {
 		os.Exit(replay(context.Background(), os.Args[2:], os.Getenv, os.Stdin, os.Stdout, os.Stderr))
 	}
