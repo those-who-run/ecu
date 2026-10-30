@@ -1,0 +1,8 @@
+lap length 4580 m over 3 completed lap(s)
+finish line at -10,-196 .. 8,-172  direction PX
+box -638 -663 667 642
+nearest existing lines: [(0, 837, 'Fuji International Speedway (Short)'), (0, 16, 'Fuji International Speedway'), (68, 451, 'Tokyo Expressway - East Counterclockwise'), (84, 747, 'Deep Forest Raceway Reverse'), (84, 51, 'Deep Forest Raceway')]
+
+csv row:
+0,NAME,PX,-10.350,-196.258,7.810,-172.379,-638.425,-663.393,667.137,641.639,4580
+exit 0

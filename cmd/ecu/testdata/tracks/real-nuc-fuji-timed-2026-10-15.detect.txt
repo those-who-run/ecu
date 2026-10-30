@@ -1,0 +1,6 @@
+t=6688369.9 lap  0  ambiguous None: 44 layouts near the start still fit, line not yet crossed  [Autodrome Lago Maggiore - West End (0.00), Autodrome Lago Maggiore - West End Reverse (0.00), Kyoto Driving Park - Miyabi (0.00), Blue Moon Bay Speedway - Infield A (0.00)]
+t=6688376.5 lap  0  ambiguous None: 69 layouts near the start still fit, line not yet crossed  [Autodrome Lago Maggiore - West End (0.00), Autodrome Lago Maggiore - West End Reverse (0.00), Autodrome Lago Maggiore - Centre (0.00), Autodrome Lago Maggiore - Centre Reverse (0.00)]
+t=6688409.0 lap  1  probable  Fuji International Speedway: finish line shared by Fuji International Speedway, Fuji International Speedway (Short); bounds do not separate them; all Fuji International Speedway  [Fuji International Speedway (Short) (0.22, line), Fuji International Speedway (0.22, line), Blue Moon Bay Speedway (0.42), Blue Moon Bay Speedway Reverse (0.42)]
+
+result: probable Fuji International Speedway (16)
+exit 0

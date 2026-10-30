@@ -1,0 +1,6 @@
+t=6928802.4 lap  0  ambiguous None: 64 layouts near the start still fit, line not yet crossed  [Brands Hatch Indy Circuit (0.00), Autodrome Lago Maggiore - West End (0.00), Autodrome Lago Maggiore - West End Reverse (0.00), Autodrome Lago Maggiore - Centre (0.00)]
+t=6928816.1 lap  0  ambiguous None: 37 layouts near the start still fit, line not yet crossed  [Autodrome Lago Maggiore - East End Reverse (0.00), Willow Springs International Raceway: Streets of Willow Springs (0.00), Willow Springs International Raceway: Streets of Willow Springs Reverse (0.00), Red Bull Ring Short Track (0.00)]
+t=6928979.8 lap  2  confirmed Suzuka Circuit: finish line crossed, a full lap fits the layout (0.99)  [Suzuka Circuit (0.99, line)]
+
+result: confirmed Suzuka Circuit (10)
+exit 0

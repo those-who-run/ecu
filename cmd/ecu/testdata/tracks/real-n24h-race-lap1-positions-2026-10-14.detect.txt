@@ -1,0 +1,7 @@
+t=1421762.4 lap  0  ambiguous None: 2 layouts near the start still fit, line not yet crossed  [Nurburgring GP (0.00), Nurburgring 24h (0.00)]
+t=1421910.1 lap  0  ambiguous None: 3 layouts near the start still fit, line not yet crossed  [Nurburgring Nordschleife Tourist Layout (0.00), Nurburgring Nordschleife (0.00), Nurburgring 24h (0.00)]
+t=1421940.4 lap  0  probable  Nurburgring 24h: only layout containing the path after 0.5 km, line not yet crossed  [Nurburgring 24h (0.00)]
+t=1422462.8 lap  2  confirmed Nurburgring 24h: finish line crossed, a full lap fits the layout (0.91)  [Nurburgring 24h (0.91, line)]
+
+result: confirmed Nurburgring 24h (348)
+exit 0

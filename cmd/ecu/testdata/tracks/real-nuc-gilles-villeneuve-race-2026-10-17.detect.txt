@@ -1,0 +1,7 @@
+t=6853205.7 lap  0  ambiguous None: 66 layouts near the start still fit, line not yet crossed  [Alsace - Test Course Reverse (0.00), Autodrome Lago Maggiore - Centre (0.00), Autodrome Lago Maggiore - Centre Reverse (0.00), Blue Moon Bay Speedway - Infield A (0.00)]
+t=6853218.7 lap  0  ambiguous None: 44 layouts near the start still fit, line not yet crossed  [Alsace - Test Course Reverse (0.00), Circuit de Barcelona-Catalunya National (0.00), Sardegna - Road Track - C Reverse (0.00), Sardegna - Road Track - C (0.00)]
+t=6853224.5 lap  1  probable  Circuit Gilles Villeneuve: finish line crossed in the right direction, no full lap yet  [Circuit Gilles Villeneuve (0.00, line), Alsace - Test Course Reverse (0.01), Autopolis International Racing Course - Short Course (0.01), Autopolis International Racing Course (0.00)]
+t=6853322.3 lap  2  confirmed Circuit Gilles Villeneuve: finish line crossed, a full lap fits the layout (0.99)  [Circuit Gilles Villeneuve (0.99, line)]
+
+result: confirmed Circuit Gilles Villeneuve (100002)
+exit 0

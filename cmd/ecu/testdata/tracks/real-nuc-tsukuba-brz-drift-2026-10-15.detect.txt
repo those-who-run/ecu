@@ -1,0 +1,6 @@
+t=6690993.7 lap  0  ambiguous None: 77 layouts near the start still fit, line not yet crossed  [Willow Springs International Raceway: Horse Thief Mile Reverse (0.00), Willow Springs International Raceway: Horse Thief Mile (0.00), Tsukuba Circuit (0.00), Brands Hatch Indy Circuit (0.00)]
+t=6691002.3 lap  1  probable  Tsukuba Circuit: finish line crossed in the right direction, no full lap yet  [Tsukuba Circuit (0.00, line), Brands Hatch Indy Circuit (0.00), BB Raceway Reverse (0.00), BB Raceway (0.00)]
+t=6691077.6 lap  2  confirmed Tsukuba Circuit: finish line crossed, a full lap fits the layout (0.94)  [Tsukuba Circuit (0.94, line)]
+
+result: confirmed Tsukuba Circuit (471)
+exit 0

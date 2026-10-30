@@ -517,4 +517,15 @@ func TestTheFujiRaceOf20261029IsFuji(t *testing.T) {
 	if none != 476 {
 		t.Errorf("with v1.0.0's Fuji rows: none on frame %d, want 476", none)
 	}
+	// And why (paddock#300): the path left the box on lap 1.
+	for id, want := range map[int32]string{
+		fuji: "path left its box, x 667 > 615+50", fujiShort: "path left its box, x 667 > 616+50",
+	} {
+		if why, out := d.RuledOut(id); !out || why != want {
+			t.Errorf("%d ruled out %v: %q, want %q", id, out, why, want)
+		}
+	}
+	if _, out := New(nil, Defaults).RuledOut(fuji); out {
+		t.Error("a fresh detector rules Fuji out")
+	}
 }
