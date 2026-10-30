@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.1.10](https://github.com/those-who-run/ecu/compare/v0.1.9...v0.1.10) (2026-10-30)
+
+
+### Features
+
+* **ecu:** ecu tracks detect and ecu tracks learn, as v1's commands ([#54](https://github.com/those-who-run/ecu/issues/54)) ([9dca62e](https://github.com/those-who-run/ecu/commit/9dca62e1182f094a2d88b207cffdef4a31c77523))
+* **race:** joined_on_lap on a session joined part way ([#50](https://github.com/those-who-run/ecu/issues/50)) ([d16a38f](https://github.com/those-who-run/ecu/commit/d16a38f80e931c29a68e8aede0a10a07648bac94))
+* **race:** the running session summary, the car table and car_name ([#52](https://github.com/those-who-run/ecu/issues/52)) ([f6c93bd](https://github.com/those-who-run/ecu/commit/f6c93bddaaff8241209c4cc8d39115c3f555435f))
+* **status:** the live KV and /healthz idle (ecu.status, ecu.session, ecu.pit, ecu.fuel) ([#53](https://github.com/those-who-run/ecu/issues/53)) ([859bc81](https://github.com/those-who-run/ecu/commit/859bc81b9d667106f1bbfe1c1412a3770fbd0600))
+
+
+### Bug Fixes
+
+* **track:** widen Fuji's box, and show a miss as none ([#51](https://github.com/those-who-run/ecu/issues/51)) ([ff8d51a](https://github.com/those-who-run/ecu/commit/ff8d51a9dfda960f583deb1fde3d5248d4e6f780))
+
 ## [0.1.9](https://github.com/those-who-run/ecu/compare/v0.1.8...v0.1.9) (2026-10-30)
 
 
