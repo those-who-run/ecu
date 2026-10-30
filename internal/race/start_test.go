@@ -269,3 +269,37 @@ func TestTheReplayOf20261029OpensNoSession(t *testing.T) {
 		t.Errorf("got %v, want %v", got, want)
 	}
 }
+
+// A held drive after a replay runs normally: its laps close and its session
+// ends. v1.0.0 kept ignoring the frames after such a drive's hold, so the race
+// went silent until the next start; ecu doesn't (the maintainer's decision,
+// 2026-10-30, paddock#74).
+func TestAHeldDriveAfterAReplayRunsNormally(t *testing.T) {
+	var h hand
+	h.add(1, false, 60) // 1: a replay starts, the flag off: held
+	h.add(1, false, 59) // 2: the fuel drains: discarded
+	h.add(-1, false, 0) // 3: the menu
+	h.add(0, false, 50) // 4: the grid
+	h.add(1, false, 50) // 5: the start, the flag still off: held
+	h.add(1, true, 50)  // 6: the flag comes on: a drive
+	h.add(1, true, 49)  // 7
+	h.add(2, true, 48)  // 8: lap 2
+	h.add(3, true, 47)  // 9: lap 3
+	var whats []string
+	for _, o := range events(run(h.all)) {
+		switch {
+		case o.Started != nil:
+			whats = append(whats, "started "+itoa(o.Started.GetFirstSeq()))
+		case o.Lap != nil:
+			whats = append(whats, "lap "+strconv.Itoa(int(o.Lap.GetLap())))
+		case o.Discarded != nil:
+			whats = append(whats, "discarded "+itoa(o.Discarded.GetFirstSeq())+"-"+itoa(o.Discarded.GetAt()))
+		case o.Ended != nil:
+			whats = append(whats, "ended "+itoa(o.Ended.GetLastSeq())+" "+o.Why.String())
+		}
+	}
+	want := []string{"discarded 1-2", "started 5", "lap 1", "lap 2", "lap 3", "ended 9 input ended"}
+	if !slices.Equal(whats, want) {
+		t.Errorf("got\n%v\nwant\n%v", whats, want)
+	}
+}

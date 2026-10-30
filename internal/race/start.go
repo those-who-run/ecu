@@ -151,6 +151,12 @@ func (m *Machine) hold(s *state) bool {
 	starting := raceStarted(m.prev, s) || restarted
 	if starting && !s.carsOnTrack {
 		c.held, c.before, c.beforeTime, c.id = []*state{s}, m.prev, m.prevTime, m.ids().String()
+		// A new start ends what a replay or a demo left ignored: a drive after the
+		// hold then runs normally, and another replay or demo sets it again. v1.0.0
+		// cleared it only on a frame its hold didn't take, so it dropped the rest
+		// of a held drive after a replay or a demo (the maintainer's decision,
+		// 2026-10-30, paddock#74).
+		c.ignoring = eventsv1.DiscardReason_DISCARD_REASON_UNSPECIFIED
 		c.start(s)
 		m.prev, m.prevTime = s, s.received
 		return true
