@@ -81,9 +81,10 @@ of the end of the step, so a rule sees it on the same frame v1's did.
 | first `FINISHED` frame, and `on_finish(crossing)` | `ctx.Finish` (the frame it finished as of: the flag frame, or the timed finish's line crossing) and `ctx.FinishKind`, on the frame the finish is found, where `race.finished` is |
 | `on_end(last, state)` | `ctx.EndedEarly`: the last driving frame, when the session ended on this frame without a finish (quit, menu). It isn't set on a restart, a new start or the end of the input, as in v1 |
 
-Not in the context yet: the telemetry watchdog's loss and return (#87, for
-#98), and the continued session after an ecu restart (#76, which will set
-`ctx.Joined`).
+| `TelemetryVoice.observe(connected, engine.prev, now)`, from the live watchdog | `ctx.Lost` (`telemetry.lost`, with `Phase`, the last frame's) on a **tick**, `ctx.Tick` set, when no frame came for the timeout; `ctx.Restored` (`telemetry.restored`, with `LostPhase` and `GapMs`) on the first frame after it. On a tick only the rules that implement `rules.Watcher` run, `ctx.Cur` is the last frame (already seen), and `ctx.Time` is the tick's. Live only: a replay never ticks (paddock#87) |
+
+Not in the context yet: the continued session after an ecu restart (#76,
+which will set `ctx.Joined`).
 
 ## What the engine stamps
 

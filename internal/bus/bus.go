@@ -315,7 +315,7 @@ func (p *Publisher) dropFrame(lo bool) {
 func (p *Publisher) event(o race.Output, wait <-chan struct{}) {
 	if o.Started == nil && o.Lap == nil && o.Best == nil && o.Track == nil && o.Kind == nil && o.Ended == nil &&
 		o.PitEntered == nil && o.PitExited == nil && o.PitTeleport == nil && o.FinalLap == nil &&
-		o.Position == nil && o.Finished == nil {
+		o.Position == nil && o.Finished == nil && o.TelemetryLost == nil && o.TelemetryRestored == nil {
 		return
 	}
 	if o.Started != nil {
@@ -331,8 +331,7 @@ func (p *Publisher) event(o race.Output, wait <-chan struct{}) {
 	}
 	sid := o.Session
 	if sid == "" {
-		// No session open: unreachable until events can come with no session
-		// (Prost); TestAnEventWithNoSessionGoesOnEvtUnderscore holds the rule.
+		// No session open: telemetry.lost and telemetry.restored (paddock#87).
 		sid = "_"
 	}
 	msg := &nats.Msg{Subject: "twr.v1." + p.src + ".evt." + sid + "." + areaWhat(h.Get(ce.TypeHeader)), Header: nats.Header(h), Data: data}

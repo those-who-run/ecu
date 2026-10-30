@@ -125,6 +125,10 @@ func (e *Engine) Gauges() map[string]float64 {
 // and id stay those of the frame it was raised on (v1's _release). A session
 // that ends without a finish with callouts held never publishes them, nor does a
 // start: v1 kept them until the next start, which cleared them.
+//
+// On the telemetry watchdog's tick (ctx.Tick, paddock#87), no frame came: only
+// the rules that watch the feed (Watcher) run, as v1's watchdog fed only its
+// TelemetryVoice, and what they raise goes as any rule's does.
 func (e *Engine) Step(ctx *race.Context) []race.Output {
 	if ctx.Started {
 		e.forget()
@@ -138,6 +142,9 @@ func (e *Engine) Step(ctx *race.Context) []race.Output {
 	}
 	inLane := ctx.Pits.InPitLane
 	for _, r := range e.rules {
+		if _, watches := r.rule.(Watcher); ctx.Tick && !watches {
+			continue
+		}
 		for i, c := range e.evaluate(r, ctx) {
 			e.stats.Raised[r.name]++
 			msg := e.callout(r, ctx, c, i+1)
