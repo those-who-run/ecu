@@ -498,8 +498,13 @@ rule.
 
 - **Rules.** `lap_time` (paddock#91), `fuel` ([Fuel](#fuel), paddock#92),
   `final_lap` (paddock#93), `position` (paddock#94), `start_brief`
-  (paddock#95) and `race_summary` (paddock#96) so far; the others (#97 and
-  #98) are each a package under `internal/rules`.
+  (paddock#95), `race_summary` (paddock#96) and `temps` (paddock#97) so far;
+  the telemetry rule (#98) will be a package under `internal/rules` too.
+- **Car alarms.** Each firing of `temps` (a tyre, the water or the oil hot, or
+  cold tyres at the start) is also published as `car.alarm` (contracts'
+  `CarAlarmRaised`) on `twr.v1.<src>.evt.<sid>.car.alarm`, from the same
+  decision as the callout, just before it, whatever the pit lane does with the
+  callout. Its id is `<src>:<sid>:car.alarm:<check>:<run>:<seq>`.
 - **Where in the step.** The context holds each value as v1's rules saw it in
   `Engine._step` (after the pits, before the timed finish, the track, the kind
   and the lap store), plus the lap closed, the finish and the end of the
@@ -523,7 +528,9 @@ rule.
   the other rules carry on.
 - **Tests.** `internal/rules/testdata/callouts` holds every callout v1.0.0
   raised on each of the 25 recordings, written by its `make_golden.py`; the
-  callouts of every registered rule are compared with it.
+  callouts of every registered rule are compared with it. A callout ecu raises
+  that v1 did not, until an open issue fixes it, is listed with the issue
+  (`pending` in its `golden_test.go`), and must still be raised.
 
 ## Fuel
 

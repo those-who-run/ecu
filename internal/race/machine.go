@@ -137,8 +137,8 @@ func (w Why) Reason() eventsv1.EndReason {
 
 // Output is a frame or an event, with its CloudEvents id and time: exactly one of
 // Frame, Started, Lap, Best, Track, Kind, PitEntered, PitExited, PitTeleport,
-// FinalLap, Position, Finished, Ended and Callout is set, each the contracts message of that name
-// (Callout is the rule engine's, internal/rules). SessionStarted's
+// FinalLap, Position, Finished, Ended, Callout and Alarm is set, each the contracts message of that name
+// (Callout and Alarm are the rule engine's, internal/rules). SessionStarted's
 // source is left empty: only the publisher knows the <src> it publishes under, and
 // sets it (internal/bus).
 type Output struct {
@@ -175,6 +175,10 @@ type Output struct {
 	// Callout is a callout the rule engine raised (internal/rules, paddock#89),
 	// on twr.v1.<src>.callout.<level>: never the machine's own.
 	Callout *eventsv1.Callout
+	// Alarm is a car alarm a rule raised beside its callout (the temps rule,
+	// paddock#97), on twr.v1.<src>.evt.<sid>.car.alarm, with the id
+	// <sid>:car.alarm:<check>:<run>:<seq>: never the machine's own.
+	Alarm *eventsv1.CarAlarmRaised
 
 	// Why is why the session ended, set with Ended; SessionEnded's reason is
 	// Why.Reason().
@@ -210,6 +214,8 @@ func (o Output) Message() proto.Message {
 		return o.Finished
 	case o.Callout != nil:
 		return o.Callout
+	case o.Alarm != nil:
+		return o.Alarm
 	default:
 		return o.Ended
 	}
