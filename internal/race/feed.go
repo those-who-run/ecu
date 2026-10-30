@@ -58,6 +58,7 @@ func (m *Machine) Tick(now time.Time) []Output {
 	if !ok || now.Before(due) {
 		return nil
 	}
+	m.now = now
 	prev := m.prev
 	seq := strconv.FormatUint(uint64(prev.seq), 10)
 	lost := &eventsv1.TelemetryLost{

@@ -500,8 +500,9 @@ and never ends a session on its own.
   ends in has no `session.resumed`; one that ends on a frame that also ends
   the session (a quit or a restart from the pause menu) has, before the end.
 - **The summary.** `paused_ms` is the session's time paused, on the frames'
-  clock, so a replay gives the same totals. `driving_ms` and `ended_at` are
-  paddock#86's.
+  clock, so a replay gives the same totals; `driving_ms` is the rest of the
+  session's time, and a session that ends paused has the pause's start as its
+  `ended_at` ([The session summary](#the-session-summary)).
 - **Ending paused.** The session ends paused (`ended_paused`), on its last
   frame, when the feed is lost during the pause (the watchdog's
   `Machine.Tick`, live only, paddock#87: `END_REASON_TELEMETRY_LOST`), a
@@ -609,6 +610,42 @@ is the callouts' (paddock#93, #94).
   wrote them from v1.0.0 (the position with v1's settings for the event, and
   v1's calls with `rules.example.yaml`'s), the six v1 opens no session on with
   every start taken for a drive.
+
+## The session summary
+
+`session.ended` carries the session's summary, v1's `summary.json`
+(`SessionStore.end_session` at v1.0.0, paddock#86), in
+[`internal/race/summary.go`](internal/race/summary.go).
+
+- **Kept all session.** The summary is a running one, the contracts'
+  `SessionSummary` in the open session: the start fills the car, the laps it
+  runs, the lap it was joined on and the fuel; each frame the session takes,
+  the fuel burnt, the time driven and paused, and the last position and field;
+  each lap, the laps and the best laps; each pit change, the stints and the
+  stops; each verdict, the track and the kind. Ending the session adds only
+  what the end knows (`ended_at`, `ended_paused`, `finished`, the total time
+  and the finishing position) and publishes it. Continuing a session after an
+  ecu restart (paddock#76) is to keep this value in the KV and read it back;
+  `gaps` is empty until then.
+- **Fuel.** `fuel_burned` is every drop in the level added up, so a refuel
+  does not cancel what was burnt before it; `fuel_stints` is the same stint
+  by stint, a stint ending where the pit detector says a stop was done, and
+  `fuel_burned_by_stint` leaves out the stints under 1 litre (v1's
+  `FuelStints`).
+- **Times.** `started_at` is `session.started`'s; `ended_at` is when the
+  packet that ended the session came (the next start's, for a session a start
+  ends), or, ended in a pause, when the pause began; `driving_ms` is the
+  frames' time from the first frame to the last, less the pauses.
+- **The car.** `car_name`, on `session.started` too, is from the car table,
+  [`internal/race/cars.csv`](internal/race/cars.csv): v1's `cars.csv` at
+  v1.0.0, byte for byte, 590 cars from ddm999/gt7info (MIT-0,
+  [`NOTICE`](NOTICE)). A car missing from it is `car <code>`.
+- **Tests.** On every one of v1's 25 recordings, each session's summary is
+  v1's `summary.json`, field for field with every lap, as `make_golden.py` in
+  [`internal/race/testdata/summary/`](internal/race/testdata/summary) wrote
+  it from v1.0.0, but for three named departures: no position outside a
+  field, the best lap where contracts v0.2.3 differs, and a held start's
+  `started_at`, its first held frame's where v1's clock read the verdict's.
 
 ## The callouts
 

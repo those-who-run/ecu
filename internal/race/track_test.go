@@ -264,7 +264,7 @@ func TestNoVerdictPublishesMoreThan8Candidates(t *testing.T) {
 func TestTheSessionKeepsItsBestVerdict(t *testing.T) {
 	suzuka, _ := track.ByID(10)
 	m := New(testIDs())
-	m.session = &session{id: "S"}
+	m.session = newSession("S", &state{})
 	s := &state{seq: 1}
 	apply := func(id int32, c track.Confidence, evidence string) bool {
 		m.out = nil

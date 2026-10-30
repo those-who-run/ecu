@@ -27,8 +27,10 @@
 // start GT7's cars-on-track flag is off for and drops a replay or a demo race,
 // v1's DriverCheck and Engine.process (start.go here, paddock#74), and the
 // pauses, flagged and frozen, from v1's PauseClock and Engine._end_paused
-// (pause.go here, paddock#77). What else v1's engine reads (continuing after a
-// restart) is not here yet.
+// (pause.go here, paddock#77), and the session's summary, v1's summary.json from
+// SessionStore.end_session, kept as a running summary all session (summary.go
+// here, paddock#86). What else v1's engine reads (continuing after a restart) is
+// not here yet.
 package race
 
 import (
@@ -284,8 +286,9 @@ type Machine struct {
 	endedPaused bool   // the session ended in a pause: ignored until the next start
 
 	out    []Output
-	ctx    Context // the frame as the rules read it (context.go, paddock#89)
-	joined bool    // the session was joined part way (v1's rule.joined)
+	now    time.Time // when ecu received the packet being taken, or the tick's time
+	ctx    Context   // the frame as the rules read it (context.go, paddock#89)
+	joined bool      // the session was joined part way (v1's rule.joined)
 	// trackChanges are the verdicts applied to a session since the rules last
 	// saw one, for Context.TrackChanges.
 	trackChanges []*track.Match
@@ -307,6 +310,22 @@ type session struct {
 	kind         *kindVerdict // the kind verdict applied to the session, nil for none (v1's Session.kind)
 	pits         pitCounts
 	laps         lapBook // the lap model's view of the laps (laps.go, paddock#83)
+
+	// The running summary (summary.go, paddock#86), and what it is kept from.
+	summary    *eventsv1.SessionSummary
+	startT     float64    // the first frame's t, for the time driven (v1's start_t)
+	stints     fuelStints // the fuel burnt, stint by stint (v1's fuel_stints)
+	fuelBurned float64    // every drop added up (v1's fuel_burned)
+	lastCars   int32      // the last field size seen, 0 for none (v1's last_cars)
+}
+
+// newSession is a session that opens on s, its running summary empty until its
+// session.started fills it (openSummary).
+func newSession(id string, s *state) *session {
+	return &session{
+		id: id, lapStartFuel: s.fuel, startT: s.t,
+		summary: &eventsv1.SessionSummary{}, stints: newFuelStints(),
+	}
 }
 
 // lapFrames are the frames of the lap in progress (v1's Session.buffer): their seqs,
@@ -353,6 +372,7 @@ func (m *Machine) Run() string { return m.run }
 // and the best it gave the session, the race's finish, and the end of the session.
 func (m *Machine) Step(r Received) []Output {
 	m.seq++
+	m.now = r.Time
 	s := newState(m.seq, r.T, &r.Packet)
 	// A frozen frame is read as the pause it is before anything else sees it, the
 	// frame that goes out included (v1's Engine.process).
@@ -498,6 +518,7 @@ func (m *Machine) step(s *state) {
 		// v1's set_pits on a race's end, before end_session: the lap the session
 		// ends in takes its role from the pits as they are now.
 		m.session.laps.pits = m.pits.Status()
+		m.summaryPits(m.session.laps.pits)
 		why := WhyQuit
 		switch {
 		case m.finish.kind == eventsv1.FinishKind_FINISH_KIND_FLAG:
@@ -557,16 +578,18 @@ func (m *Machine) event(id string, t time.Time) ce.Event {
 // start opens a session on its first driving frame (v1's SessionStore.start_session).
 func (m *Machine) start(s *state, t time.Time, joined bool) {
 	id := m.sessionID()
-	m.session = &session{id: id, lapStartFuel: s.fuel}
+	m.session = newSession(id, s)
 	started := &eventsv1.SessionStarted{
 		SessionId:     id,
 		Game:          eventsv1.Game_GAME_GT7,
 		SessionType:   m.kinds.kind(),
 		CarCode:       s.carCode,
+		CarName:       carName(s.carCode),
 		JoinedPartWay: joined,
 		FirstSeq:      s.seq,
 		StartedAt:     timestamppb.New(t),
 		FuelAtStart:   s.fuel,
+		FuelCapacity:  s.fuelCapacity,
 	}
 	if s.totalLaps > 0 {
 		total := s.totalLaps
@@ -578,6 +601,7 @@ func (m *Machine) start(s *state, t time.Time, joined bool) {
 		lap := s.lap
 		started.JoinedOnLap = &lap
 	}
+	m.session.summary = openSummary(started, s)
 	m.out = append(m.out, Output{
 		Event:   m.event(id+":session.started:1", t),
 		Session: id,
@@ -597,6 +621,7 @@ func (m *Machine) observe(prev, s *state, t time.Time) {
 			m.session.laps.gt7BestMs = s.bestLapMs
 		}
 	}
+	m.sawFrame(prev, s)
 	if lapCompleted(prev, s) {
 		m.closeLap(prev.lap, s, t, true)
 	}
@@ -661,6 +686,7 @@ func (m *Machine) closeLap(lap int32, s *state, t time.Time, complete bool) {
 		Lap:     ev,
 	})
 	m.publishBest(lap, last, t)
+	m.summaryLap(ev)
 }
 
 // end closes the open session on s, its last frame (v1's SessionStore.end_session):
@@ -674,41 +700,11 @@ func (m *Machine) end(s *state, t time.Time, why Why) {
 	if s.phase == phaseFinished {
 		why = WhyFinished
 	}
-	// The final verdict decides the positions: none outside a field, and a
-	// finishing position only for a lap race at the flag (contracts v0.1.4).
-	kind := m.kinds.kind()
-	final := s.racePosition()
-	if final == 0 {
-		final = sess.lastPosition
-	}
-	summary := &eventsv1.SessionSummary{
-		LapsCompleted: sess.completed,
-		FuelUsed:      round3(sess.lapsFuelUsed),
-		SessionType:   kind,
-		Finished:      m.finish.kind != eventsv1.FinishKind_FINISH_KIND_UNSPECIFIED,
-	}
-	if total, ok := sess.laps.totalTimeMs(); ok && summary.Finished {
-		summary.TotalTimeMs = &total
-	}
-	lapSummary(summary, &sess.laps)
-	if sess.track != nil {
-		summary.Track = verdict(*sess.track)
-	}
-	if sess.kind != nil {
-		summary.Kind = sess.kind.message()
-	}
-	pitSummary(summary, m.pits.Status())
-	// The pause clock's view of the session (v1's _end_session): its time paused
-	// up to s, and whether it ends in a pause (endPaused). When that pause began
-	// is the summary's ended_at, paddock#86's with driving_ms.
-	summary.PausedMs = pausedMillis(m.pauses.pausedFor(s.t))
-	summary.EndedPaused = m.endedPaused
-	if final != 0 && !solo(kind) {
-		summary.FinalPosition = &final
-		if why == WhyFinished && kind == eventsv1.SessionType_SESSION_TYPE_LAP_RACE {
-			summary.FinishingPosition = &final
-		}
-	}
+	// The running summary as of s, with the end's own fields (summary.go). The
+	// final verdict on the kind decides the positions: none outside a field, and
+	// a finishing position only for a lap race at the flag (contracts v0.1.4).
+	m.summaryPits(m.pits.Status())
+	summary := m.endSummary(s, m.now, why)
 	m.out = append(m.out, Output{
 		Event:   m.event(sess.id+":session.ended:1", t),
 		Session: sess.id,

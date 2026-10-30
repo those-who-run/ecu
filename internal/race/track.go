@@ -54,6 +54,7 @@ func (m *Machine) applyTrack(match track.Match, s *state, t time.Time) {
 		}
 	}
 	sess.track = &match
+	sess.summary.Track = verdict(match)
 	m.trackChanges = append(m.trackChanges, sess.track)
 	seq := strconv.FormatUint(uint64(s.seq), 10)
 	out := Output{
@@ -83,6 +84,7 @@ func (m *Machine) finalTrack() {
 	final := m.tracks.Match()
 	if held := m.session.track; held != nil && sameDecision(final, *held) && final.Family == held.Family {
 		m.session.track = &final
+		m.session.summary.Track = verdict(final)
 	}
 }
 

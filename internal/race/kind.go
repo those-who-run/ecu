@@ -255,6 +255,7 @@ func (m *Machine) applyKind(s *state, t time.Time) {
 	sess := m.session
 	v := m.kinds.verdict()
 	sess.kind = &v
+	sess.summary.Kind, sess.summary.SessionType = v.message(), v.kind
 	seq := strconv.FormatUint(uint64(s.seq), 10)
 	m.out = append(m.out, Output{
 		Event:   m.event(sess.id+":session.kind:"+m.run+":"+seq, t),
