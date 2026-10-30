@@ -48,31 +48,65 @@ func continueWindow(getenv func(string) string) (time.Duration, error) {
 var loadTimeout = 10 * time.Second
 
 // loadKept reads the record an earlier run left under src, tried each second
-// for loadTimeout; with none, or none read, the run starts with nothing to
-// continue, which is logged.
-func loadKept(ctx context.Context, kv sessions.KV, src string, logger *slog.Logger) (*statev1.OpenSession, uint64) {
+// for loadTimeout. ok is false when it could not be read (no bucket, or NATS out
+// of reach), which is logged; with none there, open is nil and ok true.
+func loadKept(ctx context.Context, kv sessions.KV, src string, logger *slog.Logger) (open *statev1.OpenSession, rev uint64, ok bool) {
 	wait, cancel := context.WithTimeout(ctx, loadTimeout)
 	defer cancel()
 	for {
 		open, rev, err := sessions.Load(wait, kv, src)
-		if errors.Is(err, bus.ErrNoBucket) {
-			logger.WarnContext(ctx, "no bucket for the open session: nothing to continue, nothing kept", "bucket", sessions.Bucket)
-			return nil, 0
-		}
 		if err == nil {
 			if open != nil {
 				logger.InfoContext(ctx, "an open session from the last run", "session", open.GetSessionId(),
 					"last_seen_at", open.GetLastSeenAt().AsTime(), "run", open.GetRunId())
 			}
-			return open, rev
+			return open, rev, true
+		}
+		if errors.Is(err, bus.ErrNoBucket) {
+			logger.WarnContext(ctx, "no bucket for the open session", "bucket", sessions.Bucket)
+			return nil, 0, false
 		}
 		select {
 		case <-wait.Done():
-			logger.WarnContext(ctx, "the last run's open session cannot be read: nothing to continue", "key", sessions.Key(src), "err", err)
-			return nil, 0
+			logger.WarnContext(ctx, "the last run's open session cannot be read yet", "key", sessions.Key(src), "err", err)
+			return nil, 0, false
 		case <-time.After(time.Second):
 		}
 	}
+}
+
+// loaded is a record read late, and its revision.
+type loaded struct {
+	open *statev1.OpenSession
+	rev  uint64
+}
+
+// lateEvery is how often live tries again to read a record it could not read
+// at start.
+var lateEvery = 5 * time.Second
+
+// loadLate keeps trying to read the record live could not read at start, and
+// hands it to the drive once it has: the drive gives it to the race state while
+// the run has opened no session (race.Machine.Restore). After that the Keeper
+// ends it before its first write (sessions.Keeper).
+func loadLate(ctx context.Context, kv sessions.KV, src string, logger *slog.Logger) <-chan loaded {
+	out := make(chan loaded, 1)
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(lateEvery):
+			}
+			open, rev, err := sessions.Load(ctx, kv, src)
+			if err == nil {
+				logger.InfoContext(ctx, "the last run's open session read", "session", open.GetSessionId())
+				out <- loaded{open, rev}
+				return
+			}
+		}
+	}()
+	return out
 }
 
 // keeping is what the drive keeps of the open session: the Keeper, the clock of
@@ -83,6 +117,27 @@ type keeping struct {
 	k        *sessions.Keeper
 	now      func() time.Time
 	keepOpen bool
+	// late is the record read after the drive began (loadLate), nil for none to
+	// wait for, and window the continue window it is given with.
+	late   <-chan loaded
+	window time.Duration
+}
+
+// restoreLate gives the race state a record read late, if one has come: while
+// the run has opened no session it decides it, and the Keeper clears it at its
+// revision; otherwise the Keeper ends it before its first write.
+func (kp *keeping) restoreLate(m *race.Machine) {
+	if kp == nil || kp.late == nil {
+		return
+	}
+	select {
+	case l := <-kp.late:
+		kp.late = nil
+		if m.Restore(l.open, kp.window) {
+			kp.k.Loaded(l.rev)
+		}
+	default:
+	}
 }
 
 // kept is a publisher that hands the Keeper what a step changed: the end of a

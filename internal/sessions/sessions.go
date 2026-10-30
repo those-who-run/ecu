@@ -89,9 +89,15 @@ type Keeper struct {
 	src    string
 	pub    Publisher
 	logger *slog.Logger
-	loaded uint64 // the revision of the record the run read at start, 0 for none
+	now    func() time.Time
+	replay bool // a missing bucket keeps nothing for the rest of the run
 
-	mu       sync.Mutex
+	mu     sync.Mutex
+	loaded uint64 // the revision of the record the run read at start, 0 for none
+	// decided says the record under the key is the run's to write over: it
+	// read it at start (Loaded), or found none, or its own, or ended the one it
+	// found before its first write (check).
+	decided  bool
 	ops      []op
 	wake     chan struct{}
 	failing  bool // the last write failed, and that was logged
@@ -99,20 +105,27 @@ type Keeper struct {
 }
 
 // New is a Keeper of src's record in kv, which the run read at revision loaded
-// (Load; 0 for none), publishing the end of that record's session on pub.
+// (Load; 0 for none or not read yet), publishing the end of that record's
+// session on pub.
 func New(kv KV, src string, loaded uint64, pub Publisher, logger *slog.Logger) *Keeper {
 	return &Keeper{
-		kv: kv, key: Key(src), src: src, pub: pub, logger: logger, loaded: loaded,
-		wake: make(chan struct{}, 1),
+		kv: kv, key: Key(src), src: src, pub: pub, logger: logger, loaded: loaded, decided: loaded > 0,
+		wake: make(chan struct{}, 1), now: time.Now,
 	}
 }
 
+// Replay makes it a replay's Keeper: with the bucket missing, as outside the
+// stack, it keeps nothing for the rest of the run and never waits on it. Live's
+// tries again each second.
+func (k *Keeper) Replay() { k.replay = true }
+
 // Loaded says the run read the record at revision rev, after New (Load; 0 for
-// none): the revision the end of its session clears it at.
+// none) and gave it to the race state, which decides it: the revision the end
+// of its session clears it at.
 func (k *Keeper) Loaded(rev uint64) {
 	k.mu.Lock()
 	defer k.mu.Unlock()
-	k.loaded = rev
+	k.loaded, k.decided = rev, true
 }
 
 // Put keeps open as the open session's record: the latest of those waiting is
@@ -135,7 +148,8 @@ func (k *Keeper) End(o race.Output) { k.add(op{end: &o}) }
 
 func (k *Keeper) add(o op) {
 	k.mu.Lock()
-	if n := len(k.ops); o.put != nil && n > 0 && k.ops[n-1].put != nil {
+	// ops[0] may be the one Flush is writing: a record never collapses into it.
+	if n := len(k.ops); o.put != nil && n > 1 && k.ops[n-1].put != nil {
 		k.ops[n-1] = o
 	} else {
 		k.ops = append(k.ops, o)
@@ -196,12 +210,14 @@ func (k *Keeper) Flush(ctx context.Context) bool {
 		k.mu.Unlock()
 		var err error
 		if !k.noBucket {
-			err = k.do(ctx, o)
+			err = k.check(ctx, o)
+			if err == nil {
+				err = k.do(ctx, o)
+			}
 		}
-		if errors.Is(err, bus.ErrNoBucket) {
-			// A deployment without the bucket keeps nothing for the rest of the
-			// run: said once, never waited on (a replay outside the stack has
-			// none).
+		if errors.Is(err, bus.ErrNoBucket) && k.replay {
+			// A replay outside the stack keeps nothing for the rest of the run:
+			// said once, never waited on.
 			if !k.noBucket {
 				k.logger.ErrorContext(ctx, "the open session cannot be kept: no bucket", "bucket", Bucket, "err", err)
 				k.noBucket = true
@@ -262,6 +278,61 @@ func (k *Keeper) do(ctx context.Context, o op) error {
 	default:
 		return k.clear(ctx, o.clear)
 	}
+}
+
+// check is what goes before the run's first write when it never read the key at
+// start (the read failed, or came after the run's first session): a record
+// another session left there is that session's only trace, so it ends it from
+// the record, once it has cleared it with a revision check, before writing over
+// it. A record of the session o is about, or none, is the run's to write.
+func (k *Keeper) check(ctx context.Context, o op) error {
+	k.mu.Lock()
+	decided := k.decided
+	k.mu.Unlock()
+	if decided {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, opTimeout)
+	defer cancel()
+	data, rev, err := k.kv.Entry(ctx, k.key)
+	if errors.Is(err, bus.ErrNoKey) {
+		k.decide()
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	open := &statev1.OpenSession{}
+	if err := ce.Unmarshal(data, open); err != nil || open.GetSessionId() == "" || open.GetSessionId() == o.session() {
+		k.decide()
+		return nil //nolint:nilerr // nothing to end: a record of no session, or this one's
+	}
+	if err := k.kv.DeleteIf(ctx, k.key, rev); err != nil {
+		return err // changed since it was read: read it again
+	}
+	k.decide()
+	end := race.EndRecorded(open, k.now(), "the run could not read it before its first session")
+	k.logger.InfoContext(ctx, "the session the last run left is not continued: ended",
+		"session", end.Session, "why", end.NotContinued)
+	k.pub.Publish([]race.Output{end})
+	return nil
+}
+
+func (k *Keeper) decide() {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	k.decided = true
+}
+
+// session is the id of the session the op is about.
+func (o op) session() string {
+	switch {
+	case o.put != nil:
+		return o.put.GetSessionId()
+	case o.end != nil:
+		return o.end.Session
+	}
+	return o.clear
 }
 
 // clear clears the key while it holds the session sid: a value another session

@@ -103,17 +103,19 @@ func ended(sid string) race.Output {
 	}
 }
 
-// R1: the latest record waiting is the one written, under the source's key, with
+// R1: the latest record waiting behind the first is the one written, under the source's key, with
 // the source set; a session ended live clears only its own record.
 func TestTheKeeperWritesTheLatestAndClearsItsOwn(t *testing.T) {
 	kv := newMemKV()
 	k := New(kv, "live", 0, &pubs{}, quiet())
+	// The first may be in flight, so it stays; the two behind it collapse.
 	k.Put(&statev1.OpenSession{SessionId: "A", Pauses: 1})
 	k.Put(&statev1.OpenSession{SessionId: "A", Pauses: 2})
-	if !k.Flush(t.Context()) || kv.puts != 1 {
-		t.Fatalf("%d puts, want the two collapsed to one", kv.puts)
+	k.Put(&statev1.OpenSession{SessionId: "A", Pauses: 3})
+	if !k.Flush(t.Context()) || kv.puts != 2 {
+		t.Fatalf("%d puts, want the last two collapsed to one", kv.puts)
 	}
-	if r := kv.record(t, "sessions.open.live"); r.GetPauses() != 2 || r.GetSource() != "live" {
+	if r := kv.record(t, "sessions.open.live"); r.GetPauses() != 3 || r.GetSource() != "live" {
 		t.Errorf("record %v, want the last, under live", r)
 	}
 	k.Clear("B") // another session's end: not this record
@@ -201,5 +203,111 @@ func TestLoadOfNothing(t *testing.T) {
 	}
 	if Key("parity") != "sessions.open.parity" {
 		t.Error(Key("parity"))
+	}
+}
+
+// gatedKV holds each PutRev until it is let go, to catch a write in flight.
+type gatedKV struct {
+	*memKV
+	started chan string
+	gate    chan struct{}
+}
+
+func (k *gatedKV) PutRev(ctx context.Context, key string, value []byte) (uint64, error) {
+	open := &statev1.OpenSession{}
+	_ = ce.Unmarshal(value, open)
+	k.started <- open.GetSessionId()
+	<-k.gate
+	return k.memKV.PutRev(ctx, key, value)
+}
+
+// A record given while the one before it is being written is written after it,
+// never dropped: a stop's record during a slow lap write is the last word.
+func TestARecordDuringAWriteIsNotLost(t *testing.T) {
+	kv := &gatedKV{memKV: newMemKV(), started: make(chan string, 4), gate: make(chan struct{})}
+	k := New(kv, "live", 0, &pubs{}, quiet())
+	k.Loaded(0)
+	k.Put(&statev1.OpenSession{SessionId: "A", Entries: 1})
+	done := make(chan bool)
+	go func() { done <- k.Flush(t.Context()) }()
+	if got := <-kv.started; got != "A" {
+		t.Fatalf("writing %s, want A", got)
+	}
+	k.Put(&statev1.OpenSession{SessionId: "A", Entries: 2}) // the stop's, while A's is in flight
+	kv.gate <- struct{}{}
+	select {
+	case <-kv.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the stop's record was never written")
+	}
+	kv.gate <- struct{}{}
+	if !<-done {
+		t.Fatal("not flushed")
+	}
+	if r := kv.record(t, Key("live")); r.GetEntries() != 2 || k.Pending() != 0 {
+		t.Errorf("record %v, %d pending; want the stop's, entries 2", r, k.Pending())
+	}
+}
+
+// A run that could not read the key at start ends the session another run left
+// there before its first write over it, at the revision it read; a record of its
+// own session, or none, it writes over.
+func TestTheFirstWriteEndsARecordNeverRead(t *testing.T) {
+	kv := newMemKV()
+	old := &statev1.OpenSession{SessionId: "OLD", LastSeenAt: nil, Summary: &eventsv1.SessionSummary{LapsCompleted: 3}}
+	data, _ := ce.Marshal(old)
+	_, _ = kv.PutRev(t.Context(), Key("live"), data)
+	p := &pubs{}
+	k := New(kv, "live", 0, p, quiet()) // never loaded
+	k.Put(&statev1.OpenSession{SessionId: "NEW"})
+	if !k.Flush(t.Context()) {
+		t.Fatal("not flushed")
+	}
+	if len(p.outs) != 1 || p.outs[0].Session != "OLD" || !p.outs[0].Kept ||
+		p.outs[0].Ended.GetReason() != eventsv1.EndReason_END_REASON_ENGINEER_STOPPED ||
+		p.outs[0].Ended.GetSummary().GetLapsCompleted() != 3 {
+		t.Fatalf("published %v, want OLD's end from its record", p.outs)
+	}
+	if r := kv.record(t, Key("live")); r.GetSessionId() != "NEW" {
+		t.Errorf("record %v, want NEW's", r)
+	}
+	// Decided: the next write checks nothing.
+	k.Put(&statev1.OpenSession{SessionId: "NEW", Pauses: 1})
+	k.Flush(t.Context())
+	if len(p.outs) != 1 {
+		t.Errorf("%d published, want still 1", len(p.outs))
+	}
+	// A record of its own session is written over without an end.
+	own := New(kv, "live", 0, p, quiet())
+	own.Put(&statev1.OpenSession{SessionId: "NEW", Pauses: 2})
+	own.Flush(t.Context())
+	if len(p.outs) != 1 {
+		t.Errorf("its own record ended: %v", p.outs)
+	}
+}
+
+// noBucketKV is a bucket the bootstrap has not made.
+type noBucketKV struct{ *memKV }
+
+func (noBucketKV) Entry(context.Context, string) ([]byte, uint64, error) {
+	return nil, 0, bus.ErrNoBucket
+}
+func (noBucketKV) PutRev(context.Context, string, []byte) (uint64, error) {
+	return 0, bus.ErrNoBucket
+}
+
+// Live keeps trying while the bucket is missing; a replay keeps nothing and
+// never waits.
+func TestAMissingBucket(t *testing.T) {
+	live := New(noBucketKV{newMemKV()}, "live", 0, &pubs{}, quiet())
+	live.Put(&statev1.OpenSession{SessionId: "A"})
+	if live.Flush(t.Context()) || live.Pending() != 1 {
+		t.Errorf("live dropped its record with no bucket: %d pending", live.Pending())
+	}
+	replay := New(noBucketKV{newMemKV()}, "replay-x", 0, &pubs{}, quiet())
+	replay.Replay()
+	replay.Put(&statev1.OpenSession{SessionId: "A"})
+	if !replay.Flush(t.Context()) || replay.Pending() != 0 {
+		t.Errorf("a replay waited on a missing bucket: %d pending", replay.Pending())
 	}
 }

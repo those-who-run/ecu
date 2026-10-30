@@ -213,10 +213,16 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout,
 		m.WatchTelemetry(liveCfg.TelemetryTimeout) // live only (paddock#87)
 		// Read here, not before serving: with NATS still out of reach, /healthz
 		// answers meanwhile, and the packets wait in the listener.
-		open, rev := loadKept(driveCtx, ecuKV, busCfg.Src, logger)
-		keeper.Loaded(rev)
-		m.Restore(open, window)
-		_ = drive(driveCtx, src, at, m, eng, pub, rec, tracker, &keeping{k: keeper, now: time.Now})
+		// Not read, it is read again in the background, and the drive takes it
+		// while the run has opened no session (keeping.restoreLate).
+		kp := &keeping{k: keeper, now: time.Now, window: window}
+		if open, rev, ok := loadKept(driveCtx, ecuKV, busCfg.Src, logger); ok {
+			keeper.Loaded(rev)
+			m.Restore(open, window)
+		} else {
+			kp.late = loadLate(driveCtx, ecuKV, busCfg.Src, logger)
+		}
+		_ = drive(driveCtx, src, at, m, eng, pub, rec, tracker, kp)
 	}()
 	writeCtx, stopWriting := context.WithCancel(context.WithoutCancel(ctx))
 	written := make(chan struct{})
@@ -373,6 +379,7 @@ func drive(ctx context.Context, src salsa.Source, at func(salsa.Received) time.T
 		if rec != nil {
 			rec.Write(r)
 		}
+		kp.restoreLate(m)
 		pub.Publish(m.Step(race.Received{Received: r, Time: at(r)}))
 	}
 }

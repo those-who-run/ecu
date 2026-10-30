@@ -756,8 +756,9 @@ A restart in the middle of a race does not split it (paddock#76, v1's
   a pause in progress included, and publishes no `session.ended`: a departure
   from what ecu did before (`END_REASON_ENGINEER_STOPPED` at the stop), by the
   triage's decision.
-- **The next run.** It reads the record at start. Its first start decides
-  it, as v1's did: a session joined part way within
+- **The next run.** It reads the record at start (tried for 10 s; live tries
+  again every 5 s after that, and takes it while it has opened no session). Its
+  first start decides it, as v1's did: a session joined part way within
   `TWR_ECU_CONTINUE_WINDOW_SECS` (600 s) of the record's last frame, in the
   same car, with GT7's cars-on-track flag, lap total and field the same, and
   not on an earlier lap, continues it: the same id, `session.continued` with
@@ -774,10 +775,19 @@ A restart in the middle of a race does not split it (paddock#76, v1's
   `END_REASON_ENGINEER_STOPPED`: the lap it was on as a partial lap, a stop it
   was in as an open stop, and ended paused, as of the pause's start, when it
   was in one.
+- **Never read.** A run that could not read the record before its first
+  session reads the key before its first write: a record of another session
+  there is ended from it, as above, before the run writes over it. Live keeps
+  trying while the bucket is missing; a replay outside the stack keeps
+  nothing.
 - **Once.** That end is published only after ecu has cleared the record it
   read, with a revision check (a KV compare-and-set): of two runs that read it,
   one clears it and ends the session, and the other ends nothing. The end's
-  `Nats-Msg-Id` is the backup.
+  `Nats-Msg-Id` is the backup. It can reach `EVENTS` after the new session's
+  `session.started`: each is keyed by its session's id.
+- **A line crossed in the gap.** The lap the record was on is kept as a
+  partial lap of the summary, as v1's shutdown flushed it, and the lap the run
+  joins on is the gap's.
 - **Tests.** Suzuka's restart pair (the old pod's view, then the new pod's 8.7 s
   later), continued, with another car, 11 min apart and with a window of 0,
   gives what v1.0.0 let go of in each, field for field, as `make_golden.py` in

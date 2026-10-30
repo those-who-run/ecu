@@ -528,3 +528,77 @@ func lap5(t *testing.T) int {
 	t.Helper()
 	return packetOf(t, beforeRestart, func(o Output) bool { return o.Lap != nil && o.Lap.GetLap() == 5 }) + 20
 }
+
+// A restart in the pit lane of a later stop: the record the continuing run keeps
+// still holds the stops completed before it, not only those since (the open
+// stop alone is left out).
+func TestARecordInThePitLaneKeepsTheStopsDone(t *testing.T) {
+	const name = "real-nuc-sugo-two-stops-2026-10-18"
+	all := packets(t, name)
+	at := packetOf(t, name, func(o Output) bool { return o.PitEntered != nil && o.PitEntered.GetEntry() == 2 }) + 30
+	a := New(testIDs())
+	for _, r := range all[:at+1] {
+		a.Step(r)
+	}
+	rec := a.Open()
+	if n := len(rec.GetSummary().GetPitStops()); n != 1 || rec.GetPitEntry().GetEntry() != 2 {
+		t.Fatalf("the first run's record: %d stops, entry %v; want 1 done and entry 2 open", n, rec.GetPitEntry())
+	}
+	b := New(NewIDs(func() time.Time { return epoch.Add(time.Hour) }, rand.NewChaCha8([32]byte{'t', 'w', 'o'})))
+	b.Restore(rec, window)
+	for _, r := range all[at+1 : at+4] {
+		r.Time = r.Time.Add(2 * time.Second)
+		b.Step(r)
+	}
+	again := b.Open()
+	if n := len(again.GetSummary().GetPitStops()); n != 1 || again.GetPitEntry().GetEntry() != 2 {
+		t.Errorf("the continuing run's record: %d stops, entry %v; want 1 done and entry 2 open", n, again.GetPitEntry())
+	}
+}
+
+// A line crossed in the gap: the lap the record was on is a partial lap of the
+// summary, as v1's shutdown flushed it, and the lap the run joins on is the gap's.
+func TestALineCrossedInTheGapKeepsThatLap(t *testing.T) {
+	all := packets(t, beforeRestart)
+	at := packetOf(t, beforeRestart, func(o Output) bool { return o.Lap != nil && o.Lap.GetLap() == 4 }) + 20
+	a := New(testIDs())
+	for _, r := range all[:at+1] {
+		a.Step(r)
+	}
+	rec := a.Open()
+	if rec.GetLap().GetLap() != 5 {
+		t.Fatalf("the record is on lap %d, want 5", rec.GetLap().GetLap())
+	}
+	join := at + 1
+	for all[join].CurrentLap < 6 {
+		join++
+	}
+	join += 5
+	b := New(NewIDs(func() time.Time { return epoch.Add(time.Hour) }, rand.NewChaCha8([32]byte{'t', 'w', 'o'})))
+	b.Restore(rec, window)
+	var out []Output
+	for _, r := range all[join:] {
+		r.Time = r.Time.Add(2 * time.Second)
+		out = append(out, b.Step(r)...)
+	}
+	out = append(out, b.EndOfInput()...)
+	sum := lastSummary(out)
+	var laps []string
+	var used float64
+	for _, l := range sum.GetLaps() {
+		laps = append(laps, fmt.Sprintf("%d:%t", l.GetLap(), l.GetComplete()))
+		used += l.GetFuelUsed()
+	}
+	if got := strings.Join(laps, " "); got != "1:true 2:true 3:true 4:true 5:false 6:false 7:false" {
+		t.Errorf("laps %s, want 1 to 4 complete, then 5, 6 (the gap's) and 7 partial", got)
+	}
+	if l6 := sum.GetLaps()[5]; l6.GetLapTimeMs() <= 0 {
+		t.Errorf("the gap's lap 6 has no time: %v", l6)
+	}
+	if round3(used) != sum.GetFuelUsed() {
+		t.Errorf("fuel used %.3f, the laps' %.3f", sum.GetFuelUsed(), round3(used))
+	}
+	if !b.opened || b.Restore(rec, window) {
+		t.Error("a record taken after the run opened a session")
+	}
+}

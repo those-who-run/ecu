@@ -8,6 +8,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/those-who-run/contracts/ce"
 	eventsv1 "github.com/those-who-run/contracts/gen/go/twr/events/v1"
 	statev1 "github.com/those-who-run/contracts/gen/go/twr/state/v1"
 	"github.com/those-who-run/ecu/internal/pit"
@@ -52,13 +53,21 @@ type kept struct {
 
 // Restore gives the machine the record of the session an earlier ecu run left
 // open (sessions.open.<src>) and the continue window
-// (TWR_ECU_CONTINUE_WINDOW_SECS; 0 never continues): before the first packet.
-// A nil record, or one with no session, is none.
-func (m *Machine) Restore(open *statev1.OpenSession, window time.Duration) {
+// (TWR_ECU_CONTINUE_WINDOW_SECS; 0 never continues): before the run's first
+// session. A nil record, or one with no session, is none.
+//
+// It says whether it took the record: once the run has opened a session, it is
+// too late to continue one, and the machine leaves the record to the caller,
+// who ends it (internal/sessions).
+func (m *Machine) Restore(open *statev1.OpenSession, window time.Duration) bool {
+	if m.opened {
+		return false
+	}
 	m.kept = kept{}
 	if open.GetSessionId() != "" {
 		m.kept = kept{open: open, window: max(window, 0)}
 	}
+	return true
 }
 
 // Waiting says the machine holds a record Restore gave it that is not decided
@@ -149,8 +158,13 @@ func (m *Machine) continueSession(open *statev1.OpenSession, s *state, t time.Ti
 	sum.Gaps = append(sum.Gaps, gap)
 	// The lap the gap falls in is one lap (R4), from where it started.
 	sess.gapLap = gap.GetLap()
-	if l := open.GetLap(); l != nil && l.GetLap() == s.lap {
+	switch l := open.GetLap(); {
+	case l != nil && l.GetLap() == s.lap:
 		sess.lapStartFuel = l.GetFuelAtStart()
+	case l != nil && l.GetLap() < s.lap:
+		// The car crossed the line in the gap: the lap the record was on ended
+		// unseen, a partial lap, as v1's shutdown flushed it.
+		addPartialLap(open, sum)
 	}
 	// What sawFrame and summaryAsOf write each frame, from the summary.
 	sess.drivenBefore, sess.pausedBefore = sum.GetDrivingMs(), sum.GetPausedMs()
@@ -201,6 +215,9 @@ func (m *Machine) continueSession(open *statev1.OpenSession, s *state, t time.Ti
 		m.published = p
 	}
 	m.session = sess
+	// The summary's stops as the detector now holds them, an open one last, as
+	// on any pit change.
+	m.summaryPits(sess.laps.pits)
 	// The track, carried: known at once, and still open to the detector ruling it
 	// out (R6, paddock#81 R4), as any verdict is (applyTrack).
 	var carried *eventsv1.TrackVerdict
@@ -262,13 +279,21 @@ func stopOf(p *eventsv1.PitStop) pit.Stop {
 	}
 }
 
-// endKept ends the recorded session from its record alone, at now (v1's
-// release_held, with the summary a shutdown wrote): the lap it was on closes as
-// a partial lap, a stop it was in is an open stop, and a session left in a
-// pause ended paused, when the pause began. It is Output.Kept.
+// endKept ends the recorded session from its record alone, at now: EndRecorded.
 func (m *Machine) endKept(now time.Time, why string) {
 	open := m.kept.open
 	m.kept = kept{}
+	m.out = append(m.out, EndRecorded(open, now, why))
+}
+
+// EndRecorded is the end of the session a record holds, from the record alone,
+// at now (v1's release_held, with the summary a shutdown wrote): the lap it was
+// on closes as a partial lap, a stop it was in is an open stop, and a session
+// left in a pause ended paused, when the pause began. It is Output.Kept, with
+// why it was not continued. The machine gives it when it decides a record
+// (Restore); the caller makes it for a record it finds that the run never
+// decided (internal/sessions).
+func EndRecorded(open *statev1.OpenSession, now time.Time, why string) Output {
 	sum := proto.CloneOf(open.GetSummary())
 	id := open.GetSessionId()
 	if e := open.GetPitEntry(); e != nil {
@@ -280,15 +305,7 @@ func (m *Machine) endKept(now time.Time, why string) {
 		}
 		sum.PitStops = append(sum.PitStops, stop)
 	}
-	if l := open.GetLap(); l != nil {
-		used := round3(l.GetFuelAtStart() - sum.GetFuelAtEnd())
-		lap := &eventsv1.LapCompleted{
-			SessionId: id, Lap: l.GetLap(), FuelAtStart: l.GetFuelAtStart(), FuelAtEnd: sum.GetFuelAtEnd(),
-			FuelUsed: used, PitRole: l.GetPitRole(), Position: sum.FinalPosition,
-		}
-		sum.Laps = append(sum.Laps, lap)
-		sum.FuelUsed = round3(sum.GetFuelUsed() + used)
-	}
+	addPartialLap(open, sum)
 	ended := open.GetLastSeenAt()
 	if p := open.GetPause(); p != nil {
 		sum.EndedPaused = true
@@ -297,14 +314,31 @@ func (m *Machine) endKept(now time.Time, why string) {
 		}
 	}
 	sum.EndedAt = ended
-	m.out = append(m.out, Output{
-		Event:   m.event(id+":session.ended:1", now),
+	return Output{
+		Event:   ce.Event{ID: id + ":session.ended:1", Source: Source, Time: now},
 		Session: id,
 		Ended: &eventsv1.SessionEnded{
 			SessionId: id, Reason: WhyStopped.Reason(), Summary: sum,
 		},
 		Why: WhyStopped, Kept: true, NotContinued: why,
+	}
+}
+
+// addPartialLap adds the record's open lap to sum as a partial lap, as v1's end
+// of a session flushed the lap in progress: not complete, untimed, ending at the
+// record's last fuel level. The partial lap is the summary's only: its frames
+// were the earlier run's, so no lap.completed goes out for it.
+func addPartialLap(open *statev1.OpenSession, sum *eventsv1.SessionSummary) {
+	l := open.GetLap()
+	if l == nil {
+		return
+	}
+	used := round3(l.GetFuelAtStart() - sum.GetFuelAtEnd())
+	sum.Laps = append(sum.Laps, &eventsv1.LapCompleted{
+		SessionId: open.GetSessionId(), Lap: l.GetLap(), FuelAtStart: l.GetFuelAtStart(), FuelAtEnd: sum.GetFuelAtEnd(),
+		FuelUsed: used, PitRole: l.GetPitRole(), Position: sum.FinalPosition,
 	})
+	sum.FuelUsed = round3(sum.GetFuelUsed() + used)
 }
 
 // Open is the open session's record for the KV (statev1.OpenSession), as of its
@@ -319,9 +353,10 @@ func (m *Machine) Open() *statev1.OpenSession {
 		return nil
 	}
 	sum := proto.CloneOf(sess.summary)
-	// The record's summary has only the stops a pit.exited carried.
-	if m.pits.InPitLane() && len(sum.GetPitStops()) > 0 {
-		sum.PitStops = sum.PitStops[:len(sum.PitStops)-1]
+	// The record's summary has only the stops a pit.exited carried: an open one
+	// is last, with no lane time.
+	if n := len(sum.GetPitStops()); n > 0 && sum.GetPitStops()[n-1].PitLaneMs == nil {
+		sum.PitStops = sum.PitStops[:n-1]
 	}
 	sum.EndedAt, sum.EndedPaused = nil, false
 	open := &statev1.OpenSession{

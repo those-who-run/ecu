@@ -300,6 +300,7 @@ type Machine struct {
 	pauses      pauses // the pause clock (pause.go, v1's Engine.pauses)
 	endedPaused bool   // the session ended in a pause: ignored until the next start
 	kept        kept   // the session an earlier run left open (continue.go, paddock#76)
+	opened      bool   // the run has opened a session: too late for Restore
 
 	out    []Output
 	now    time.Time // when ecu received the packet being taken, or the tick's time
@@ -624,6 +625,7 @@ func (m *Machine) event(id string, t time.Time) ce.Event {
 // (continue.go): a join that matches it continues it, and anything else ends it
 // first.
 func (m *Machine) start(s *state, t time.Time, joined bool) {
+	m.opened = true
 	if m.resume(s, t, joined) {
 		return
 	}

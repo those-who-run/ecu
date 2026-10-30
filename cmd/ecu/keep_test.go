@@ -248,3 +248,73 @@ func (r recorder) Publish([]race.Output) {
 		*r.laps = append(*r.laps, l)
 	}
 }
+
+// laterDrive is the second run of the pair with the record not read at start:
+// late, when set, hands it over as loadLate would, before the first packet.
+func laterDrive(t *testing.T, kv *revKV, late bool) *fakePublisher {
+	t.Helper()
+	open, rev, err := sessions.Load(t.Context(), kv, "live")
+	if err != nil || open == nil {
+		t.Fatalf("no record: %v", err)
+	}
+	pub := &fakePublisher{}
+	k := sessions.New(kv, "live", 0, pub, discard())
+	kp := &keeping{k: k, window: defaultContinueWindow}
+	if late {
+		ch := make(chan loaded, 1)
+		ch <- loaded{open, rev}
+		kp.late = ch
+	}
+	epoch := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	m := race.New(race.NewIDs(func() time.Time { return epoch }, rand.NewChaCha8([32]byte{'e', 'c', 'u', 3})))
+	in := readAll(t, openRecording(t, trackRecording(t, joinedMidRace)))
+	start := open.GetLastSeenAt().AsTime().Add(8700 * time.Millisecond)
+	t0 := in[0].T
+	at := func(r salsa.Received) time.Time {
+		return start.Add(time.Duration(math.Round((r.T - t0) * float64(time.Second))))
+	}
+	_ = drive(t.Context(), &slice{all: in}, at, m, nil, pub, nil, nil, kp)
+	if !k.Flush(t.Context()) {
+		t.Fatal("the keeper did not flush")
+	}
+	return pub
+}
+
+// A record read late, before the run's first session, is still continued.
+func TestARecordReadLateIsContinued(t *testing.T) {
+	kv := newRevKV()
+	keptDrive(t, kv, readAll(t, openRecording(t, trackRecording(t, beforeRestart))), epochOf(0), 1, false)
+	var continued int
+	for _, o := range laterDrive(t, kv, true).outs {
+		if o.Continued != nil {
+			continued++
+		}
+		if o.Started != nil {
+			t.Error("a new session started")
+		}
+	}
+	if continued != 1 {
+		t.Errorf("%d continued, want 1", continued)
+	}
+}
+
+// A record never read is not left behind: the run's first write ends its
+// session from it, engineer_stopped, then keeps the run's own.
+func TestARecordNeverReadIsEndedAtTheFirstWrite(t *testing.T) {
+	kv := newRevKV()
+	keptDrive(t, kv, readAll(t, openRecording(t, trackRecording(t, beforeRestart))), epochOf(0), 1, false)
+	old, _, _ := sessions.Load(t.Context(), kv, "live")
+	var oldEnded, started int
+	for _, o := range laterDrive(t, kv, false).outs {
+		if o.Ended != nil && o.Session == old.GetSessionId() &&
+			o.Ended.GetReason() == eventsv1.EndReason_END_REASON_ENGINEER_STOPPED {
+			oldEnded++
+		}
+		if o.Started != nil {
+			started++
+		}
+	}
+	if oldEnded != 1 || started != 1 {
+		t.Errorf("the old session ended %d times and %d started; want 1 and 1", oldEnded, started)
+	}
+}

@@ -181,8 +181,12 @@ func replay(ctx context.Context, args []string, getenv func(string) string, stdi
 		_, _ = fmt.Fprintln(stderr, "ecu replay:", err)
 		return exitNATS
 	}
-	open, rev := loadKept(ctx, ecuKV, busCfg.Src, logger)
+	open, rev, read := loadKept(ctx, ecuKV, busCfg.Src, logger)
 	keeper := sessions.New(ecuKV, busCfg.Src, rev, waiting{ctx, pub}, logger)
+	keeper.Replay()
+	if read {
+		keeper.Loaded(rev)
+	}
 	// The record's last write goes after the status's, each with its own grace.
 	keepCtx, stopKeeping := context.WithCancel(context.WithoutCancel(ctx))
 	keptDone := make(chan struct{})
