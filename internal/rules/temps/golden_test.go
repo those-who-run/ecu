@@ -179,16 +179,15 @@ var pending = map[string]map[string]string{
 	},
 }
 
-// R1–R6, AC1, AC2, AC3, AC5: on every one of v1's recordings, the rule raises
+// R1–R6, AC1, AC2, AC3: on every one of v1's recordings, the rule raises
 // v1's TempsRule's calls (rules.example.yaml's thresholds), on the same frame of
 // the same session, with the kind contracts' table names and the corners as
 // slots; the engine stamps v1's priority 14 and pit_lane hold; and each one comes
 // with one car.alarm on its frame naming the corners, their temperatures and the
-// threshold. The Tsukuba drift's hot rears are one call each time, three in all
-// (AC1, v1's test_real_drift_rears_are_one_warning_each_time), and Suzuka joined
-// mid-race has no cold call (AC2). The recordings v1 opens no session on are held
-// to v1's engine taking every start for a drive (make_golden.py --drive), as ecu
-// does until paddock#74.
+// threshold. Suzuka joined mid-race has no cold call (AC2); the Tsukuba drift's
+// three calls (AC1) are also pinned without the session, below. The recordings
+// v1 opens no session on are held to v1's engine taking every start for a drive
+// (make_golden.py --drive), as ecu does until paddock#74.
 func TestTheCallsAreV1sOnEveryRecording(t *testing.T) {
 	total := 0
 	for _, name := range rulestest.Recordings {
@@ -213,7 +212,41 @@ func TestTheCallsAreV1sOnEveryRecording(t *testing.T) {
 			}
 		})
 	}
-	if total != 3 {
-		t.Errorf("%d calls in the goldens, want v1's 3", total)
+	if total == 0 {
+		t.Error("no call in the goldens")
+	}
+}
+
+// AC1: the Tsukuba drift's frames fed to the rule directly, as v1's
+// test_real_drift_rears_are_one_warning_each_time fed them (run_rule: every frame
+// in a race or continuing one from the frame before), with no session and no
+// start check, since the session itself is a GT7 demo that v1 discarded and ecu
+// will (paddock#74). The hot rears are one call each time, three in all, on v1's
+// frames.
+func TestTheDriftsHotRearsAreOneCallEachTime(t *testing.T) {
+	r := New(DefaultConfig())
+	m := race.New(rulestest.IDs())
+	var prev *race.View
+	var got []string
+	for _, p := range rulestest.Packets(t, "real-nuc-tsukuba-brz-drift-2026-10-15") {
+		m.Step(p)
+		cur := m.Context().Cur
+		ctx := &race.Context{Cur: cur, Prev: prev, Racing: cur.InRace() || race.RacingFrame(prev, &cur)}
+		for _, c := range r.Evaluate(ctx) {
+			l := fmt.Sprintf("frame %d %s", cur.Seq, c.Kind)
+			for _, corner := range c.Slots.GetCorners() {
+				l += " " + abbrev[corner]
+			}
+			got = append(got, l)
+		}
+		prev = &cur
+	}
+	want := []string{
+		"frame 45 template_tyre_hot rl rr",
+		"frame 164 template_tyre_hot rl rr",
+		"frame 286 template_tyre_hot rl rr",
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("got %q, want v1's %q", got, want)
 	}
 }
