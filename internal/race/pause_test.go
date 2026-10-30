@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	eventsv1 "github.com/those-who-run/contracts/gen/go/twr/events/v1"
 	telemetryv1 "github.com/those-who-run/contracts/gen/go/twr/telemetry/v1"
@@ -280,48 +281,80 @@ func endedPaused(t *testing.T, out []Output) *eventsv1.SessionEnded {
 	return ends[0]
 }
 
-// AC4, R5: the feed lost during a pause ends the session paused, on the last
-// frame, as of the pause's start; the frames after it are ignored until the next
-// start, and the rules are told so. Lost while driving, the session stays open.
+// AC4, R5: the feed lost during a pause, flagged or frozen, ends the session
+// paused, on the last frame, as of the pause's start (the watchdog's Tick, live
+// only, paddock#87). The frames after it are ignored until the next start: only
+// the frame goes out, with telemetry.restored on the first, which the context
+// keeps for the rules that watch the feed. Lost while driving, the session stays
+// open.
 func TestTheFeedLostInAPauseEndsTheSessionPaused(t *testing.T) {
-	d := paused(5) // 12–16
-	m := New(testIDs())
-	for _, r := range d.all[:11] {
-		m.Step(r)
+	frozenPause := paused(0)
+	for range 5 {
+		frozenPause.add(1, 0, 50, -1, 3) // 12–16: the same frame at speed, read paused from 13
+		frozenPause.all[len(frozenPause.all)-1].Speed = 30
 	}
-	if out := m.FeedLost(); out != nil {
-		t.Errorf("feed lost while driving: %v, want nothing", out)
-	}
-	for _, r := range d.all[11:] {
-		m.Step(r)
-	}
-	lost := m.FeedLost()
-	end := endedPaused(t, lost)
-	s := end.GetSummary()
-	if end.GetReason() != eventsv1.EndReason_END_REASON_TELEMETRY_LOST || !s.GetEndedPaused() ||
-		end.GetLastSeq() != 16 || s.GetPausedMs() != 4000 {
-		t.Errorf("ended %v", end)
-	}
-	if lost[len(lost)-1].Why != WhyTelemetryLost {
-		t.Errorf("why %v", lost[len(lost)-1].Why)
-	}
-	// The race carries on after it: not watched, until a new start.
-	var after drive
-	after.add(1, 0, 50, -1, 3)
-	after.add(2, 0, 49, 61000, 3)
-	after.add(0, 0, 50, -1, 3) // the track screen
-	after.add(1, 0, 50, -1, 3) // a new start
-	for i, r := range after.all {
-		r.T += 20
-		got := m.Step(r)
-		ctx := m.Context()
-		if i < 3 && (len(got) != 1 || got[0].Frame == nil || !ctx.Ignored) {
-			t.Errorf("frame %d after the end: %d outputs, ignored %t; want only the frame, ignored", i+1, len(got), ctx.Ignored)
+	for name, c := range map[string]struct {
+		d        *drive
+		pausedMs int32
+	}{"flagged": {paused(5), 4000}, "frozen": {frozenPause, 4000}} {
+		m := New(testIDs())
+		m.WatchTelemetry(3 * time.Second)
+		for _, r := range c.d.all[:11] {
+			m.Step(r)
 		}
-		if i == 3 && (len(got) < 2 || got[1].Started == nil || ctx.Ignored) {
-			t.Errorf("the new start: %v", got)
+		if out := m.Tick(c.d.all[10].Time.Add(3 * time.Second)); endsOf(out) != 0 {
+			t.Errorf("%s: feed lost while driving: %v, want the session open", name, out)
+		}
+		m.Step(Received{Received: c.d.all[11].Received, Time: c.d.all[10].Time.Add(4 * time.Second)})
+		for _, r := range c.d.all[12:] {
+			r.Time = r.Time.Add(3 * time.Second)
+			m.Step(r)
+		}
+		last := c.d.all[len(c.d.all)-1].Time.Add(3 * time.Second)
+		lost := m.Tick(last.Add(3 * time.Second))
+		end := endedPaused(t, lost)
+		s := end.GetSummary()
+		if end.GetReason() != eventsv1.EndReason_END_REASON_TELEMETRY_LOST || !s.GetEndedPaused() ||
+			end.GetLastSeq() != 16 || s.GetPausedMs() != c.pausedMs {
+			t.Errorf("%s: ended %v", name, end)
+		}
+		if lost[len(lost)-1].Why != WhyTelemetryLost {
+			t.Errorf("%s: why %v", name, lost[len(lost)-1].Why)
+		}
+		// The race carries on after it: not watched, until a new start.
+		var after drive
+		after.add(1, 0, 50, -1, 3)
+		after.add(2, 0, 49, 61000, 3)
+		after.add(0, 0, 50, -1, 3) // the track screen
+		after.add(1, 0, 50, -1, 3) // a new start
+		for i, r := range after.all {
+			r.T += 30
+			r.Time = last.Add(time.Duration(10+i) * time.Second)
+			got := m.Step(r)
+			ctx := m.Context()
+			want := 1
+			if i == 0 {
+				want = 2 // and telemetry.restored
+			}
+			if i < 3 && (len(got) != want || got[0].Frame == nil || !ctx.Ignored || (i == 0) != (ctx.Restored != nil)) {
+				t.Errorf("%s: frame %d after the end: %d outputs, ignored %t, restored %v; want only the frame, ignored",
+					name, i+1, len(got), ctx.Ignored, ctx.Restored)
+			}
+			if i == 3 && (len(got) < 2 || got[1].Started == nil || ctx.Ignored) {
+				t.Errorf("%s: the new start: %v", name, got)
+			}
 		}
 	}
+}
+
+func endsOf(out []Output) int {
+	var n int
+	for _, o := range out {
+		if o.Ended != nil {
+			n++
+		}
+	}
+	return n
 }
 
 // AC5, R6: with the pause limit at 60 s, a pause of 61 s ends the session paused

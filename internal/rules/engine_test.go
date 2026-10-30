@@ -332,6 +332,40 @@ func TestTheEngineStampsEachCallout(t *testing.T) {
 	check(cs[2], 25, asOf.Time, asOf.Time.Add(30*time.Second), 0, eventsv1.PitLane_PIT_LANE_SPEAK)
 }
 
+// paddock#97, R5: a callout that carries a car alarm has its car.alarm event on
+// the frame raised on, just before it, stamped with the session, frame and run
+// and with the catalogue's id, even when the pit lane holds the callout; with no
+// session open there is no event.
+func TestACarAlarmIsPublishedBesideItsCallout(t *testing.T) {
+	raise := &stub{raise: func(*race.Context) []Callout {
+		return []Callout{{Kind: "template_tyre_hot", Alarm: &eventsv1.CarAlarmRaised{
+			Check: eventsv1.CarCheck_CAR_CHECK_TYRE_HOT, ValueC: 125, ThresholdC: 120,
+		}}}
+	}}
+	e := testEngine(t, nil, "temps", raise)
+	out := e.Step(frame(7, false))
+	if len(out) != 2 || out[0].Alarm == nil || out[1].Callout == nil {
+		t.Fatalf("outputs %v, want the alarm then the callout", out)
+	}
+	a := out[0]
+	if a.Event.ID != "sid:car.alarm:tyre_hot:run:7" || a.Session != "sid" || !a.Event.Time.Equal(epoch.Add(7*time.Second)) ||
+		a.Alarm.GetSessionId() != "sid" || a.Alarm.GetAt() != 7 || a.Alarm.GetRunId() != "run" || a.Alarm.GetValueC() != 125 {
+		t.Errorf("alarm %v, %v", a.Event, a.Alarm)
+	}
+	if a.Message() != a.Alarm {
+		t.Error("the output's message is not the alarm")
+	}
+	out = e.Step(frame(8, true))
+	if len(out) != 1 || out[0].Alarm == nil {
+		t.Errorf("in the lane: %v, want the alarm alone, the callout held", out)
+	}
+	none := frame(9, false)
+	none.Session = ""
+	if out := e.Step(none); len(out) != 1 || out[0].Callout == nil {
+		t.Errorf("no session: %v, want the callout alone", out)
+	}
+}
+
 // R8: a rule with a gauge shows it through the engine.
 func TestAGaugeIsShown(t *testing.T) {
 	e := testEngine(t, nil, "fuel", &gauged{})
@@ -413,13 +447,65 @@ func TestThePitLaneAppliesAtTheFlag(t *testing.T) {
 	}
 }
 
-// A frame the machine ignored, after a session ended paused, runs no rule and
-// resets none, as v1 never stepped it (paddock#77).
-func TestAnIgnoredFrameRunsNoRule(t *testing.T) {
-	var n int
+// watcher is a stub that watches the feed, as the telemetry rule will (paddock#98).
+type watcher struct{ stub }
+
+func (*watcher) WatchesFeed() {}
+
+// On the watchdog's tick (paddock#87) only the rules that watch the feed run, and
+// what they raise is stamped as of the tick: the last frame's at, the tick's time.
+func TestOnATickOnlyTheWatchersRun(t *testing.T) {
+	var frameRule, feedRule int
+	e := testEngine(t, nil,
+		"lap_time", &stub{raise: func(*race.Context) []Callout { frameRule++; return []Callout{{Kind: "template"}} }},
+		"telemetry", &watcher{stub{raise: func(ctx *race.Context) []Callout {
+			feedRule++
+			if ctx.Lost == nil {
+				return []Callout{{Kind: "template_back"}} // as on a stray packet after a loss
+			}
+			return []Callout{{Kind: "template_lost"}}
+		}}})
+	ctx := frame(7, false)
+	onFrame := callouts(e.Step(ctx))
+	if frameRule != 1 || feedRule != 1 {
+		t.Fatalf("on a frame: %d and %d evaluations, want both rules once", frameRule, feedRule)
+	}
+	tick := *ctx
+	tick.Tick, tick.Lost, tick.Time = true, &eventsv1.TelemetryLost{At: 7}, ctx.Time.Add(3*time.Second)
+	got := callouts(e.Step(&tick))
+	if frameRule != 1 || feedRule != 2 {
+		t.Errorf("on a tick: %d and %d evaluations, want the watcher alone", frameRule, feedRule)
+	}
+	if len(got) != 1 || got[0].GetKind() != "template_lost" || got[0].GetAt() != 7 ||
+		!got[0].GetCreatedAt().AsTime().Equal(tick.Time) || got[0].GetPriority() != 5 {
+		t.Errorf("on a tick: %v", got)
+	}
+	// The watcher raised on frame 7 and on the tick after it, both at 7: two ids,
+	// or CALLOUTS would dedupe the loss away.
+	var back *eventsv1.Callout
+	for _, c := range onFrame {
+		if c.GetRule() == "telemetry" {
+			back = c
+		}
+	}
+	if back == nil || len(got) != 1 || back.GetId() == got[0].GetId() ||
+		got[0].GetId() != "run:callout:7:tick:telemetry:1" {
+		t.Errorf("ids on the frame %v and on the tick %v: want two, the tick's marked", back.GetId(), got)
+	}
+}
+
+// A frame the machine ignored, after a session ended paused, runs no race rule
+// and resets none, as v1 never stepped it; the rules that watch the feed still
+// run, so telemetry coming back then is still said (paddock#77).
+func TestAnIgnoredFrameRunsOnlyTheWatchers(t *testing.T) {
+	var n, fed int
 	r := &stub{raise: func(*race.Context) []Callout { n++; return []Callout{{Kind: "k"}} }}
-	e := testEngine(t, nil, "lap_time", r)
-	if out := e.Step(&race.Context{Ignored: true, Racing: true, Started: true}); out != nil || n != 0 || r.resets != 0 {
-		t.Errorf("ignored frame: %d outputs, %d evaluations, %d resets", len(out), n, r.resets)
+	w := &watcher{stub{raise: func(*race.Context) []Callout { fed++; return []Callout{{Kind: "template_back"}} }}}
+	e := testEngine(t, nil, "lap_time", r, "telemetry", w)
+	ctx := frame(9, false)
+	ctx.Ignored, ctx.Started, ctx.Restored = true, true, &eventsv1.TelemetryRestored{At: 9}
+	out := callouts(e.Step(ctx))
+	if n != 0 || r.resets != 0 || w.resets != 0 || fed != 1 || len(out) != 1 || out[0].GetRule() != "telemetry" {
+		t.Errorf("ignored frame: %v, %d race evaluations, %d resets, %d feed evaluations", out, n, r.resets, fed)
 	}
 }

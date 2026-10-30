@@ -34,7 +34,8 @@ hold, expiry and pit-lane policy. radio only phrases and speaks them.
    The builder runs once at start-up. It reads the rule's own settings with
    `s.Float`, `s.Int`, `s.Bool`, `s.String`, `s.Floats` or `s.Strings` (key,
    v1's default), or `s.Decode(&cfg)` into a struct with `yaml` tags named for
-   v1's keys. The defaults are v1's `cfg.get(..., default)`. A value of the
+   v1's keys. They read null as not set; `s.Null(key)` says the file set it to
+   null, for a setting v1 read null as off (temps' thresholds). The defaults are v1's `cfg.get(..., default)`. A value of the
    wrong type stops ecu at start-up, naming the rule and the key. The
    settings every rule takes (`enabled`, `priority`, `max_age_seconds`,
    `hold_secs`, `pit_lane`) are the engine's: `config.go` holds their v1
@@ -83,9 +84,10 @@ of the end of the step, so a rule sees it on the same frame v1's did.
 | first `FINISHED` frame, and `on_finish(crossing)` | `ctx.Finish` (the frame it finished as of: the flag frame, or the timed finish's line crossing) and `ctx.FinishKind`, on the frame the finish is found, where `race.finished` is |
 | `on_end(last, state)` | `ctx.EndedEarly`: the last driving frame, when the session ended on this frame without a finish (quit, menu). It isn't set on a restart, a new start or the end of the input, as in v1 |
 
-Not in the context yet: the telemetry watchdog's loss and return (#87, for
-#98), and the continued session after an ecu restart (#76, which will set
-`ctx.Joined`).
+| `TelemetryVoice.observe(connected, engine.prev, now)`, from the live watchdog | `ctx.Lost` (`telemetry.lost`, with `Phase`, the last frame's) on a **tick**, `ctx.Tick` set, when no frame came for the timeout; `ctx.Restored` (`telemetry.restored`, with `LostPhase` and `GapMs`) on the first frame after it. On a tick only the rules that implement `rules.Watcher` run, `ctx.Cur` is the last frame (already seen), and `ctx.Time` is the tick's. Live only: a replay never ticks (paddock#87) |
+
+Not in the context yet: the continued session after an ecu restart (#76,
+which will set `ctx.Joined`).
 
 ## What the engine stamps
 
@@ -99,12 +101,19 @@ contract's script key ("The kinds ecu sends, by rule" in `callout.proto`), and
   10, p1 10 to 19, p2 20 and over.
 - `at` is the frame raised on, and `run_id` and `session_id` come from the
   context. `id` is `<src>:<run>:callout:<seq>:<rule>:<n>`, where n counts the
-  rule's callouts on the frame from 1, so replays are reproducible.
+  rule's callouts on the frame from 1, so replays are reproducible. On the
+  watchdog's tick it is `<src>:<run>:callout:<seq>:tick:<rule>:<n>`, the last
+  frame's seq with `tick`, so it never matches a callout raised on that frame.
 - `created_at` is the frame's receive time, or `AsOf.Time` when set (the
   race summary at a timed finish is created as of the crossing, as in v1).
 - `expires_at` is always set: `created_at` plus the rule's `max_age_seconds`,
   or the queue's (8 s).
 - `hold_until` is `created_at` plus `hold_secs`, when there is one.
+- A callout with `Callout.Alarm` (temps, paddock#97) has its `car.alarm`
+  event (contracts' `CarAlarmRaised`) just before it, on the frame raised on:
+  the engine sets its `session_id`, `at` and `run_id`, and its id
+  `<sid>:car.alarm:<check>:<run>:<seq>`. It is published at once, whatever the
+  pit lane does with the callout, and not with no session open.
 - `pit_lane` is the rule's. **In the pit lane** (from the entry's frame to the
   exit's) the engine applies it, as v1's `_quiet` did: `speak` is published,
   `drop` is never published, and `hold` is kept until the exit, the entry
@@ -147,4 +156,7 @@ value to show between callouts (fuel's laps remaining) implements
   checks its slots in its own package's tests, with goldens of its own
   (`internal/rules/<name>/testdata/`) where it needs them.
 - Known differences from v1 are listed in the golden test's `accepted` map, each
-  with the paddock issue that decided it.
+  with the paddock issue that decided it. Callouts ecu raises that v1 did not,
+  until an open issue fixes them, are in its `pending` map with that issue
+  (the frozen pause, paddock#77), and the test fails once one is no longer
+  raised, so the fix deletes its line.

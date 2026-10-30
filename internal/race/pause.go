@@ -28,7 +28,7 @@ import (
 //
 // The clock counts per session, on the frames' clock, so a replay gives the same
 // totals. A pause never ends a session on its own: the session ends paused, as of
-// the pause's start, when the feed is lost during the pause (Machine.FeedLost),
+// the pause's start, when the feed is lost during the pause (Machine.Tick, feed.go),
 // the frames stop in it (Machine.EndOfInput, Machine.Stop), or a pause limit
 // passes (Machine.SetPauseLimit), and the frames after it are ignored until the
 // next start.
@@ -129,19 +129,6 @@ func pausedMillis(secs float64) int32 {
 // is no limit, so a pause never ends a session on its own.
 func (m *Machine) SetPauseLimit(secs float64) { m.pauses.limit = max(secs, 0) }
 
-// FeedLost is the telemetry watchdog losing the feed (paddock#87 wires it). During
-// a pause it ends the session paused, as of the pause's start, on the last frame
-// (END_REASON_TELEMETRY_LOST): the PS5 was switched off or put to rest. Lost while
-// driving, the session stays open: the feed may come back, and it gives nothing.
-func (m *Machine) FeedLost() []Output {
-	m.out = nil
-	if !m.pauses.open || m.prev == nil || m.lastDriving == nil || m.session == nil {
-		return nil
-	}
-	m.endPaused(m.prev, m.prevTime, WhyTelemetryLost)
-	return m.out
-}
-
 // pauseEvents publishes the start or the end of a pause in the open session, on
 // the frame it was read on: session.paused for a pause that began with the session
 // open, and session.resumed for one session.paused went out for.
@@ -190,9 +177,11 @@ func (m *Machine) endPaused(s *state, t time.Time, why Why) {
 }
 
 // ignore is a frame the machine does not step, after a session ended paused (v1's
-// ended_paused): only the frame goes out, and the rules are told to skip it.
+// ended_paused): only the frame goes out, with telemetry.restored when it ends a
+// loss, and the rules are told only the rules that watch the feed run. The
+// context keeps what the step set before (Restored).
 func (m *Machine) ignore(s *state, t time.Time) []Output {
-	m.ctx = Context{Run: m.run, Time: t, Cur: s.view(), Ignored: true}
+	m.ctx.Run, m.ctx.Time, m.ctx.Cur, m.ctx.Ignored = m.run, t, s.view(), true
 	m.prev, m.prevTime = s, t
 	return m.out
 }

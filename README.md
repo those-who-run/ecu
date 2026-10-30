@@ -33,7 +33,9 @@ and ends a session exactly where v1 did, with v1's rules ported from its
   the end of a recording) and ecu stopped (`Stop`). A timed race ended after
   its timed finish is `END_REASON_TIMED_FINISH` ([The finish](#the-finish)),
   and a timed session left for a menu before it, as a time trial always is,
-  `END_REASON_MENU`. A session can also end in a pause ([Pauses](#pauses)).
+  `END_REASON_MENU`. A session can also end in a pause ([Pauses](#pauses)),
+  the feed lost in one, live, among the ways
+  ([Telemetry lost and restored](#telemetry-lost-and-restored)).
 
 - **No clock, no NATS, no files.** Each packet comes with the time ecu received
   it, which becomes its frame's `ce-time`; a session's `started_at` is its
@@ -202,15 +204,41 @@ overflowed, the heartbeats sent and failed, and the listener's restarts.
 | `TWR_ECU_RECORDINGS_DIR` | unset: no recording | The directory each drive is recorded in ([Recording](#recording)). |
 | `TWR_ECU_PAUSE_LIMIT_SECS` | unset: no limit | Seconds a pause may last before it ends the session paused ([Pauses](#pauses)); 0 or more, 0 is no limit. |
 | `TWR_ECU_RULES_FILE` | unset: v1's defaults | The rules file, v1's rules YAML ([The callouts](#the-callouts)); `ecu replay` reads it too. |
+| `TWR_ECU_TELEMETRY_TIMEOUT_SECS` | `3` | Seconds with no packet that count as the feed lost ([Telemetry lost and restored](#telemetry-lost-and-restored)), above 0 and at most 3,600. |
 
 The ports: UDP 33740 in (the PS5 sends there, to the address the heartbeat
 came from), and UDP out to the PS5's 33739. In a pod, 33740/UDP needs a
 `hostPort`, as v1's Deployment has.
 
-Not here yet, and still paddock#106's: telemetry lost and restored after the
-timeout (`telemetry.lost`, R6, with paddock#87), and the listener's state in
-`/healthz` and the `live` KV (R7, with paddock#88 and paddock#107), and the
-metrics (R9).
+Not here yet, and still paddock#106's: the listener's state in `/healthz` and
+the `live` KV (R7, with paddock#88 and paddock#107), and the metrics (R9).
+
+### Telemetry lost and restored
+
+Live only, a watchdog (paddock#87, v1's `App._watchdog` at v1.0.0) notices when
+the packets stop and when they come back, so a quiet headset is never
+ambiguous. The race state keeps no clock: it says when the feed counts as lost
+if nothing comes (the last packet's receive time plus
+`TWR_ECU_TELEMETRY_TIMEOUT_SECS`), the drive waits for a packet no later than
+that, and when none came it tells the race state the time
+(`race.Machine.Tick`).
+
+- **Lost.** `telemetry.lost`, once, the timeout after the last packet, whatever
+  the phase, with the last frame's phase, its seq (`at`) and the silence. The
+  telemetry rule decides what is said (paddock#98): silence in a menu is
+  normal. The first packet after ecu starts is no restore.
+- **In a pause.** Lost in a pause with a session open, the session ends
+  paused on its last frame: `session.ended` with `END_REASON_TELEMETRY_LOST`
+  and `ended_paused` (the PS5 switched off or put to rest,
+  those-who-run/those-who-run#229), and the frames are ignored until the next
+  start, as v1's `Engine.feed_lost`. Lost while driving, the session stays
+  open: the feed may come back.
+- **Restored.** `telemetry.restored` on the first packet after the loss, with
+  the gap between the two packets' receive times. v1 noticed the return on
+  its next once-a-second check; ecu at the packet, as the contract's `at`
+  says.
+- **Not in a replay.** `ecu replay` never watches the feed, as v1's replay had
+  none: the end of a recording is not a loss, and a gap in one is not either.
 
 ## Recording
 
@@ -427,8 +455,9 @@ and never ends a session on its own.
   clock, so a replay gives the same totals. `driving_ms` and `ended_at` are
   paddock#86's.
 - **Ending paused.** The session ends paused (`ended_paused`), on its last
-  frame, when the feed is lost during the pause (`Machine.FeedLost`,
-  `END_REASON_TELEMETRY_LOST`; paddock#87 wires the watchdog to it), when the
+  frame, when the feed is lost during the pause (the watchdog's
+  `Machine.Tick`, live only, paddock#87: `END_REASON_TELEMETRY_LOST`), a
+  frozen pause as a flagged one, when the
   frames stop in it (`END_REASON_INPUT_ENDED` at the end of a recording,
   `END_REASON_ENGINEER_STOPPED` when ecu stops), or once a pause has lasted
   `TWR_ECU_PAUSE_LIMIT_SECS` (`END_REASON_PAUSE_LIMIT`, on the frame the
@@ -547,8 +576,13 @@ rule.
 
 - **Rules.** `lap_time` (paddock#91), `fuel` ([Fuel](#fuel), paddock#92),
   `final_lap` (paddock#93), `position` (paddock#94), `start_brief`
-  (paddock#95) and `race_summary` (paddock#96) so far; the others (#97 and
-  #98) are each a package under `internal/rules`.
+  (paddock#95), `race_summary` (paddock#96) and `temps` (paddock#97) so far;
+  the telemetry rule (#98) will be a package under `internal/rules` too.
+- **Car alarms.** Each firing of `temps` (a tyre, the water or the oil hot, or
+  cold tyres at the start) is also published as `car.alarm` (contracts'
+  `CarAlarmRaised`) on `twr.v1.<src>.evt.<sid>.car.alarm`, from the same
+  decision as the callout, just before it, whatever the pit lane does with the
+  callout. Its id is `<src>:<sid>:car.alarm:<check>:<run>:<seq>`.
 - **Where in the step.** The context holds each value as v1's rules saw it in
   `Engine._step` (after the pits, before the timed finish, the track, the kind
   and the lap store), plus the lap closed, the finish and the end of the
@@ -572,7 +606,9 @@ rule.
   the other rules carry on.
 - **Tests.** `internal/rules/testdata/callouts` holds every callout v1.0.0
   raised on each of the 25 recordings, written by its `make_golden.py`; the
-  callouts of every registered rule are compared with it.
+  callouts of every registered rule are compared with it. A callout ecu raises
+  that v1 did not, until an open issue fixes it, is listed with the issue
+  (`pending` in its `golden_test.go`), and must still be raised.
 
 ## Fuel
 
@@ -631,6 +667,7 @@ rule.
 | `twr.v1.<src>.evt.<sid>.lap.best` | the session's best lap changed | `EVENTS` |
 | `twr.v1.<src>.evt.<sid>.race.finished` | the race reached its finish, by the flag or timed | `EVENTS` |
 | `twr.v1.<src>.evt.<sid>.session.ended` | a session ended | `EVENTS` |
+| `twr.v1.<src>.evt.<sid>.telemetry.lost`, `.telemetry.restored`, or `evt._.` with no session open | the packets stopped for the timeout, or came back (live only) | `EVENTS` |
 | `twr.v1.<src>.callout.p0`, `.p1`, `.p2` | a callout, on its priority's level ([The callouts](#the-callouts)) | `CALLOUTS` |
 
 - **Messages.** Each is the `contracts` message in protobuf
@@ -650,9 +687,10 @@ rule.
   `<src>:<sid>:session.paused:<pause>`, `<src>:<sid>:session.resumed:<pause>` or
   `<src>:<sid>:session.ended:1`, with
   the subject's `<src>`, so two replays
-  under different sources are not deduplicated against each other. An event
-  published with no session open would go on `evt._`, with `<run>` in
-  `<sid>`'s place; the race state sends none yet. A test checks every id
+  under different sources are not deduplicated against each other.
+  `telemetry.lost` and `telemetry.restored` are
+  `<src>:<sid>:telemetry.lost:<run>:<seq>` with a session open, and go on
+  `evt._` with none, as `<src>:<run>:telemetry.lost:<seq>`. A test checks every id
   against the catalogue. `session.started`'s `source` is the `<src>`.
 - **Nothing waits on the network.** The step loop encodes its outputs and
   hands them to one goroutine, which owns the connection, without waiting. A
