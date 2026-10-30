@@ -222,6 +222,9 @@ func drive(ctx context.Context, src salsa.Source, at func(salsa.Received) time.T
 	}
 }
 
+// lossGrace is the last wait for a packet before the feed is called lost.
+const lossGrace = time.Millisecond
+
 // next is src's next packet. While m watches the feed, it waits no later than
 // m.LostAt, on the wall clock, which live's packet times are on; when none came by
 // then, it publishes what m.Tick and the rules that watch the feed make of the
@@ -233,13 +236,18 @@ func next(ctx context.Context, src salsa.Source, m *race.Machine, eng *rules.Eng
 		if !ok {
 			return src.Next(ctx)
 		}
-		// A due time already past still gives a packet waiting a moment to come
-		// first: the drive was held up, not the feed.
-		if soon := time.Now().Add(time.Millisecond); due.Before(soon) {
-			due = soon
-		}
 		wait, cancel := context.WithDeadline(ctx, due)
 		r, err := src.Next(wait)
+		cancel()
+		if err == nil || ctx.Err() != nil || !errors.Is(err, context.DeadlineExceeded) {
+			return r, err
+		}
+		// A packet that came as the deadline passed can still be waiting (live's
+		// Next picks at random between it and the deadline), or the drive was
+		// held up past it: one more try, with a moment's grace and a context not
+		// yet done, gives it first, so it is never called a loss.
+		grace, cancel := context.WithTimeout(ctx, lossGrace)
+		r, err = src.Next(grace)
 		cancel()
 		if err == nil || ctx.Err() != nil || !errors.Is(err, context.DeadlineExceeded) {
 			return r, err

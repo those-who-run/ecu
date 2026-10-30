@@ -98,7 +98,9 @@ contract's script key ("The kinds ecu sends, by rule" in `callout.proto`), and
   10, p1 10 to 19, p2 20 and over.
 - `at` is the frame raised on, and `run_id` and `session_id` come from the
   context. `id` is `<src>:<run>:callout:<seq>:<rule>:<n>`, where n counts the
-  rule's callouts on the frame from 1, so replays are reproducible.
+  rule's callouts on the frame from 1, so replays are reproducible. On the
+  watchdog's tick it is `<src>:<run>:callout:<seq>:tick:<rule>:<n>`, the last
+  frame's seq with `tick`, so it never matches a callout raised on that frame.
 - `created_at` is the frame's receive time, or `AsOf.Time` when set (the
   race summary at a timed finish is created as of the crossing, as in v1).
 - `expires_at` is always set: `created_at` plus the rule's `max_age_seconds`,

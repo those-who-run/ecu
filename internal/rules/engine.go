@@ -213,7 +213,8 @@ func (e *Engine) recover(r slot, in string) {
 }
 
 // callout is the contracts' Callout for c, which rule r raised as the n-th of the
-// frame ctx. Its id is <run>:callout:<seq>:<rule>:<n>, from the frame it was
+// frame ctx. Its id is <run>:callout:<seq>:<rule>:<n>, or
+// <run>:callout:<seq>:tick:<rule>:<n> on the watchdog's tick, from the frame it was
 // raised on, so the same frames and run id give the same ids (R7); the publisher
 // puts <src>: in front, as for an event.
 func (e *Engine) callout(r slot, ctx *race.Context, c Callout, n int) *eventsv1.Callout {
@@ -230,6 +231,12 @@ func (e *Engine) callout(r slot, ctx *race.Context, c Callout, n int) *eventsv1.
 		maxAge = e.maxAge
 	}
 	seq := strconv.FormatUint(uint64(ctx.Cur.Seq), 10)
+	// A tick's Cur is the last frame, which a rule may have raised on already:
+	// tick in the id keeps the two apart, so CALLOUTS never dedupes one against
+	// the other. A frame has one tick at most: the next loss needs a new frame.
+	if ctx.Tick {
+		seq += ":tick"
+	}
 	msg := &eventsv1.Callout{
 		SessionId: ctx.Session,
 		Id:        ctx.Run + ":callout:" + seq + ":" + r.name + ":" + strconv.Itoa(n),

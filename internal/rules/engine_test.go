@@ -427,12 +427,12 @@ func TestOnATickOnlyTheWatchersRun(t *testing.T) {
 		"telemetry", &watcher{stub{raise: func(ctx *race.Context) []Callout {
 			feedRule++
 			if ctx.Lost == nil {
-				return nil
+				return []Callout{{Kind: "template_back"}} // as on a stray packet after a loss
 			}
 			return []Callout{{Kind: "template_lost"}}
 		}}})
 	ctx := frame(7, false)
-	e.Step(ctx)
+	onFrame := callouts(e.Step(ctx))
 	if frameRule != 1 || feedRule != 1 {
 		t.Fatalf("on a frame: %d and %d evaluations, want both rules once", frameRule, feedRule)
 	}
@@ -445,5 +445,17 @@ func TestOnATickOnlyTheWatchersRun(t *testing.T) {
 	if len(got) != 1 || got[0].GetKind() != "template_lost" || got[0].GetAt() != 7 ||
 		!got[0].GetCreatedAt().AsTime().Equal(tick.Time) || got[0].GetPriority() != 5 {
 		t.Errorf("on a tick: %v", got)
+	}
+	// The watcher raised on frame 7 and on the tick after it, both at 7: two ids,
+	// or CALLOUTS would dedupe the loss away.
+	var back *eventsv1.Callout
+	for _, c := range onFrame {
+		if c.GetRule() == "telemetry" {
+			back = c
+		}
+	}
+	if back == nil || len(got) != 1 || back.GetId() == got[0].GetId() ||
+		got[0].GetId() != "run:callout:7:tick:telemetry:1" {
+		t.Errorf("ids on the frame %v and on the tick %v: want two, the tick's marked", back.GetId(), got)
 	}
 }
