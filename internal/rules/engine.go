@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strconv"
+	"strings"
 	"time"
 
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -110,7 +111,9 @@ func (e *Engine) Gauges() map[string]float64 {
 // Step runs the rules on the frame ctx, the machine's Context after its Step,
 // and returns the callouts to publish, as outputs: the ones held in the pit lane
 // and released on this frame first, then this frame's, rule by rule in Order and
-// each rule's in the order it raised them, as v1's queue took them.
+// each rule's in the order it raised them, as v1's queue took them. A callout
+// that carries a car alarm (Callout.Alarm) has its car.alarm event just before
+// it, published whatever the pit lane does with the callout.
 //
 // The pit lane (contracts' PitLane): from the frame of the entry to the frame of
 // the exit, a callout raised is published at once when its rule's pit_lane is
@@ -148,6 +151,9 @@ func (e *Engine) Step(ctx *race.Context) []race.Output {
 		for i, c := range e.evaluate(r, ctx) {
 			e.stats.Raised[r.name]++
 			msg := e.callout(r, ctx, c, i+1)
+			if c.Alarm != nil && ctx.Session != "" {
+				out = append(out, alarm(ctx, c.Alarm))
+			}
 			if inLane {
 				switch r.s.PitLane {
 				case eventsv1.PitLane_PIT_LANE_DROP:
@@ -254,6 +260,17 @@ func (e *Engine) callout(r slot, ctx *race.Context, c Callout, n int) *eventsv1.
 		msg.HoldUntil = timestamppb.New(created.Add(secs(r.s.HoldSecs)))
 	}
 	return msg
+}
+
+// alarm is the car.alarm event a rule raised beside a callout on the frame ctx
+// (contracts' CarAlarmRaised): its id is <sid>:car.alarm:<check>:<run>:<seq>, the
+// publisher putting <src>: in front. It is published at once, as any event: the
+// pit lane holds or drops only the callout.
+func alarm(ctx *race.Context, a *eventsv1.CarAlarmRaised) race.Output {
+	a.SessionId, a.At, a.RunId = ctx.Session, ctx.Cur.Seq, ctx.Run
+	check := strings.ToLower(strings.TrimPrefix(a.GetCheck().String(), "CAR_CHECK_"))
+	id := ctx.Session + ":car.alarm:" + check + ":" + ctx.Run + ":" + strconv.FormatUint(uint64(ctx.Cur.Seq), 10)
+	return race.Output{Event: ce.Event{ID: id, Source: race.Source, Time: ctx.Time}, Session: ctx.Session, Alarm: a}
 }
 
 func output(c *eventsv1.Callout) race.Output {

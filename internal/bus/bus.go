@@ -315,7 +315,7 @@ func (p *Publisher) dropFrame(lo bool) {
 func (p *Publisher) event(o race.Output, wait <-chan struct{}) {
 	if o.Started == nil && o.Lap == nil && o.Best == nil && o.Track == nil && o.Kind == nil && o.Ended == nil &&
 		o.PitEntered == nil && o.PitExited == nil && o.PitTeleport == nil && o.FinalLap == nil &&
-		o.Position == nil && o.Finished == nil && o.TelemetryLost == nil && o.TelemetryRestored == nil {
+		o.Position == nil && o.Finished == nil && o.Alarm == nil && o.TelemetryLost == nil && o.TelemetryRestored == nil {
 		return
 	}
 	if o.Started != nil {

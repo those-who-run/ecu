@@ -34,7 +34,8 @@ hold, expiry and pit-lane policy. radio only phrases and speaks them.
    The builder runs once at start-up. It reads the rule's own settings with
    `s.Float`, `s.Int`, `s.Bool`, `s.String`, `s.Floats` or `s.Strings` (key,
    v1's default), or `s.Decode(&cfg)` into a struct with `yaml` tags named for
-   v1's keys. The defaults are v1's `cfg.get(..., default)`. A value of the
+   v1's keys. They read null as not set; `s.Null(key)` says the file set it to
+   null, for a setting v1 read null as off (temps' thresholds). The defaults are v1's `cfg.get(..., default)`. A value of the
    wrong type stops ecu at start-up, naming the rule and the key. The
    settings every rule takes (`enabled`, `priority`, `max_age_seconds`,
    `hold_secs`, `pit_lane`) are the engine's: `config.go` holds their v1
@@ -106,6 +107,11 @@ contract's script key ("The kinds ecu sends, by rule" in `callout.proto`), and
 - `expires_at` is always set: `created_at` plus the rule's `max_age_seconds`,
   or the queue's (8 s).
 - `hold_until` is `created_at` plus `hold_secs`, when there is one.
+- A callout with `Callout.Alarm` (temps, paddock#97) has its `car.alarm`
+  event (contracts' `CarAlarmRaised`) just before it, on the frame raised on:
+  the engine sets its `session_id`, `at` and `run_id`, and its id
+  `<sid>:car.alarm:<check>:<run>:<seq>`. It is published at once, whatever the
+  pit lane does with the callout, and not with no session open.
 - `pit_lane` is the rule's. **In the pit lane** (from the entry's frame to the
   exit's) the engine applies it, as v1's `_quiet` did: `speak` is published,
   `drop` is never published, and `hold` is kept until the exit, the entry
@@ -149,4 +155,7 @@ value to show between callouts (fuel's laps remaining) implements
   checks its slots in its own package's tests, with goldens of its own
   (`internal/rules/<name>/testdata/`) where it needs them.
 - Known differences from v1 are listed in the golden test's `accepted` map, each
-  with the paddock issue that decided it.
+  with the paddock issue that decided it. Callouts ecu raises that v1 did not,
+  until an open issue fixes them, are in its `pending` map with that issue
+  (the frozen pause, paddock#77), and the test fails once one is no longer
+  raised, so the fix deletes its line.
