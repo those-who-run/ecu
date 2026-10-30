@@ -119,8 +119,8 @@ func (c *pauses) kind() eventsv1.PauseKind {
 	return eventsv1.PauseKind_PAUSE_KIND_FLAGGED
 }
 
-// millis is v1's round(secs * 1000): to the nearest millisecond, ties to even.
-func millis(secs float64) int32 {
+// pausedMillis is v1's round(secs * 1000): to the nearest millisecond, ties to even.
+func pausedMillis(secs float64) int32 {
 	return int32(math.RoundToEven(secs * 1000)) //nolint:gosec // a session's time fits
 }
 
@@ -138,7 +138,7 @@ func (m *Machine) FeedLost() []Output {
 	if !m.pauses.open || m.prev == nil || m.lastDriving == nil || m.session == nil {
 		return nil
 	}
-	m.endPaused(m.prev, m.prevTime, WhyFeedLost)
+	m.endPaused(m.prev, m.prevTime, WhyTelemetryLost)
 	return m.out
 }
 
@@ -157,7 +157,7 @@ func (m *Machine) pauseEvents(s *state, t time.Time, began, ended bool) {
 			Session: sess.id,
 			Paused: &eventsv1.SessionPaused{
 				SessionId: sess.id, Kind: c.kind(), SinceT: c.sinceT, Since: timestamppb.New(c.since),
-				PausedMs: millis(c.secs), At: s.seq, Pause: c.count,
+				PausedMs: pausedMillis(c.secs), At: s.seq, Pause: c.count,
 			},
 		})
 	case ended && c.published && sess != nil:
@@ -167,7 +167,7 @@ func (m *Machine) pauseEvents(s *state, t time.Time, began, ended bool) {
 			Session: sess.id,
 			Resumed: &eventsv1.SessionResumed{
 				SessionId: sess.id, Kind: c.kind(), SinceT: c.sinceT, Since: timestamppb.New(c.since),
-				PauseMs: millis(s.t - c.sinceT), PausedMs: millis(c.secs), At: s.seq, Pause: c.count,
+				PauseMs: pausedMillis(s.t - c.sinceT), PausedMs: pausedMillis(c.secs), At: s.seq, Pause: c.count,
 			},
 		})
 	}

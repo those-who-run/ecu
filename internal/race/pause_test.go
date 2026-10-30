@@ -267,7 +267,7 @@ func TestTheFeedLostInAPauseEndsTheSessionPaused(t *testing.T) {
 		end.GetLastSeq() != 16 || s.GetPausedMs() != 4000 {
 		t.Errorf("ended %v", end)
 	}
-	if lost[len(lost)-1].Why != WhyFeedLost {
+	if lost[len(lost)-1].Why != WhyTelemetryLost {
 		t.Errorf("why %v", lost[len(lost)-1].Why)
 	}
 	// The race carries on after it: not watched, until a new start.

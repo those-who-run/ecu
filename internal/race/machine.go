@@ -97,9 +97,9 @@ const (
 	// WhyTimedFinish is the end of a session after its timed finish (v1's
 	// race_ended once Engine._timed_finish had set finished).
 	WhyTimedFinish
-	// WhyFeedLost is the feed lost during a pause (Machine.FeedLost, v1's
+	// WhyTelemetryLost is the feed lost during a pause (Machine.FeedLost, v1's
 	// _end_paused "the feed was lost").
-	WhyFeedLost
+	WhyTelemetryLost
 	// WhyPauseLimit is a pause that lasted the pause limit (Machine.SetPauseLimit,
 	// v1's _end_paused "paused for N min").
 	WhyPauseLimit
@@ -108,7 +108,7 @@ const (
 var whyNames = map[Why]string{
 	WhyFinished: "finished", WhyQuit: "quit", WhyRestart: "restart", WhyStart: "start",
 	WhyInputEnded: "input ended", WhyStopped: "stopped", WhyMenu: "menu",
-	WhyTimedFinish: "timed finish", WhyFeedLost: "feed lost", WhyPauseLimit: "pause limit",
+	WhyTimedFinish: "timed finish", WhyTelemetryLost: "telemetry lost", WhyPauseLimit: "pause limit",
 }
 
 func (w Why) String() string {
@@ -137,7 +137,7 @@ func (w Why) Reason() eventsv1.EndReason {
 		return eventsv1.EndReason_END_REASON_MENU
 	case WhyTimedFinish:
 		return eventsv1.EndReason_END_REASON_TIMED_FINISH
-	case WhyFeedLost:
+	case WhyTelemetryLost:
 		return eventsv1.EndReason_END_REASON_TELEMETRY_LOST
 	case WhyPauseLimit:
 		return eventsv1.EndReason_END_REASON_PAUSE_LIMIT
@@ -627,7 +627,7 @@ func (m *Machine) end(s *state, t time.Time, why Why) {
 	// The pause clock's view of the session (v1's _end_session): its time paused
 	// up to s, and whether it ends in a pause (endPaused). When that pause began
 	// is the summary's ended_at, paddock#86's with driving_ms.
-	summary.PausedMs = millis(m.pauses.pausedFor(s.t))
+	summary.PausedMs = pausedMillis(m.pauses.pausedFor(s.t))
 	summary.EndedPaused = m.endedPaused
 	if final != 0 && !solo(kind) {
 		summary.FinalPosition = &final
