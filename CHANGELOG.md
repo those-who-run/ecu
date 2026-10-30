@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.11](https://github.com/those-who-run/ecu/compare/v0.1.10...v0.1.11) (2026-10-30)
+
+
+### Features
+
+* **race:** continue a session after an ecu restart, from the KV ([#56](https://github.com/those-who-run/ecu/issues/56)) ([3538326](https://github.com/those-who-run/ecu/commit/3538326567f7b10def876d9c4c14dbd18c03f91b))
+
+
+### Bug Fixes
+
+* **race:** the track detector sees the frames the machine ignores ([#57](https://github.com/those-who-run/ecu/issues/57)) ([2e1defe](https://github.com/those-who-run/ecu/commit/2e1defeb7a32527f17b16d9a4325b5ce6a702392))
+
 ## [0.1.10](https://github.com/those-who-run/ecu/compare/v0.1.9...v0.1.10) (2026-10-30)
 
 
