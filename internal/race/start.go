@@ -24,7 +24,8 @@ import (
 // event, and the rules are not run. A drive's held frames then go through the
 // race state as if never held, so its session starts on the first of them. A
 // replay or a demo is session.discarded, and the frames after it are ignored
-// until the next start, as v1 ignored them.
+// until the next start, as v1 ignored them, but for the track detector, which
+// sees them all (seeTrack, a departure from v1).
 
 // v1's DriverCheck thresholds.
 const (
@@ -177,6 +178,7 @@ func (m *Machine) hold(s *state) bool {
 		return true
 	}
 	if c.ignoring != eventsv1.DiscardReason_DISCARD_REASON_UNSPECIFIED && !starting {
+		m.seeTrack(s)
 		m.quietContext(s)
 		m.prev, m.prevTime = s, s.received
 		return true
@@ -205,6 +207,9 @@ func (m *Machine) discard(held []*state, v verdictKind) {
 		m.end(c.before, c.beforeTime, why)
 	}
 	m.lastDriving = nil
+	for _, h := range held {
+		m.seeTrack(h)
+	}
 	reason := eventsv1.DiscardReason_DISCARD_REASON_REPLAY
 	if v == verdictDemo {
 		reason = eventsv1.DiscardReason_DISCARD_REASON_DEMO

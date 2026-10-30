@@ -425,3 +425,34 @@ func TestNothingFittingReplacesAVerdictThatNamesNoLayout(t *testing.T) {
 		}
 	}
 }
+
+// paddock#81, a departure from v1: the detector sees the frames the machine does
+// not step. At Road Atlanta on 2026-10-30 a GT7 demo at another circuit came
+// before the race; v1.0.0 and ecu 0.1.9 fed the detector nothing after the demo
+// was held, so it never saw the menus and loading screens that start it over, took
+// lap 1's tick, on Road Atlanta's line, for a teleport from the demo's circuit,
+// and called the race "probable Sardegna - Road Track - A" when the path cut that
+// layout's line (fixture frame 1592) until a full lap confirmed Road Atlanta. The
+// detector now starts over on the grid and the tick names the track as the session
+// opens, as `ecu tracks detect` does on the race alone.
+func TestTheRoadAtlantaRaceOf20261030IsRoadAtlantaFromTheStart(t *testing.T) {
+	out := replay(t, "real-nuc-short-shift-road-atlanta-race-2026-10-30")
+	var started uint32
+	for _, o := range out {
+		if o.Started != nil {
+			started = o.Started.GetFirstSeq()
+		}
+	}
+	var got []string
+	for _, p := range publishedTracks(out) {
+		got = append(got, fmt.Sprintf("%d %s %d", p.GetAt(), confidenceNames[p.GetTrack().GetConfidence()], p.GetTrack().GetTrackId()))
+	}
+	if want := []string{"1378 probable 9999"}; started != 1378 || !slices.Equal(got, want) {
+		t.Errorf("session from frame %d, session.track %v, want from 1378, %v", started, got, want)
+	}
+	for _, o := range out {
+		if tr := o.Ended.GetSummary().GetTrack(); o.Ended != nil && tr.GetTrackId() != 9999 {
+			t.Errorf("the summary's track is %v", tr)
+		}
+	}
+}

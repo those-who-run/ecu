@@ -98,6 +98,21 @@ func (m *Machine) finalTrack() {
 	}
 }
 
+// seeTrack gives the detector a frame the machine does not step: a held start
+// judged a replay or a demo, the frames ignored after one, and the frames ignored
+// after a session ended paused. No session is open on them, so the verdict is
+// no one's; the detector needs them for the menus and loading screens that start
+// it over, and for where the car is when the next start comes. A departure from
+// v1.0.0, whose Engine fed the detector only in _step: at Road Atlanta on
+// 2026-10-30 it last saw a GT7 demo's few frames at another circuit, missed the
+// 22,000 frames of menus, loading and the formation lap after it, took the first
+// tick for a teleport, so settled no line with it, and then counted the path
+// across Sardegna - Road Track - A's line, where the two tables' coordinates meet:
+// "probable Sardegna" until a full lap confirmed Road Atlanta.
+func (m *Machine) seeTrack(s *state) {
+	m.tracks.Observe(s.frame)
+}
+
 // confidences are the contracts' TrackConfidence for each of the detector's.
 var confidences = map[track.Confidence]eventsv1.TrackConfidence{
 	track.None:      eventsv1.TrackConfidence_TRACK_CONFIDENCE_NONE,
