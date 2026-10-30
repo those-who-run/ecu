@@ -35,7 +35,7 @@ func TestV1sExampleLoadsWithTheDefaults(t *testing.T) {
 		"start_brief":  {8, eventsv1.PitLane_PIT_LANE_HOLD, 0, 0},
 		"race_summary": {25, eventsv1.PitLane_PIT_LANE_SPEAK, 0, 30},
 		"temps":        {14, eventsv1.PitLane_PIT_LANE_HOLD, 0, 0},
-		"telemetry":    {5, eventsv1.PitLane_PIT_LANE_HOLD, 0, 0},
+		"telemetry":    {5, eventsv1.PitLane_PIT_LANE_SPEAK, 0, 0},
 	}
 	defaults := DefaultConfig()
 	for name, w := range want {
