@@ -340,3 +340,57 @@ func TestAPitTeleportIsInTheCatalogue(t *testing.T) {
 		t.Errorf("stats %+v, want the event acknowledged", s)
 	}
 }
+
+// paddock#74 R4: a held start that was a replay or a demo goes on its own
+// subject, with the catalogue's ce-type and <src>:<sid>:session.discarded:1, and
+// the publisher logs one line saying why.
+func TestASessionDiscardedIsInTheCatalogue(t *testing.T) {
+	r := newRig(t, "parity")
+	const sid = "01JBUSSESSION0000000000000"
+	sub, err := r.nc.SubscribeSync("twr.v1.parity.evt." + sid + ".>")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.nc.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	const why = "fuel is draining (98.3 -> 97.6), which only a replay does"
+	r.pub.Publish([]race.Output{{
+		Event:   ce.Event{ID: sid + ":session.discarded:1", Source: race.Source, Time: epoch},
+		Session: sid,
+		Discarded: &eventsv1.SessionDiscarded{
+			SessionId: sid, Reason: eventsv1.DiscardReason_DISCARD_REASON_REPLAY, Evidence: why, FirstSeq: 62, At: 114,
+		},
+	}})
+	msg, err := sub.NextMsg(5 * time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "twr.v1.parity.evt." + sid + ".session.discarded"; msg.Subject != want {
+		t.Errorf("subject %s, want %s", msg.Subject, want)
+	}
+	var found bool
+	for _, e := range catalogue(t) {
+		if !matches(e.pattern, msg.Subject) {
+			continue
+		}
+		found = true
+		if got := msg.Header.Get(ce.TypeHeader); got != e.ceType {
+			t.Errorf("ce-type %s; subjects.yaml says %s", got, e.ceType)
+		}
+		if id := msg.Header.Get(ce.IDHeader); !followsScheme(e.msgID, id, map[string]string{"src": "parity", "sid": sid}) ||
+			id != "parity:"+sid+":session.discarded:1" {
+			t.Errorf("id %q, want the scheme %q", id, e.msgID)
+		}
+	}
+	if !found {
+		t.Errorf("%s is not in subjects.yaml", msg.Subject)
+	}
+	if s := r.close(t); s.Events != 1 {
+		t.Errorf("stats %+v, want the event acknowledged", s)
+	}
+	if logs := r.logs.String(); strings.Count(logs, "start discarded") != 1 ||
+		!strings.Contains(logs, "DISCARD_REASON_REPLAY") || !strings.Contains(logs, why) {
+		t.Errorf("logs %s, want one line with the reason and the evidence", logs)
+	}
+}

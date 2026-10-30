@@ -100,12 +100,13 @@ func goldenLines(t *testing.T, name string) []string {
 
 // AC1–AC7: on every one of v1's 25 recordings, the fuel rule raises the callouts
 // v1.0.0's FuelRule raised, frame for frame: the same kind, laps, priority, hold,
-// expiry and pit lane, in each session v1 opened.
+// expiry and pit lane, in each session v1 opened: none on a replay or a demo
+// (paddock#74).
 func TestTheFuelCalloutsAreV1sOnEveryRecording(t *testing.T) {
 	for _, name := range rulestest.Recordings {
 		t.Run(name, func(t *testing.T) {
 			got, want := replayLines(t, name), goldenLines(t, name)
-			if len(want) == 0 {
+			if len(want) == 0 && !rulestest.Discarded[name] {
 				t.Fatal("an empty golden")
 			}
 			if !slices.Equal(got, want) {

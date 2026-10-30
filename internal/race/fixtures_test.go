@@ -56,11 +56,18 @@ func testIDs() IDs {
 // keeps (its testdata/v1/README.md says where each comes from).
 var trackFixtures = filepath.Join("..", "track", "testdata", "v1")
 
+// startFixtures are the start check's own recordings (testdata/start/make_fixture.py
+// says where each comes from, paddock#74).
+var startFixtures = filepath.Join("testdata", "start")
+
 // packets is every packet of a recording, with its wall-clock time: one of
-// salsa's, else one of internal/track's.
+// salsa's, else one of internal/track's or the start check's.
 func packets(tb testing.TB, name string) []Received {
 	tb.Helper()
 	path := filepath.Join(trackFixtures, name+".jsonl.gz")
+	if _, err := os.Stat(path); err != nil {
+		path = filepath.Join(startFixtures, name+".jsonl.gz")
+	}
 	if _, err := os.Stat(path); err != nil {
 		path = filepath.Join(fixtures(tb), name+".jsonl.gz")
 	}

@@ -196,6 +196,10 @@ type publisher interface {
 func drive(ctx context.Context, src salsa.Source, at func(salsa.Received) time.Time, m *race.Machine,
 	eng *rules.Engine, pub publisher, rec *record.Writer,
 ) error {
+	if eng != nil {
+		// The rules read each frame as the machine leaves it (paddock#89).
+		m.Rules(eng.Step)
+	}
 	for {
 		r, err := src.Next(ctx)
 		if errors.Is(err, io.EOF) {
@@ -209,12 +213,7 @@ func drive(ctx context.Context, src salsa.Source, at func(salsa.Received) time.T
 		if rec != nil {
 			rec.Write(r)
 		}
-		outs := m.Step(race.Received{Received: r, Time: at(r)})
-		if eng != nil {
-			// The rules read the frame as the machine left it (paddock#89).
-			outs = append(outs, eng.Step(m.Context())...)
-		}
-		pub.Publish(outs)
+		pub.Publish(m.Step(race.Received{Received: r, Time: at(r)}))
 	}
 }
 

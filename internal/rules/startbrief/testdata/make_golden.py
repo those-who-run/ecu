@@ -5,7 +5,6 @@ Made once from v1 at tag v1.0.0 (those-who-run/those-who-run), in v1's own
 environment (`uv sync --extra engineer`), for each of v1's recordings:
 
     python3 make_golden.py RECORDING > NAME.jsonl
-    python3 make_golden.py --drive RECORDING > NAME.jsonl
 
 It replays the recording as v1's `replay` does, with every rule on as v1's
 DEFAULT_RULES configures them (no bundled script: `script: false`, so each
@@ -29,12 +28,6 @@ The slots are the values v1 put in the phrases it picked: the name it spoke for
 frame's total_laps for {laps}, laps_left for template_laps_to_go, the frame's
 position and total_cars for {p} and {total}, and current_lap for
 template_joined's {lap}, with total_laps beside it when the race has a lap total.
-
---drive takes every start for a drive, as testdata/kind/make_golden.py in
-internal/race says: v1 opens no session on GT7's replays and demo races (the
-DriverCheck, paddock#74), so their goldens are made with --drive, which runs v1's
-own engine and rules over the frames ecu sees. On a recording v1 opens a session
-on, --drive changes nothing.
 """
 
 import copy
@@ -79,7 +72,7 @@ def slots(keys: list[str], tracks: list[str], state) -> dict[str, object]:
     return out
 
 
-def main(path: Path, drive: bool) -> None:
+def main(path: Path) -> None:
     states = list(read_recording(path, strict=True))
     frame_of: dict[tuple[int, float], list[int]] = {}
     for n, s in enumerate(states, 1):
@@ -91,8 +84,6 @@ def main(path: Path, drive: bool) -> None:
     with tempfile.TemporaryDirectory() as tmp:
         store = SessionStore(Path(tmp))
         engine = Engine(rules, CalloutQueue(max_age=None), store)
-        if drive:
-            engine.driver.observe = lambda state: "drive"
         now = {"frame": 0, "session": 0}
         raised: list[tuple[object, dict[str, object]]] = []  # each callout, its line
         outcome: dict[int, str] = {}  # id(callout): held in the pit lane
@@ -205,6 +196,4 @@ def main(path: Path, drive: bool) -> None:
 
 
 if __name__ == "__main__":
-    args = sys.argv[1:]
-    drive = "--drive" in args
-    main(Path([a for a in args if a != "--drive"][0]), drive)
+    main(Path(sys.argv[1]))

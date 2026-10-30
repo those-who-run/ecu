@@ -1,3 +1,0 @@
-{"event": "session.started", "session": 1, "frame": 62}
-{"event": "callout", "session": 1, "at": 864, "as_of": 864, "kind": "template", "slots": {"best_lap_ms": 82190}, "priority": 25, "max_age": 30.0, "hold": 0.0, "pit_lane": "speak", "in_pit_lane": false, "text": "Chequered flag. Best lap one twenty-two point two.", "outcome": "spoken"}
-{"event": "session.ended", "session": 1, "frame": 864}

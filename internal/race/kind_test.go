@@ -359,14 +359,13 @@ func showKinds(lines []kindLine) []string {
 // R1, R2, AC3: on every one of v1's recordings, ecu publishes session.kind where
 // v1's engine applied a new kind to the session (v1's "session ..." log line), with
 // v1's verdict and its evidence word for word, and each session.ended's summary
-// keeps the kind v1 stored for the session. The recordings v1 opens no session on
-// (discarded) are held to v1's engine with its DriverCheck taking every start for
-// a drive (make_golden.py --drive), as ecu does until paddock#74.
+// keeps the kind v1 stored for the session. On the replay and the demos v1's
+// start check drops (paddock#74, discards) there is no session, and no kind.
 func TestSessionKindIsV1sOnEveryRecording(t *testing.T) {
 	for _, name := range v1Recordings {
 		t.Run(name, func(t *testing.T) {
 			got, want := showKinds(kindLines(replay(t, name))), showKinds(readKindGolden(t, name))
-			if len(want) == 0 {
+			if _, ok := discards[name]; len(want) == 0 && !ok {
 				t.Fatal("an empty golden")
 			}
 			if !slices.Equal(got, want) {
@@ -377,8 +376,8 @@ func TestSessionKindIsV1sOnEveryRecording(t *testing.T) {
 }
 
 // AC1: the last session.kind of each session is the kind and start v1's
-// tests/fixtures/FIXTURES.yaml names for it (for the demos v1 ignores, what it says
-// the detector reads), but for the start of a session joined part way: the start
+// tests/fixtures/FIXTURES.yaml names for it, none for the four demos of 2026-10-15
+// that v1's start check drops (paddock#74), but for the start of a session joined part way: the start
 // was not seen, so it is unknown (R4), as v1's engine stores it, where
 // FIXTURES.yaml names the start v1's detector reads fed from the recording's
 // first frame for three of them (2laps' first session, the Willow Springs and
@@ -394,10 +393,10 @@ func TestTheLastKindOfEachSessionIsFixturesYAMLs(t *testing.T) {
 		"real-nuc-suzuka-pit-stop-2026-10-15":            {"lap_race (rolling)"},
 		"real-nuc-sugo-timed-2026-10-15":                 {"solo_timed (flying)"},
 		"real-nuc-fuji-timed-2026-10-15":                 {"solo_timed (flying)"},
-		"real-nuc-tokyo-east-race-2026-10-15":            {"lap_race (rolling)"},
-		"real-nuc-nordschleife-rolling-start-2026-10-15": {"lap_race (rolling)"},
-		"real-nuc-laguna-seca-race-2026-10-15":           {"lap_race (rolling)"},
-		"real-nuc-tsukuba-brz-drift-2026-10-15":          {"solo_laps (flying)"},
+		"real-nuc-tokyo-east-race-2026-10-15":            nil, // a demo (paddock#74)
+		"real-nuc-nordschleife-rolling-start-2026-10-15": nil, // a demo (paddock#74)
+		"real-nuc-laguna-seca-race-2026-10-15":           nil, // a demo (paddock#74)
+		"real-nuc-tsukuba-brz-drift-2026-10-15":          nil, // a demo (paddock#74)
 		"real-nuc-suzuka-timed-race-2026-10-16":          {"timed_field (flying)"},
 		"real-nuc-willow-springs-pit-stop-2026-10-17":    {"lap_race (start not seen)"},
 		"real-nuc-gilles-villeneuve-race-2026-10-17":     {"lap_race (rolling)"},

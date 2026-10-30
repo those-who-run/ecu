@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -180,22 +179,6 @@ func trackLines(out []Output) []trackLine {
 	return lines
 }
 
-// discarded are the recordings v1's engine opens no session on, and the issue
-// that brings ecu in line: v1 holds a start GT7's cars-on-track flag is off for
-// and drops it as the replay or GT7 demo it is (DriverCheck), where ecu opens a
-// session. The four of 2026-10-15 were recorded before v1 read the flag, which
-// reads as off throughout, so v1 1.0.0 takes them for demos too. On these, each
-// verdict ecu publishes is checked against v1's detector instead
-// (detectorAgrees).
-var discarded = map[string]string{
-	"real-nuc-tokyo-east-race-2026-10-15":            "paddock#74",
-	"real-nuc-nordschleife-rolling-start-2026-10-15": "paddock#74",
-	"real-nuc-laguna-seca-race-2026-10-15":           "paddock#74",
-	"real-nuc-tsukuba-brz-drift-2026-10-15":          "paddock#74",
-	"real-nuc-sugo-replay-2026-10-18":                "paddock#74",
-	"real-nuc-laguna-seca-demo-2026-10-18":           "paddock#74",
-}
-
 // R2, AC5: on every one of v1's recordings, ecu publishes session.track where v1's
 // engine applied a verdict to the session (v1's "track ..." log line), with v1's
 // verdict, its first 8 candidates and its evidence, and each session.ended's
@@ -206,95 +189,11 @@ func TestSessionTrackIsV1sOnEveryRecording(t *testing.T) {
 			out := replay(t, name)
 			got := trackLines(out)
 			want := readTrackGolden(t, name)
-			if issue, ok := discarded[name]; ok {
-				if len(want) != 0 {
-					t.Errorf("v1 opened a session: take it out of discarded (%s)", issue)
-				}
-				detectorAgrees(t, name, out)
-				return
-			}
 			if g, w := shows(got), shows(want); !slices.Equal(g, w) {
 				t.Errorf("got\n%s\nwant\n%s", strings.Join(g, "\n"), strings.Join(w, "\n"))
 			}
 		})
 	}
-}
-
-// detectorVerdict is a line of internal/track's goldens: a change of v1's
-// detector's decision, on the recording's frame.
-type detectorVerdict struct {
-	Frame      uint32  `json:"frame"`
-	TrackID    *int32  `json:"track_id"`
-	Confidence string  `json:"confidence"`
-	Family     *string `json:"family"`
-	Final      bool    `json:"final"`
-}
-
-// detectorAgrees checks that each verdict published is v1's detector's decision
-// (internal/track's golden for the recording) at its frame: the latest change up
-// to the frame, or, on the frame a session opens, the latest before it, which the
-// detector had as the session opened. The decision is the track, the confidence
-// and the circuit; the evidence's wording changes between the golden's lines. A
-// session joined part way is held to the detector told so (the golden's .joined
-// form, here in testdata/track/ where internal/track has none). At least one
-// verdict must be published.
-func detectorAgrees(t *testing.T, name string, out []Output) {
-	t.Helper()
-	published := publishedTracks(out)
-	if len(published) == 0 {
-		t.Error("no session.track published")
-	}
-	starts := map[uint32]bool{}
-	path := filepath.Join("..", "track", "testdata", "golden", name+".jsonl")
-	for _, o := range out {
-		if o.Started != nil {
-			starts[o.Started.GetFirstSeq()] = true
-			if o.Started.GetJoinedPartWay() {
-				path = filepath.Join("testdata", "track", name+".joined.jsonl")
-			}
-		}
-	}
-	changes := readDetectorGolden(t, path)
-	latest := func(frame uint32, upTo bool) *detectorVerdict {
-		var l *detectorVerdict
-		for j := range changes {
-			if changes[j].Frame < frame || (upTo && changes[j].Frame == frame) {
-				l = &changes[j]
-			}
-		}
-		return l
-	}
-	same := func(v *detectorVerdict, g *goldenTrack) bool {
-		return v != nil && reflect.DeepEqual(v.TrackID, g.TrackID) && v.Confidence == g.Confidence &&
-			reflect.DeepEqual(v.Family, g.Family)
-	}
-	for _, p := range published {
-		g := asGolden(p.GetTrack())
-		upTo := latest(p.GetAt(), true)
-		if !same(upTo, g) && (!starts[p.GetAt()] || !same(latest(p.GetAt(), false), g)) {
-			t.Errorf("frame %d published %+v; v1's detector had %+v", p.GetAt(), *g, upTo)
-		}
-	}
-}
-
-// readDetectorGolden is the changes of a detector golden, without its final line.
-func readDetectorGolden(t *testing.T, path string) []detectorVerdict {
-	t.Helper()
-	data, err := os.ReadFile(path) //nolint:gosec // a golden of the tests
-	if err != nil {
-		t.Fatal(err)
-	}
-	var changes []detectorVerdict
-	for line := range strings.Lines(string(data)) {
-		var v detectorVerdict
-		if err := json.Unmarshal([]byte(line), &v); err != nil {
-			t.Fatal(err)
-		}
-		if !v.Final {
-			changes = append(changes, v)
-		}
-	}
-	return changes
 }
 
 func shows(lines []trackLine) []string {

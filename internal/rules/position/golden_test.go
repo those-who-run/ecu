@@ -96,9 +96,8 @@ func replay(t *testing.T, name string) []string {
 // 3 s settle), on the same frame of the same session, with the kind contracts'
 // table names and the places as slots, and the engine stamps v1's priority, hold
 // and pit lane. v1's one call still held at a pit entry (SUGO's two stops, frame
-// 421) is published, for radio to drop. The recordings v1 opens no session on are
-// held to v1's engine taking every start for a drive (make_golden.py --drive), as
-// ecu does until paddock#74.
+// 421) is published, for radio to drop. The replay and the demos v1's start check
+// drops (paddock#74) have none.
 func TestTheCallsAreV1sOnEveryRecording(t *testing.T) {
 	total := 0
 	for _, name := range rulestest.Recordings {

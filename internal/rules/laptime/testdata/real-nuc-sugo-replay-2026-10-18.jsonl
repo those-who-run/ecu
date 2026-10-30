@@ -1,5 +1,0 @@
-{"event": "session.started", "session": 1, "frame": 62}
-{"event": "callout", "session": 1, "frame": 452, "kind": "delta_first", "slots": {"lap": 1, "lap_time_ms": 94067}, "priority": 20, "hold_ms": 0, "expiry_ms": 8000, "pit_lane": "hold", "outcome": "spoken", "text": "Lap one. one thirty-four point one."}
-{"event": "callout", "session": 1, "frame": 619, "kind": "delta_first", "slots": {"lap": 2, "lap_time_ms": 82190}, "priority": 20, "hold_ms": 0, "expiry_ms": 8000, "pit_lane": "hold", "outcome": "spoken", "text": "Lap two. one twenty-two point two."}
-{"event": "callout", "session": 1, "frame": 788, "kind": "delta_slower", "slots": {"lap": 3, "lap_time_ms": 83696, "delta_ms": 1506}, "priority": 20, "hold_ms": 0, "expiry_ms": 8000, "pit_lane": "hold", "outcome": "spoken", "text": "Lap three. one twenty-three point seven. one point five over best."}
-{"event": "callout", "session": 1, "frame": 864, "kind": "delta_slower", "slots": {"lap": 12, "lap_time_ms": 83353, "delta_ms": 1163}, "priority": 20, "hold_ms": 0, "expiry_ms": 8000, "pit_lane": "hold", "outcome": "spoken", "text": "Lap twelve. one twenty-three point four. one point two over best."}

@@ -19,10 +19,6 @@ the track), into a store of its own, and writes one line per event, in order:
 A track is its id, name, confidence and family, its candidates' ids best first and
 the evidence, as v1's track_record stores it. A recording v1 opens no session on
 (a replay or a GT7 demo, which v1 drops) gives an empty file.
-
-real-nuc-laguna-seca-demo-2026-10-18.joined.jsonl is not this script's: it is
-internal/track's make_golden.py --join on that recording, the detector told the
-frames start part way, as ecu's session there is joined.
 """
 
 import json

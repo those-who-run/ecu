@@ -90,14 +90,13 @@ func placesLines(t *testing.T, out []Output) []string {
 // v1's FinalLapRule called the final lap, and race.position where v1's
 // PositionRule, with only its 3 s settle (no start grace, no time between calls),
 // took a new position, on the same frame, with the same lap or the same places,
-// in an open session. The recordings v1 opens no session on are held to v1's
-// engine taking every start for a drive (make_golden.py --drive), as ecu does
-// until paddock#74.
+// in an open session. On the replay and the demos v1's start check drops
+// (paddock#74, discards) there is no session, and neither.
 func TestTheFinalLapAndPositionsAreV1sOnEveryRecording(t *testing.T) {
 	for _, name := range v1Recordings {
 		t.Run(name, func(t *testing.T) {
 			want := showPlaces(readPlacesGolden(t, name))
-			if len(want) == 0 {
+			if _, ok := discards[name]; len(want) == 0 && !ok {
 				t.Fatal("an empty golden")
 			}
 			if got := placesLines(t, replay(t, name)); !slices.Equal(got, want) {

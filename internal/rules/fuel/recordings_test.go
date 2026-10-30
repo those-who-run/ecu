@@ -16,9 +16,7 @@ func drive(t *testing.T, name string) (r *Rule, measured []int32) {
 	t.Helper()
 	m := race.New(rulestest.IDs())
 	r = New(DefaultConfig())
-	for _, p := range rulestest.Packets(t, name) {
-		m.Step(p)
-		ctx := m.Context()
+	m.Rules(func(ctx *race.Context) []race.Output {
 		if ctx.Started {
 			r.Reset()
 		}
@@ -27,6 +25,10 @@ func drive(t *testing.T, name string) (r *Rule, measured []int32) {
 		if !slices.Equal(before, r.Model().Consumption()) {
 			measured = append(measured, ctx.Prev.Lap)
 		}
+		return nil
+	})
+	for _, p := range rulestest.Packets(t, name) {
+		m.Step(p)
 	}
 	return r, measured
 }

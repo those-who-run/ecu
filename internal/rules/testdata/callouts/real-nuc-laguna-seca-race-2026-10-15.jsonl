@@ -1,2 +1,0 @@
-{"session": 1, "frame": 23, "rule": "start_brief", "kind": "template", "priority": 8, "pit_lane": "hold", "outcome": "spoken"}
-{"session": 1, "frame": 250, "rule": "lap_time", "kind": "delta_first", "priority": 20, "pit_lane": "hold", "outcome": "spoken"}

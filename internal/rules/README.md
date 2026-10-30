@@ -43,8 +43,10 @@ hold, expiry and pit-lane policy. radio only phrases and speaks them.
 3. Implement `rules.Rule`:
    - `Reset()` is v1's `reset`: forget the race. It's called on every start,
      before the start's frame is evaluated.
-   - `Evaluate(ctx *race.Context) []rules.Callout` is called **on every frame**,
-     in a race or not. Put v1's `evaluate` body under `if ctx.Racing`. Handle
+   - `Evaluate(ctx *race.Context) []rules.Callout` is called **on every frame**
+     the race state takes, in a race or not. A start held by the start check
+     comes later, its frames in turn once it is a drive, and a replay or a demo
+     never (paddock#74). Put v1's `evaluate` body under `if ctx.Racing`. Handle
      v1's hooks from the context fields below on any frame, because a pit cut
      can come on a loading frame.
 4. Test it against v1 (see [Tests](#tests)). Copy `finallap`, the worked example.
@@ -55,7 +57,7 @@ something your rule reads, say so on paddock#89 and don't work around it.
 ## The context: v1's hooks and state
 
 `race.Context` (`internal/race/context.go`) is filled by the machine on each
-`Step`, at v1's place for the rules in `Engine._step`: after the pits, before
+frame it takes, and handed to the engine (`Machine.Rules(engine.Step)`), at v1's place for the rules in `Engine._step`: after the pits, before
 the timed finish, the track, the kind and the lap store. What v1 told the
 rules later in the step (the lap closed, the finish, the end) is filled in as
 of the end of the step, so a rule sees it on the same frame v1's did.

@@ -5,7 +5,6 @@ Made once from v1 at tag v1.0.0 (those-who-run/those-who-run), in v1's own
 environment (`uv sync --extra engineer`), for each of v1's recordings:
 
     python3 make_golden.py RECORDING > NAME.jsonl
-    python3 make_golden.py --drive RECORDING > NAME.jsonl
 
 It replays the recording as v1's `replay` does: every rule on, as
 config.DEFAULT_RULES has them with `script: false` (the bundled script only
@@ -28,12 +27,6 @@ on the recording's frame (counted from 1):
     radio's to do in v2), held (kept for the exit: pit_lane hold), unpublished
     (raised in the pit lane and dropped there, which ecu never publishes) or
     cleared (still queued when a start or a paused end cleared the queue).
-
---drive takes every start for a drive: v1's DriverCheck, which holds a start
-GT7's cars-on-track flag is off for and drops a replay or a GT7 demo, always says
-"drive", as internal/race/testdata/kind/make_golden.py says. Use it on the
-recordings v1 opens no session on (the SUGO replay and the Laguna Seca demo);
-on the others it changes nothing.
 """
 
 import copy
@@ -50,7 +43,7 @@ from those_who_run.rules import build_rules
 from those_who_run.store import SessionStore
 
 
-def main(path: Path, drive: bool) -> None:
+def main(path: Path) -> None:
     states = list(read_recording(path, strict=True))
     frame_of: dict[tuple[int, float], list[int]] = {}
     for n, s in enumerate(states, 1):
@@ -62,8 +55,6 @@ def main(path: Path, drive: bool) -> None:
     with tempfile.TemporaryDirectory() as tmp:
         store = SessionStore(Path(tmp))
         engine = Engine(rules, CalloutQueue(max_age=None), store)
-        if drive:
-            engine.driver.observe = lambda state: "drive"
         now = {"frame": 0, "session": 0}
         lines: list[tuple[object, dict]] = []  # each line, with its callout or None
         outcome: dict[int, str] = {}  # id(callout): how it left the queue
@@ -162,6 +153,4 @@ def main(path: Path, drive: bool) -> None:
 
 
 if __name__ == "__main__":
-    args = sys.argv[1:]
-    drive = "--drive" in args
-    main(Path([a for a in args if a != "--drive"][0]), drive)
+    main(Path(sys.argv[1]))

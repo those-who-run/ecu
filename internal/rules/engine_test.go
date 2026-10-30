@@ -75,6 +75,7 @@ func replay(t *testing.T, name string, e *Engine) []race.Output {
 	}
 	defer func() { _ = src.Close() }()
 	m := race.New(race.NewIDs(func() time.Time { return epoch }, rand.NewChaCha8([32]byte{'e', 'c', 'u'})))
+	m.Rules(e.Step)
 	var out []race.Output
 	var t0 float64
 	for n := 0; ; n++ {
@@ -87,7 +88,6 @@ func replay(t *testing.T, name string, e *Engine) []race.Output {
 		}
 		at := epoch.Add(time.Duration((r.T - t0) * float64(time.Second)))
 		out = append(out, m.Step(race.Received{Received: r, Time: at})...)
-		out = append(out, e.Step(m.Context())...)
 	}
 	return out
 }
