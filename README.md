@@ -110,10 +110,18 @@ track table and v1's track detector, ported rule for rule from its
 `tracks.py` and `trackdetect.py` at v1.0.0 (paddock#80): a pure library the
 race state feeds every frame ([The session's track](#the-sessions-track)).
 
-- **The table.** v1's `tracks.csv`, unchanged and embedded in the binary: 108
-  layouts, 105 with a finish line, its direction and a lap box, from gt-telem
-  and Bornhall's gt7telemetry ([`NOTICE`](NOTICE)). Rows learned from our own
-  laps have ids from 100001 and a lap length.
+- **The table.** v1's `tracks.csv`, embedded in the binary: 108 layouts, 105
+  with a finish line, its direction and a lap box, from gt-telem and
+  Bornhall's gt7telemetry ([`NOTICE`](NOTICE)). Rows learned from our own laps
+  have ids from 100001 and a lap length. Its changes from v1.0.0's, each
+  listed in `amendments` in `table_test.go`, which checks the rest is v1's
+  byte for byte:
+  - Fuji International Speedway (16) and Fuji (Short) (837): `maxx` 670.0,
+    from 615.2 and 615.7 (paddock#81). In a 3-lap race on 2026-10-29 the car
+    reached x 667.4, beyond the box and the 50 m the detector allows, so both
+    were ruled out before the first line crossing and the race was never
+    named. [`internal/track/testdata/live/`](internal/track/testdata/live)
+    has that race, cut as `make_fixture.py` there says.
 - **The detector.** Fed frames with `Observe` (the contracts frame ecu makes
   for each packet), it narrows the table with v1's facts: a finish line within
   1 km of where the car has been, the path inside the box, the line crossed in
@@ -126,10 +134,10 @@ race state feeds every frame ([The session's track](#the-sessions-track)).
   session joined part way, which names no track before a line. A menu or a
   loading screen at lap 0 starts over by itself; a pit cut-scene, which keeps
   the lap counter, doesn't.
-- **Tests.** Every one of v1's 25 recordings gives v1's verdicts, change by
-  change, with v1's evidence, as `make_golden.py` in
+- **Tests.** Every one of v1's 25 recordings, and the Fuji race, gives v1's
+  verdicts, change by change, with v1's evidence, as `make_golden.py` in
   [`internal/track/testdata/golden/`](internal/track/testdata/golden) wrote
-  them from v1.0.0. The 18 recordings `salsa` doesn't carry are copied into
+  them from v1.0.0 with ecu's table. The 18 recordings `salsa` doesn't carry are copied into
   [`internal/track/testdata/v1/`](internal/track/testdata/v1) with their
   provenance and checksums.
 
@@ -149,6 +157,12 @@ v1.0.0, in [`internal/race/track.go`](internal/race/track.go).
   that ranks higher (confidence, then naming a layout), or when the layout it
   holds has been ruled out by the detector. A change of candidates or wording
   alone publishes nothing.
+- **A miss shows as one.** Departing from v1 (the maintainer's decision,
+  paddock#81): when the detector finds that no layout fits, that replaces a
+  held verdict that names no layout, such as "50 layouts near the start still
+  fit", so a track the table lacks or gets wrong ends as `none`, not as a
+  stale guess. A held verdict that names a layout stays while that layout
+  fits, as v1's (at Spa, those-who-run/those-who-run#275). None of v1's 25 recordings changes.
 - **At the session's open.** A verdict the detector already has when a
   session opens (a rolling start crosses the line before lap 1) is applied at
   once, on the session's first frame.
@@ -171,8 +185,9 @@ v1.0.0, in [`internal/race/track.go`](internal/race/track.go).
   same verdict (the last of a frame's), its first 8 candidates and its
   evidence, as
   `make_golden.py` in [`internal/race/testdata/track/`](internal/race/testdata/track)
-  wrote them from v1.0.0. The six v1 drops as a replay or a GT7 demo
-  ([The start check](#the-start-check)) have none.
+  wrote them from v1.0.0 with ecu's table; the Fuji race too. The six v1
+  drops as a replay or a GT7 demo ([The start check](#the-start-check)) have
+  none.
 
 ## The session's kind
 
@@ -254,8 +269,9 @@ The ports: UDP 33740 in (the PS5 sends there, to the address the heartbeat
 came from), and UDP out to the PS5's 33739. In a pod, 33740/UDP needs a
 `hostPort`, as v1's Deployment has.
 
-Not here yet, and still paddock#106's: the listener's state in `/healthz` and
-the `live` KV (R7, with paddock#88 and paddock#107), and the metrics (R9).
+The listener's state is in `/healthz` and the `live` KV
+([The live status](#the-live-status), paddock#88). Not here yet, and still
+paddock#106's: the metrics (R9).
 
 ### Telemetry lost and restored
 
@@ -837,10 +853,58 @@ rule.
   once into the user's cache and checked against its sha256 (or the binary
   `TWR_TEST_NATS_SERVER` names), with the `TELEMETRY`, `EVENTS` and `CALLOUTS` definitions
   of paddock's `deploy/nats/streams` in
-  [`internal/bus/bustest/streams`](internal/bus/bustest/streams), in
+  [`internal/bus/bustest/streams`](internal/bus/bustest/streams), and the `live`
+  and `ecu` buckets of `deploy/nats/kv` in
+  [`internal/bus/bustest/kv`](internal/bus/bustest/kv), in
   [`internal/bus/bustest`](internal/bus/bustest), which `cmd/ecu`'s replay
   tests use too. `go test
   -run '^$' -bench EncodeFrame ./internal/bus` measures a frame's encoding.
+
+## The live status
+
+[`internal/status`](internal/status) says what ecu is doing (paddock#88), as
+v1's `GET /api/v1/status` and `/healthz` did (v1's `status.py` and `App.status`,
+`App.idle` and `App.live_status` at v1.0.0), in the `live` KV bucket, so a
+reader that joins late reads it at once and then watches it. The keys and
+values are `contracts`' (`subjects.yaml`, `twr.state.v1` in `live.proto`):
+
+| Key | Value | Written |
+| --- | --- | --- |
+| `ecu.status.<src>` | `EcuStatus`: activity, idle, `idle_secs`, the telemetry link, the last packet's age, packets, sessions started | on change, every second while idle, at least every 5 s while busy |
+| `ecu.session.<src>` | `LiveSession`: kind, track, lap, laps, position and cars where the results card shows them | on change while a session is open; deleted when it ends |
+| `ecu.pit.<src>` | `PitState`: in the pit lane, stint, stops | the same |
+| `ecu.fuel.<src>` | `FuelState`: the level, the tank, and the laps it lasts by the fuel model (`gt7_fuel_laps_remaining`, paddock#92 R8) | the same |
+
+- **Never from the frame path.** The step loop hands the tracker the race
+  state's read-only view after each step or tick (`race.Machine.Live`, a copy
+  that allocates nothing); a writer goroutine reads it once a second, encodes
+  the values and writes those due, through `internal/bus`'s KV handle. A write
+  that fails is logged once and tried again each second.
+- **Idle, as v1's.** Busy while driving frames (in a race, or paused in one)
+  arrive, that is while the last one is under `TWR_ECU_TELEMETRY_TIMEOUT_SECS`
+  old; idle otherwise, a session left open by a feed that stopped included,
+  and once the drive ends. The activity is `idle` exactly then; otherwise
+  `replay` or `demo` while the start check ignores one, `paused`, or
+  `driving`, a start still being judged included.
+- **Per source.** Every key carries the source, so `ecu replay` writes its own
+  (`ecu.status.replay-<run>`, `ecu.status.parity`), never live's, and leaves
+  its status idle and its session's keys deleted at its end.
+- **No secrets.** The values come from the race state, ecu's version and the
+  source alone: no token, credential, PS5 or NATS address.
+- **`/healthz`** on `ADDR` adds the same idle flag, `idle_secs`, activity, the
+  telemetry link and listener, the last packet's age, packets and sessions
+  started, with `tasks` (the drive and the status writer alive),
+  `nats_connected` and `ok`, all of them well. It answers 503 only when a task
+  has died or the listener cannot hold its port: NATS down is `ok: false` and
+  still 200, as the client reconnects by itself, and the PS5 off is normal.
+- **Not here yet.** `svc.ecu.status`, the NATS micro endpoint, waits on the
+  pit wall (Rosberg). `ecu.session`'s `car_name` is from the car table
+  ([The session summary](#the-session-summary)).
+- **Tests.** `internal/status`'s tests feed v1's recordings through the race
+  state and check every field of v1.0.0's status body, as `contracts`'
+  `testdata/v1/gilles_villeneuve_status.json` holds it, SUGO's two stops (in
+  the pit lane between each entry and exit, P9 at the end, idle 3 s after the
+  last driving frame) and SUGO's GT7 replay (`replay` while it plays).
 
 ## Checks
 
@@ -859,7 +923,7 @@ The ones every Go component shares, from the
 - **Logging with `log/slog`, as JSON** on standard output, one object per line,
   with key-value pairs.
 - **A health endpoint**, `GET /healthz`, which answers 200 while the process can
-  serve.
+  serve; ecu's adds its status ([The live status](#the-live-status)).
 
 ## From the template
 

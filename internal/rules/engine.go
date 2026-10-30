@@ -108,6 +108,19 @@ func (e *Engine) Gauges() map[string]float64 {
 	return out
 }
 
+// Gauge is the gauge of that name, as Gauges has it, without building the map:
+// the live KV reads the fuel's laps remaining after every step (paddock#88).
+func (e *Engine) Gauge(name string) (float64, bool) {
+	for _, r := range e.rules {
+		if g, ok := r.rule.(Gauge); ok {
+			if n, v, ok := g.Gauge(); ok && n == name {
+				return v, true
+			}
+		}
+	}
+	return 0, false
+}
+
 // Step runs the rules on the frame ctx, the machine's Context after its Step,
 // and returns the callouts to publish, as outputs: the ones held in the pit lane
 // and released on this frame first, then this frame's, rule by rule in Order and

@@ -42,6 +42,13 @@ var v1Recordings = []string{
 	"real-nuc-spa-time-trial-2026-10-18",
 }
 
+// liveRecordings are recordings of ecu's own, cut from live outings, each with
+// v1's verdicts on the table as ecu has it (testdata/live/make_fixture.py says
+// where each comes from).
+var liveRecordings = []string{
+	"real-nuc-short-shift-fuji-race-2026-10-29", // paddock#81: Fuji's box was short
+}
+
 // The table's ids the tests name.
 const (
 	n24h, gp, nordschleife, tourist = 348, 349, 95, 347
@@ -145,11 +152,13 @@ func readGolden(t *testing.T, path string) []verdict {
 	return out
 }
 
-// AC2: on every recording of v1's FIXTURES.yaml, each change of the verdict (the
-// frame, the track, the confidence, the family, the candidates, those crossed and
-// the evidence) and the final match are v1's, as make_golden.py wrote them from
-// v1.0.0. The .joined goldens are the same with the detector told it joined part
-// way before the first frame, as v1's engine does for a session joined mid-race.
+// AC2: on every recording of v1's FIXTURES.yaml and each of liveRecordings, each
+// change of the verdict (the frame, the track, the confidence, the family, the
+// candidates, those crossed and the evidence) and the final match are v1's, as
+// make_golden.py wrote them from v1.0.0 with the table as ecu has it (Fuji's box
+// widened, paddock#81). The .joined goldens are the same with the detector told
+// it joined part way before the first frame, as v1's engine does for a session
+// joined mid-race.
 func TestEveryRecordingGivesV1sVerdicts(t *testing.T) {
 	goldens, err := filepath.Glob(filepath.Join("testdata", "golden", "*.jsonl"))
 	if err != nil {
@@ -186,10 +195,10 @@ func TestEveryRecordingGivesV1sVerdicts(t *testing.T) {
 		})
 	}
 	slices.Sort(plain)
-	all := slices.Clone(v1Recordings)
+	all := slices.Concat(v1Recordings, liveRecordings)
 	slices.Sort(all)
 	if !slices.Equal(plain, all) {
-		t.Errorf("goldens for %v, want one for each of v1's %d recordings", plain, len(all))
+		t.Errorf("goldens for %v, want one for each of the %d recordings", plain, len(all))
 	}
 }
 
@@ -466,4 +475,46 @@ func TestWillowSpringsJoinedNamesNothingBeforeTheLine(t *testing.T) {
 		t.Errorf("named %v", got)
 	}
 	wantFinal(t, final, willowSprings, Confirmed)
+}
+
+// paddock#81: the 3-lap race at Fuji on 2026-10-29 reached x 667 on laps 1 and 2,
+// beyond v1.0.0's box for Fuji and Fuji Short (x 615.2 and 615.7) and the 50 m it
+// allows, so both were ruled out before the first line crossing and the race was
+// never named. With their box widened to x 670 the circuit is probable at the
+// first crossing, frame 476, and holds to the end.
+func TestTheFujiRaceOf20261029IsFuji(t *testing.T) {
+	const name = "real-nuc-short-shift-fuji-race-2026-10-29"
+	final, steps := detect(t, name, false)
+	wantFinal(t, final, fuji, Probable)
+	if final.Family != fujiCircuit {
+		t.Errorf("family %q", final.Family)
+	}
+	first, ok := firstStep(steps, func(s step) bool { return s.match.TrackID != 0 })
+	if !ok || first.frame != 476 || first.lap != 2 {
+		t.Errorf("named on frame %d lap %d (found %v), want 476, lap 2", first.frame, first.lap, ok)
+	}
+	if got := named(steps); len(got) != 1 || !got[fuji] {
+		t.Errorf("named %v", got)
+	}
+	fs := frames(t, name)
+	var maxX float64
+	for _, f := range fs {
+		maxX = max(maxX, f.GetPosX())
+	}
+	if maxX < 667 {
+		t.Errorf("the fixture reaches x %.1f, want beyond 667", maxX)
+	}
+
+	// With v1.0.0's rows nothing fits from the first crossing on.
+	d := New(v1Table(t), Defaults)
+	var none int
+	for i, f := range fs {
+		if m, changed := d.Observe(f); changed && m.Confidence == None {
+			none = i + 1
+			break
+		}
+	}
+	if none != 476 {
+		t.Errorf("with v1.0.0's Fuji rows: none on frame %d, want 476", none)
+	}
 }

@@ -26,6 +26,11 @@ type Config struct {
 	LogLevel slog.Level
 }
 
+// Health is a component's health for GET /healthz: whether it is healthy, which
+// answers 200, or not, 503, and the fields the body carries beside status and
+// version.
+type Health func() (healthy bool, fields map[string]any)
+
 // ConfigFromEnv reads the configuration through getenv, which is os.Getenv outside
 // the tests. An unset or empty variable takes its default; a value that can't be
 // read is an error, so a typo stops the service rather than being ignored.
@@ -48,14 +53,31 @@ func NewLogger(w io.Writer, level slog.Level) *slog.Logger {
 	return slog.New(slog.NewJSONHandler(w, &slog.HandlerOptions{Level: level}))
 }
 
-// Handler serves the health endpoint, GET /healthz, which answers 200 with the
-// service's version while the process can serve requests.
-func Handler(version string) http.Handler {
+// Handler serves the health endpoint, GET /healthz, which answers with the
+// service's version and health's fields: 200 with status ok while health says
+// healthy, or with no health while the process can serve requests, and 503 with
+// status unhealthy otherwise.
+func Handler(version string, health Health) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
+		body := map[string]any{}
+		healthy := true
+		if health != nil {
+			var fields map[string]any
+			healthy, fields = health()
+			for k, v := range fields {
+				body[k] = v
+			}
+		}
+		body["status"], body["version"] = "ok", version
 		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		if !healthy {
+			body["status"] = "unhealthy"
+			w.WriteHeader(http.StatusServiceUnavailable)
+		}
 		// An error here is the client gone; there is no one left to tell.
-		_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok", "version": version})
+		_ = json.NewEncoder(w).Encode(body)
 	})
 	return mux
 }
@@ -78,13 +100,13 @@ const (
 // Run listens on cfg.Addr and serves Handler until ctx is done, then shuts the
 // server down gracefully. It returns nil after a clean shutdown, or why it could
 // not listen or serve.
-func Run(ctx context.Context, cfg Config, logger *slog.Logger, version string) error {
+func Run(ctx context.Context, cfg Config, logger *slog.Logger, version string, health Health) error {
 	var lc net.ListenConfig
 	ln, err := lc.Listen(ctx, "tcp", cfg.Addr)
 	if err != nil {
 		return fmt.Errorf("listen: %w", err)
 	}
-	return serve(ctx, ln, logger, version)
+	return serve(ctx, ln, logger, version, health)
 }
 
 // newServer is the HTTP server for h, with the limits above, logging its own errors
@@ -100,8 +122,8 @@ func newServer(h http.Handler, logger *slog.Logger) *http.Server {
 	}
 }
 
-func serve(ctx context.Context, ln net.Listener, logger *slog.Logger, version string) error {
-	srv := newServer(Handler(version), logger)
+func serve(ctx context.Context, ln net.Listener, logger *slog.Logger, version string, health Health) error {
+	srv := newServer(Handler(version, health), logger)
 	served := make(chan error, 1)
 	go func() { served <- srv.Serve(ln) }()
 	logger.InfoContext(ctx, "serving", "addr", ln.Addr().String(), "version", version)

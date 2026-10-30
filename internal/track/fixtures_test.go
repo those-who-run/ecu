@@ -54,9 +54,11 @@ func salsaFixtures(tb testing.TB) string {
 // recordingPath is where the recording is, here or in salsa.
 func recordingPath(tb testing.TB, name string) string {
 	tb.Helper()
-	path := filepath.Join("testdata", "v1", name+".jsonl.gz")
-	if _, err := os.Stat(path); err == nil {
-		return path
+	for _, dir := range []string{"v1", "live"} {
+		path := filepath.Join("testdata", dir, name+".jsonl.gz")
+		if _, err := os.Stat(path); err == nil {
+			return path
+		}
 	}
 	return filepath.Join(salsaFixtures(tb), name+".jsonl.gz")
 }
