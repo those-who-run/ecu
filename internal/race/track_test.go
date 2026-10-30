@@ -44,6 +44,13 @@ var v1Recordings = []string{
 	"real-nuc-spa-time-trial-2026-10-18",
 }
 
+// liveRecordings are ecu's own recordings with a track golden, cut from live
+// outings (internal/track's testdata/live/make_fixture.py), each with v1's
+// session tracks on the table as ecu has it.
+var liveRecordings = []string{
+	"real-nuc-short-shift-fuji-race-2026-10-29",
+}
+
 // trackLine is a line of a track golden (testdata/track/make_golden.py): a session
 // opened, its verdict changed, or it ended with the track it stored.
 type trackLine struct {
@@ -184,7 +191,7 @@ func trackLines(out []Output) []trackLine {
 // verdict, its first 8 candidates and its evidence, and each session.ended's
 // summary keeps the track v1 stored for the session (R5).
 func TestSessionTrackIsV1sOnEveryRecording(t *testing.T) {
-	for _, name := range v1Recordings {
+	for _, name := range slices.Concat(v1Recordings, liveRecordings) {
 		t.Run(name, func(t *testing.T) {
 			out := replay(t, name)
 			got := trackLines(out)
@@ -260,7 +267,8 @@ func TestNoVerdictPublishesMoreThan8Candidates(t *testing.T) {
 
 // R1: the session's verdict changes only for one that ranks higher (confidence,
 // then naming a layout), or when the layout it holds is ruled out; never for a
-// change of candidates or wording alone.
+// change of candidates or wording alone. Departing from v1, nothing fitting
+// replaces a verdict that names no layout (paddock#81).
 func TestTheSessionKeepsItsBestVerdict(t *testing.T) {
 	suzuka, _ := track.ByID(10)
 	m := New(testIDs())
@@ -282,9 +290,11 @@ func TestTheSessionKeepsItsBestVerdict(t *testing.T) {
 	}{
 		{0, track.Ambiguous, "a", true, "the first verdict"},
 		{0, track.Ambiguous, "b", false, "wording alone"},
-		{0, track.None, "c", false, "a blip down to nothing"},
+		{0, track.None, "c", true, "nothing fits, over a verdict that names no layout (paddock#81)"},
+		{0, track.Ambiguous, "c", true, "above nothing"},
 		{10, track.Probable, "d", true, "a layout, surer"},
 		{0, track.Ambiguous, "e", false, "a blip down, the layout still alive"},
+		{0, track.None, "e", false, "nothing, the layout still alive"},
 		{10, track.Probable, "f", false, "the same decision"},
 		{10, track.Confirmed, "g", true, "surer"},
 		{999999, track.Confirmed, "h", true, "another layout as sure"},
@@ -295,7 +305,7 @@ func TestTheSessionKeepsItsBestVerdict(t *testing.T) {
 			t.Errorf("%s (%d %v): published %t, want %t", st.why, st.id, st.c, got, st.published)
 		}
 	}
-	if got := m.out[0]; got.Event.ID != "S:session.track:"+m.Run()+":9" || got.Track.GetAt() != 9 || got.Session != "S" {
+	if got := m.out[0]; got.Event.ID != "S:session.track:"+m.Run()+":11" || got.Track.GetAt() != 11 || got.Session != "S" {
 		t.Errorf("the last verdict: id %s, at %d, session %s", got.Event.ID, got.Track.GetAt(), got.Session)
 	}
 }
@@ -356,6 +366,62 @@ func TestGillesVilleneuveIsProbableThenConfirmed(t *testing.T) {
 	for i, p := range published {
 		if tr := p.GetTrack(); tr.GetTrackId() != 100002 || tr.GetConfidence() != want[i] {
 			t.Errorf("session.track %d: %v, want Circuit Gilles Villeneuve %v", i+1, tr, want[i])
+		}
+	}
+}
+
+// paddock#81, the new AC: the 3-lap race at Fuji on 2026-10-29 (session 4 of the
+// live recording) stayed ambiguous on v1 and on ecu, Fuji's box in the table being
+// 52 m short. With it widened the session's track is the circuit, probable, from
+// the first line crossing, and the summary keeps it.
+func TestTheFujiRaceOf20261029IsFuji(t *testing.T) {
+	out := replay(t, "real-nuc-short-shift-fuji-race-2026-10-29")
+	published := publishedTracks(out)
+	if len(published) != 2 {
+		t.Fatalf("%d session.track events, want ambiguous then Fuji: %v", len(published), published)
+	}
+	tr := published[1].GetTrack()
+	if published[1].GetAt() != 476 || tr.GetTrackId() != 16 || tr.GetName() != "Fuji International Speedway" ||
+		tr.GetFamily() != tr.GetName() || tr.GetConfidence() != eventsv1.TrackConfidence_TRACK_CONFIDENCE_PROBABLE {
+		t.Errorf("frame %d: %v", published[1].GetAt(), tr)
+	}
+	for _, o := range out {
+		if o.Ended != nil && o.Ended.GetSummary().GetTrack().GetTrackId() != 16 {
+			t.Errorf("the summary's track is %v", o.Ended.GetSummary().GetTrack())
+		}
+	}
+}
+
+// paddock#81, the maintainer's departure from v1: when nothing fits, a held
+// verdict that names no layout gives way, so a miss shows as none. On v1.0.0's
+// table the Fuji race is such a miss: v1 kept "50 layouts near the start still
+// fit" to the end; ecu says no layout fits from the first crossing.
+func TestNothingFittingReplacesAVerdictThatNamesNoLayout(t *testing.T) {
+	var v1 []track.Track
+	for _, tr := range track.Table() {
+		if tr.ID == 16 || tr.ID == 837 { // v1.0.0's maxx
+			tr.Box.MaxX = map[int32]float64{16: 615.2125244140625, 837: 615.6531372070312}[tr.ID]
+		}
+		v1 = append(v1, tr)
+	}
+	m := New(testIDs())
+	m.tracks = track.New(v1, track.Config{})
+	var out []Output
+	for _, r := range packets(t, "real-nuc-short-shift-fuji-race-2026-10-29") {
+		out = append(out, m.Step(r)...)
+	}
+	out = append(out, m.EndOfInput()...)
+	var got []string
+	for _, p := range publishedTracks(out) {
+		got = append(got, fmt.Sprintf("%d %s", p.GetAt(), confidenceNames[p.GetTrack().GetConfidence()]))
+	}
+	if want := []string{"37 ambiguous", "476 none"}; !slices.Equal(got, want) {
+		t.Errorf("session.track %v, want %v", got, want)
+	}
+	for _, o := range out {
+		if tr := o.Ended.GetSummary().GetTrack(); o.Ended != nil &&
+			(tr.GetConfidence() != eventsv1.TrackConfidence_TRACK_CONFIDENCE_NONE || tr.GetEvidence() != "no layout fits the lap counter and path") {
+			t.Errorf("the summary's track is %v", tr)
 		}
 	}
 }

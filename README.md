@@ -110,10 +110,18 @@ track table and v1's track detector, ported rule for rule from its
 `tracks.py` and `trackdetect.py` at v1.0.0 (paddock#80): a pure library the
 race state feeds every frame ([The session's track](#the-sessions-track)).
 
-- **The table.** v1's `tracks.csv`, unchanged and embedded in the binary: 108
-  layouts, 105 with a finish line, its direction and a lap box, from gt-telem
-  and Bornhall's gt7telemetry ([`NOTICE`](NOTICE)). Rows learned from our own
-  laps have ids from 100001 and a lap length.
+- **The table.** v1's `tracks.csv`, embedded in the binary: 108 layouts, 105
+  with a finish line, its direction and a lap box, from gt-telem and
+  Bornhall's gt7telemetry ([`NOTICE`](NOTICE)). Rows learned from our own laps
+  have ids from 100001 and a lap length. Its changes from v1.0.0's, each
+  listed in `amendments` in `table_test.go`, which checks the rest is v1's
+  byte for byte:
+  - Fuji International Speedway (16) and Fuji (Short) (837): `maxx` 670.0,
+    from 615.2 and 615.7 (paddock#81). In a 3-lap race on 2026-10-29 the car
+    reached x 667.4, beyond the box and the 50 m the detector allows, so both
+    were ruled out before the first line crossing and the race was never
+    named. [`internal/track/testdata/live/`](internal/track/testdata/live)
+    has that race, cut as `make_fixture.py` there says.
 - **The detector.** Fed frames with `Observe` (the contracts frame ecu makes
   for each packet), it narrows the table with v1's facts: a finish line within
   1 km of where the car has been, the path inside the box, the line crossed in
@@ -126,10 +134,10 @@ race state feeds every frame ([The session's track](#the-sessions-track)).
   session joined part way, which names no track before a line. A menu or a
   loading screen at lap 0 starts over by itself; a pit cut-scene, which keeps
   the lap counter, doesn't.
-- **Tests.** Every one of v1's 25 recordings gives v1's verdicts, change by
-  change, with v1's evidence, as `make_golden.py` in
+- **Tests.** Every one of v1's 25 recordings, and the Fuji race, gives v1's
+  verdicts, change by change, with v1's evidence, as `make_golden.py` in
   [`internal/track/testdata/golden/`](internal/track/testdata/golden) wrote
-  them from v1.0.0. The 18 recordings `salsa` doesn't carry are copied into
+  them from v1.0.0 with ecu's table. The 18 recordings `salsa` doesn't carry are copied into
   [`internal/track/testdata/v1/`](internal/track/testdata/v1) with their
   provenance and checksums.
 
@@ -149,6 +157,12 @@ v1.0.0, in [`internal/race/track.go`](internal/race/track.go).
   that ranks higher (confidence, then naming a layout), or when the layout it
   holds has been ruled out by the detector. A change of candidates or wording
   alone publishes nothing.
+- **A miss shows as one.** Departing from v1 (the maintainer's decision,
+  paddock#81): when the detector finds that no layout fits, that replaces a
+  held verdict that names no layout, such as "50 layouts near the start still
+  fit", so a track the table lacks or gets wrong ends as `none`, not as a
+  stale guess. A held verdict that names a layout stays while that layout
+  fits, as v1's (at Spa, those-who-run/those-who-run#275). None of v1's 25 recordings changes.
 - **At the session's open.** A verdict the detector already has when a
   session opens (a rolling start crosses the line before lap 1) is applied at
   once, on the session's first frame.
@@ -171,8 +185,9 @@ v1.0.0, in [`internal/race/track.go`](internal/race/track.go).
   same verdict (the last of a frame's), its first 8 candidates and its
   evidence, as
   `make_golden.py` in [`internal/race/testdata/track/`](internal/race/testdata/track)
-  wrote them from v1.0.0. The six v1 drops as a replay or a GT7 demo
-  ([The start check](#the-start-check)) have none.
+  wrote them from v1.0.0 with ecu's table; the Fuji race too. The six v1
+  drops as a replay or a GT7 demo ([The start check](#the-start-check)) have
+  none.
 
 ## The session's kind
 
