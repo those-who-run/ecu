@@ -225,8 +225,11 @@ that, and when none came it tells the race state the time
 
 - **Lost.** `telemetry.lost`, once, the timeout after the last packet, whatever
   the phase, with the last frame's phase, its seq (`at`) and the silence. The
-  telemetry rule decides what is said (paddock#98): silence in a menu is
-  normal. The first packet after ecu starts is no restore.
+  telemetry rule decides what is said (paddock#98): "Lost telemetry." when
+  the last frame was a race or a pause (`phases`), since silence in a menu is
+  normal, and "Telemetry back." on the restore after such a loss. Both are
+  priority 5, on `.p0`, and spoken in the pit lane, as v1's watchdog did. The
+  first packet after ecu starts is no restore.
 - **In a pause.** Lost in a pause with a session open, the session ends
   paused on its last frame: `session.ended` with `END_REASON_TELEMETRY_LOST`
   and `ended_paused` (the PS5 switched off or put to rest,
@@ -576,8 +579,9 @@ rule.
 
 - **Rules.** `lap_time` (paddock#91), `fuel` ([Fuel](#fuel), paddock#92),
   `final_lap` (paddock#93), `position` (paddock#94), `start_brief`
-  (paddock#95), `race_summary` (paddock#96) and `temps` (paddock#97) so far;
-  the telemetry rule (#98) will be a package under `internal/rules` too.
+  (paddock#95), `race_summary` (paddock#96), `temps` (paddock#97) and
+  `telemetry` ([Telemetry lost and restored](#telemetry-lost-and-restored),
+  paddock#98) so far, each a package under `internal/rules`.
 - **Car alarms.** Each firing of `temps` (a tyre, the water or the oil hot, or
   cold tyres at the start) is also published as `car.alarm` (contracts'
   `CarAlarmRaised`) on `twr.v1.<src>.evt.<sid>.car.alarm`, from the same
