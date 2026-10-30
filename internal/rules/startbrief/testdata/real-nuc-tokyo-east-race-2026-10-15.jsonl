@@ -1,2 +1,0 @@
-{"event": "session.started", "session": 1, "frame": 19, "joined": false}
-{"event": "callout", "session": 1, "frame": 24, "kind": "template", "slots": {"track": "Tokyo Expressway - East Clockwise", "laps": 3}, "priority": 8, "hold_secs": 0.0, "expiry_secs": 8.0, "pit_lane": "hold", "text": "Tokyo Expressway. East Clockwise. Three laps.", "outcome": "spoken"}

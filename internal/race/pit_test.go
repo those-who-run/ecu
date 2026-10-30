@@ -290,15 +290,6 @@ func TestPitEventsAreV1sOnEveryRecording(t *testing.T) {
 				}
 			}
 
-			if _, ok := discarded[name]; ok {
-				// v1 opens no session to store stops in; ecu's sessions have none.
-				for _, s := range summaries {
-					if s.GetStints() != 1 || len(s.GetPitStops()) != 0 {
-						t.Errorf("summary: %d stints, %v", s.GetStints(), s.GetPitStops())
-					}
-				}
-				return
-			}
 			if len(summaries) != len(ended) {
 				t.Fatalf("%d sessions ended, v1 stored %d", len(summaries), len(ended))
 			}

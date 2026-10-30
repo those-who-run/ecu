@@ -39,13 +39,17 @@ var (
 )
 
 // Recording is the path of one of v1's recordings: salsa's testdata/v1, else
-// internal/track's.
+// internal/track's; or of the start check's own, internal/race's testdata/start
+// (paddock#74).
 func Recording(tb testing.TB, name string) string {
 	tb.Helper()
 	_, here, _, _ := runtime.Caller(0)
-	path := filepath.Join(filepath.Dir(here), "..", "..", "track", "testdata", "v1", name+".jsonl.gz")
-	if _, err := os.Stat(path); err == nil {
-		return path
+	internal := filepath.Join(filepath.Dir(here), "..", "..")
+	for _, dir := range []string{filepath.Join("track", "testdata", "v1"), filepath.Join("race", "testdata", "start")} {
+		path := filepath.Join(internal, dir, name+".jsonl.gz")
+		if _, err := os.Stat(path); err == nil {
+			return path
+		}
 	}
 	salsaOnce.Do(func() {
 		out, err := exec.CommandContext(context.Background(), "go", "list", "-m", "-f", "{{.Dir}}",
@@ -89,10 +93,10 @@ func Packets(tb testing.TB, name string) []race.Received {
 // end.
 func Run(all []race.Received, e *rules.Engine) []race.Output {
 	m := race.New(IDs())
+	m.Rules(e.Step)
 	var out []race.Output
 	for _, r := range all {
 		out = append(out, m.Step(r)...)
-		out = append(out, e.Step(m.Context())...)
 	}
 	return append(out, m.EndOfInput()...)
 }
@@ -106,6 +110,18 @@ func Replay(tb testing.TB, name string) []race.Output {
 		tb.Fatal(err)
 	}
 	return Run(Packets(tb, name), e)
+}
+
+// Discarded are the recordings of a GT7 replay or demo race, which v1's start
+// check and ecu's drop (paddock#74): no session, so no callout and an empty
+// golden.
+var Discarded = map[string]bool{
+	"real-nuc-laguna-seca-demo-2026-10-18":           true,
+	"real-nuc-laguna-seca-race-2026-10-15":           true,
+	"real-nuc-nordschleife-rolling-start-2026-10-15": true,
+	"real-nuc-sugo-replay-2026-10-18":                true,
+	"real-nuc-tokyo-east-race-2026-10-15":            true,
+	"real-nuc-tsukuba-brz-drift-2026-10-15":          true,
 }
 
 // Recordings are v1's 25 recordings, the goldens' names.

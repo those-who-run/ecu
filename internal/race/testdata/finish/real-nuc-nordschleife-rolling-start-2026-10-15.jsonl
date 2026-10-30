@@ -1,2 +1,0 @@
-{"event": "session.started", "session": 1, "frame": 10}
-{"event": "session.ended", "session": 1, "finished": false, "total_time_ms": null, "best_lap_ms": null, "best_lap": null}

@@ -3,7 +3,7 @@
 // the TELEMETRY stream captures, and at most 20 a second of frame time go on
 // twr.v1.<src>.frame.gt7.lo too. session.started, session.track, session.kind,
 // pit.entered, pit.exited, pit.teleport, race.final_lap, race.position,
-// lap.completed, race.finished and session.ended go on
+// lap.completed, race.finished, session.discarded and session.ended go on
 // twr.v1.<src>.evt.<sid>.<area>.<what>, which the EVENTS stream captures and
 // deduplicates on Nats-Msg-Id; each is published through
 // JetStream and sent again until EVENTS acknowledges it. The rule engine's
@@ -315,8 +315,14 @@ func (p *Publisher) dropFrame(lo bool) {
 func (p *Publisher) event(o race.Output, wait <-chan struct{}) {
 	if o.Started == nil && o.Lap == nil && o.Best == nil && o.Track == nil && o.Kind == nil && o.Ended == nil &&
 		o.PitEntered == nil && o.PitExited == nil && o.PitTeleport == nil && o.FinalLap == nil &&
-		o.Position == nil && o.Finished == nil && o.Alarm == nil && o.TelemetryLost == nil && o.TelemetryRestored == nil {
+		o.Position == nil && o.Finished == nil && o.Discarded == nil && o.Alarm == nil && o.TelemetryLost == nil &&
+		o.TelemetryRestored == nil {
 		return
+	}
+	if d := o.Discarded; d != nil {
+		// paddock#74 R4: one line says why a held start was dropped.
+		p.logger.Info("start discarded", "session", d.GetSessionId(), "reason", d.GetReason().String(),
+			"evidence", d.GetEvidence(), "first_seq", d.GetFirstSeq(), "at", d.GetAt())
 	}
 	if o.Started != nil {
 		o.Started.Source = p.src

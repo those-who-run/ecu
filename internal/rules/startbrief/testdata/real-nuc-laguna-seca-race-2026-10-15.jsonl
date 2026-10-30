@@ -1,2 +1,0 @@
-{"event": "session.started", "session": 1, "frame": 18, "joined": false}
-{"event": "callout", "session": 1, "frame": 23, "kind": "template", "slots": {"track": "WeatherTech Raceway Laguna Seca", "laps": 5}, "priority": 8, "hold_secs": 0.0, "expiry_secs": 8.0, "pit_lane": "hold", "text": "WeatherTech Raceway Laguna Seca. Five laps.", "outcome": "spoken"}

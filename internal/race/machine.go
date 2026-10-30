@@ -23,9 +23,11 @@
 // Engine._step's lap_time rule, and the best, from results.best_lap with
 // contracts v0.2.3's one difference (laps.go here, paddock#83), and the
 // telemetry watchdog's loss and return, from App._watchdog and Engine.feed_lost
-// (feed.go here, paddock#87), the caller giving it the time. What else v1's engine reads (replays and demo races
-// held at the start, continuing after a restart and the frozen pause) is not here
-// yet.
+// (feed.go here, paddock#87), the caller giving it the time. The start check
+// that holds a start GT7's cars-on-track flag is off for and drops a replay or a
+// demo race is v1's DriverCheck and Engine.process (start.go here, paddock#74).
+// What else v1's engine reads (continuing after a restart and the frozen pause)
+// is not here yet.
 package race
 
 import (
@@ -144,7 +146,7 @@ func (w Why) Reason() eventsv1.EndReason {
 
 // Output is a frame or an event, with its CloudEvents id and time: exactly one of
 // Frame, Started, Lap, Best, Track, Kind, PitEntered, PitExited, PitTeleport,
-// FinalLap, Position, Finished, Ended, TelemetryLost, TelemetryRestored, Callout and Alarm is set, each the contracts message of that name
+// FinalLap, Position, Finished, Discarded, Ended, TelemetryLost, TelemetryRestored, Callout and Alarm is set, each the contracts message of that name
 // (Callout and Alarm are the rule engine's, internal/rules). SessionStarted's
 // source is left empty: only the publisher knows the <src> it publishes under, and
 // sets it (internal/bus).
@@ -158,7 +160,8 @@ type Output struct {
 	// seq of the frame it changed on, <sid>:pit.entered:<entry>,
 	// <sid>:pit.exited:<stop> and <sid>:pit.teleport:<entry> for the pits,
 	// <sid>:race.final_lap:1 and <sid>:race.position:<run>:<seq> for the final
-	// lap and a settled position, and <sid>:race.finished:1 for the finish. An event's id is the catalogue's
+	// lap and a settled position, <sid>:race.finished:1 for the finish, and
+	// <sid>:session.discarded:1 for a held start that was not a drive. An event's id is the catalogue's
 	// without its <src>: the publisher puts <src>: in front (paddock#279).
 	Event ce.Event
 	// Session is the id of the session an event belongs to; "" for a frame.
@@ -178,6 +181,9 @@ type Output struct {
 	FinalLap    *eventsv1.RaceFinalLapStarted
 	Position    *eventsv1.RacePositionChanged
 	Finished    *eventsv1.RaceFinished
+	// Discarded is a held start that was a replay or a demo (start.go,
+	// paddock#74): no session.started came for it.
+	Discarded *eventsv1.SessionDiscarded
 
 	// TelemetryLost and TelemetryRestored are the watchdog's (feed.go,
 	// paddock#87): <sid>:telemetry.lost:<run>:<seq> with a session open and
@@ -228,6 +234,8 @@ func (o Output) Message() proto.Message {
 		return o.Finished
 	case o.Callout != nil:
 		return o.Callout
+	case o.Discarded != nil:
+		return o.Discarded
 	case o.TelemetryLost != nil:
 		return o.TelemetryLost
 	case o.TelemetryRestored != nil:
@@ -264,7 +272,9 @@ type Machine struct {
 	// saw one, for Context.TrackChanges.
 	trackChanges []*track.Match
 
-	feed feed // the telemetry watchdog (feed.go, paddock#87)
+	check startCheck              // the start check and its hold (start.go, paddock#74)
+	rules func(*Context) []Output // run on each frame the race state takes (Rules)
+	feed  feed                    // the telemetry watchdog (feed.go, paddock#87)
 	// endedPaused: the session ended in a pause, and the frames are ignored until
 	// the next start (v1's Engine.ended_paused).
 	endedPaused bool
@@ -308,11 +318,21 @@ func New(ids IDs) *Machine {
 	return &Machine{ids: ids, run: ids().String(), tracks: track.New(nil, track.Config{}), pits: pit.New()}
 }
 
+// Rules has the machine run rules on each frame the race state takes, after its
+// step, and give what they return after the frame's events: the rule engine's
+// Step (internal/rules, paddock#89). A frame held by the start check, or ignored
+// after a replay or a demo, is not given to them; a drive's held frames are, each
+// in turn, when the check lets them go (paddock#74).
+func (m *Machine) Rules(rules func(*Context) []Output) { m.rules = rules }
+
 // Run is the machine's run id, a ULID: the <run> in each frame's id.
 func (m *Machine) Run() string { return m.run }
 
 // Step takes the next packet and returns its frame, then the events it gives rise
-// to, in the order they happened: the end of a session the packet's start closes,
+// to, in the order they happened, and what the rules (Rules) raised on it. A start
+// held by the start check gives the frame alone until its verdict, which gives
+// the held frames' events and callouts in turn, or a replay's or a demo's
+// session.discarded (start.go). The events are: the end of a session the packet's start closes,
 // the start, a pit entry, exit or entry withdrawn, the final lap and a settled
 // position, a change of the session's track, a change of its kind, a lap closed
 // and the best it gave the session, the race's finish, and the end of the session.
@@ -325,18 +345,31 @@ func (m *Machine) Step(r Received) []Output {
 		Event: m.event(m.run+":frame:"+strconv.FormatUint(uint64(m.seq), 10), r.Time),
 		Frame: s.frame,
 	}}
+	// After a loss, telemetry.restored goes first after the frame (feed.go).
 	m.restore(&s, r.Time)
+	// The start check (start.go, paddock#74) holds a start GT7's flag is off for,
+	// and ignores a replay or a demo; what it does not take goes through here.
+	if !m.hold(&s) {
+		m.step(&s)
+	}
+	return m.out
+}
 
+// step is v1's Engine._step: one frame through the race state, then the rules.
+// Its events go on m.out.
+func (m *Machine) step(s *state) {
+	t := s.received
 	// Engine._step, the parts that open, close and end.
 	prev := m.prev
-	restarted := raceRestarted(prev, &s)
-	starting := raceStarted(prev, &s) || restarted
+	restarted := raceRestarted(prev, s)
+	starting := raceStarted(prev, s) || restarted
 	// v1's Engine.process: after a session ended paused, nothing but a start is
 	// read; the frame goes out and the rules see it with no session.
 	if m.endedPaused && !starting {
-		m.ctx.Run, m.ctx.Time, m.ctx.Cur = m.run, r.Time, s.view()
-		m.prev, m.prevTime = &s, r.Time
-		return m.out
+		m.ctx.Run, m.ctx.Time, m.ctx.Cur = m.run, t, s.view()
+		m.prev, m.prevTime = s, t
+		m.runRules()
+		return
 	}
 	m.endedPaused = false
 	if starting {
@@ -352,7 +385,7 @@ func (m *Machine) Step(r Received) []Output {
 		m.finalLap, m.places = false, places{}
 		m.kinds = kinds{}
 		m.pits.Reset()
-		m.joined, m.trackChanges = joinedPartWay(prev, &s), nil
+		m.joined, m.trackChanges = joinedPartWay(prev, s), nil
 		// The track detector starts over by itself after a menu or a loading screen
 		// at lap 0, so only a restart, which teleports the car back to the grid with
 		// neither, resets it here, as v1's engine does: a rolling start keeps what
@@ -361,7 +394,7 @@ func (m *Machine) Step(r Received) []Output {
 		if restarted {
 			m.tracks.Reset()
 		}
-		if joinedPartWay(prev, &s) {
+		if joinedPartWay(prev, s) {
 			m.tracks.Join()
 			m.kinds.join()
 		}
@@ -372,18 +405,18 @@ func (m *Machine) Step(r Received) []Output {
 	// v1 feeds the detector every frame, after a start has reset it and before the
 	// lap store reads the frame: the start carries the verdict on its first frame,
 	// and a lap the verdict when it ends.
-	kindChanged := m.kinds.observe(&s)
+	kindChanged := m.kinds.observe(s)
 	if starting {
-		m.start(&s, r.Time, joinedPartWay(prev, &s))
+		m.start(s, t, joinedPartWay(prev, s))
 		// A rolling start crosses the line before lap 1, so the detector may know
 		// the track already when the session opens (paddock#81, R3).
 		if match := m.tracks.Match(); match.Confidence != track.None {
-			m.applyTrack(match, &s, r.Time)
+			m.applyTrack(match, s, t)
 		}
 	}
 	// Before the lap store, as v1's Engine._step: the crossing that closes an
 	// in-lap can come on the very frame after the pit cut (paddock#78, R6).
-	m.observePits(m.out[0].Frame, r.Time)
+	m.observePits(s.frame, t)
 	// Rules and the lap store compare against the last driving frame. A pause or a
 	// loading screen in between hides nothing: GT7 posts a lap on a loading frame
 	// when the car crosses the line in a pit cut-scene (into the pits at Suzuka East
@@ -400,25 +433,25 @@ func (m *Machine) Step(r Received) []Output {
 	// kind and the lap store, in Engine._step: the final lap and a settled position
 	// go here, read the pit lane after this frame and the kind before it, and come
 	// before the lap the same crossing closes, as v1 decided them.
-	m.observeRace(seen, &s, r.Time, kindBefore)
+	m.observeRace(seen, s, t, kindBefore)
 	// The rules' view of the frame (context.go): filled here, at v1's place for
 	// the rules, then the lap, the finish and the end below add to it.
-	m.ruleContext(prev, seen, &s, r.Time, starting, kindBefore)
+	m.ruleContext(prev, seen, s, t, starting, kindBefore)
 	// The detector sees every frame, a session open or not; a change of its
 	// decision is the session's to keep or not, before the lap store reads the
 	// frame, as in v1's Engine._step.
-	if match, changed := m.tracks.Observe(m.out[0].Frame); changed && m.session != nil {
-		m.applyTrack(match, &s, r.Time)
+	if match, changed := m.tracks.Observe(s.frame); changed && m.session != nil {
+		m.applyTrack(match, s, t)
 	}
 	// After the track, as in v1's Engine._step: a change of the kind is the open
 	// session's. A start always changes it, from none.
 	if kindChanged && m.session != nil {
-		m.applyKind(&s, r.Time)
+		m.applyKind(s, t)
 	}
 
-	ended := raceEnded(prev, &s)
+	ended := raceEnded(prev, s)
 	if m.session != nil {
-		m.observe(seen, &s, r.Time)
+		m.observe(seen, s, t)
 	}
 	// v1's Engine._step decides the finish after the pits and the rules, before the
 	// track, the kind and the lap store see the frame: _timed_finish, then the
@@ -427,7 +460,7 @@ func (m *Machine) Step(r Received) []Output {
 	// same. It goes after the lap store so that the final lap's lap.completed comes
 	// first and race.finished's total time and best lap count that lap, which
 	// closes on the flag frame.
-	m.observeFinish(seen, &s, r.Time, kindBefore)
+	m.observeFinish(seen, s, t, kindBefore)
 	m.ctx.Finished = m.finish.kind != eventsv1.FinishKind_FINISH_KIND_UNSPECIFIED
 	if ended && s.phase != phaseFinished && !m.ctx.Finished && m.lastDriving != nil {
 		last := m.lastDriving.view()
@@ -447,17 +480,25 @@ func (m *Machine) Step(r Received) []Output {
 		case s.phase == phaseMenu || s.phase == phaseAtTrack:
 			why = WhyMenu
 		}
-		m.end(&s, r.Time, why)
+		m.end(s, t, why)
 	}
 
 	if s.inRace() {
-		driving := s
+		driving := *s
 		m.lastDriving = &driving
 	} else if ended {
 		m.lastDriving = nil
 	}
-	m.prev, m.prevTime = &s, r.Time
-	return m.out
+	m.prev, m.prevTime = s, t
+	m.runRules()
+}
+
+// runRules runs the rules (Rules) on the Context as the step or the tick left
+// it, and adds what they give to m.out (paddock#89).
+func (m *Machine) runRules() {
+	if m.rules != nil {
+		m.out = append(m.out, m.rules(&m.ctx)...)
+	}
 }
 
 // EndOfInput ends the open session, if there is one, on the last frame, because
@@ -482,7 +523,7 @@ func (m *Machine) event(id string, t time.Time) ce.Event {
 
 // start opens a session on its first driving frame (v1's SessionStore.start_session).
 func (m *Machine) start(s *state, t time.Time, joined bool) {
-	id := m.ids().String()
+	id := m.sessionID()
 	m.session = &session{id: id, lapStartFuel: s.fuel}
 	started := &eventsv1.SessionStarted{
 		SessionId:     id,

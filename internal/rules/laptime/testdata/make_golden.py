@@ -5,7 +5,6 @@ Made once from v1 at tag v1.0.0 (those-who-run/those-who-run), in v1's own
 environment (`uv sync --extra engineer`), for each of v1's recordings:
 
     python3 make_golden.py RECORDING > NAME.jsonl
-    python3 make_golden.py --drive RECORDING > NAME.jsonl
 
 It replays the recording as v1's `replay` does, with every rule on, as
 config.DEFAULT_RULES sets them with the bundled script off (`script: false`, so
@@ -22,9 +21,6 @@ one line per event, in order, on the recording's frame (counted from 1):
   queue's 8 s), pit_lane, and what v1's engine did with it in the pit lane:
   spoken, held (raised in the lane and kept to the exit, with the frame it was
   released on) or dropped.
-
---drive takes every start for a drive, as internal/race/testdata/kind/make_golden.py
-says; it is used for the recordings v1 opens no session on.
 """
 
 import copy
@@ -44,7 +40,7 @@ from those_who_run.store import SessionStore
 QUEUE_MAX_AGE_SECS = DEFAULT_RULES["queue"]["max_age_seconds"]
 
 
-def main(path: Path, drive: bool) -> None:
+def main(path: Path) -> None:
     states = list(read_recording(path, strict=True))
     frame_of: dict[tuple[int, float], list[int]] = {}
     for n, s in enumerate(states, 1):
@@ -57,8 +53,6 @@ def main(path: Path, drive: bool) -> None:
     with tempfile.TemporaryDirectory() as tmp:
         store = SessionStore(Path(tmp))
         engine = Engine(rules, CalloutQueue(max_age=None), store)
-        if drive:
-            engine.driver.observe = lambda state: "drive"
         now = {"frame": 0, "session": 0}
         # Every line, written at the end: a callout's pit-lane outcome and release
         # come after the frame it was raised on.
@@ -189,6 +183,4 @@ def main(path: Path, drive: bool) -> None:
 
 
 if __name__ == "__main__":
-    args = sys.argv[1:]
-    drive = "--drive" in args
-    main(Path([a for a in args if a != "--drive"][0]), drive)
+    main(Path(sys.argv[1]))

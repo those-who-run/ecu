@@ -165,7 +165,7 @@ func TestAPacketAtTheDeadlineIsNoLoss(t *testing.T) {
 	m.Step(race.Received{Received: salsa.Received{Packet: racePacket(1, 1, true)}, Time: time.Now()})
 	src := &racy{p: racePacket(2, 1, true)}
 	pub := &fakePublisher{}
-	r, err := next(t.Context(), src, m, nil, pub)
+	r, err := next(t.Context(), src, m, pub)
 	if err != nil || r.PacketID != 2 || src.calls != 2 || len(pub.outs) != 0 {
 		t.Errorf("got packet %d, %v after %d calls, published %v; want packet 2 and no loss", r.PacketID, err, src.calls, pub.outs)
 	}

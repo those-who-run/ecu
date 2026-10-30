@@ -6,7 +6,6 @@ Made once from v1 at tag v1.0.0 (those-who-run/those-who-run), in v1's own
 environment (`uv sync --extra engineer`), for each of v1's recordings:
 
     python3 make_golden.py RECORDING > NAME.jsonl
-    python3 make_golden.py --drive RECORDING > NAME.jsonl
 
 It replays the recording as v1's `replay` does, with three rules and no others
 (no rule changes what these decide), into a store of its own, and writes one
@@ -23,7 +22,6 @@ line per decision, in order, on the recording's frame (counted from 1):
   race.position at or before it.
 
 Only decisions with a session open are written, as ecu publishes only into one.
---drive takes every start for a drive, as testdata/kind/make_golden.py says.
 """
 
 import json
@@ -43,7 +41,7 @@ def emit(**kw: object) -> None:
     print(json.dumps(kw))
 
 
-def main(path: Path, drive: bool) -> None:
+def main(path: Path) -> None:
     states = list(read_recording(path, strict=True))
     frame_of: dict[tuple[int, float], list[int]] = {}
     for n, s in enumerate(states, 1):
@@ -54,8 +52,6 @@ def main(path: Path, drive: bool) -> None:
     with tempfile.TemporaryDirectory() as tmp:
         store = SessionStore(Path(tmp))
         engine = Engine([final_lap, event, call], CalloutQueue(max_age=None), store)
-        if drive:
-            engine.driver.observe = lambda state: "drive"
         now = {"frame": 0, "session": 0}
 
         def is_open() -> bool:
@@ -105,6 +101,4 @@ def main(path: Path, drive: bool) -> None:
 
 
 if __name__ == "__main__":
-    args = sys.argv[1:]
-    drive = "--drive" in args
-    main(Path([a for a in args if a != "--drive"][0]), drive)
+    main(Path(sys.argv[1]))

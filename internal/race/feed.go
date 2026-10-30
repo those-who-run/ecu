@@ -50,8 +50,9 @@ func (m *Machine) LostAt() (at time.Time, ok bool) {
 
 // Tick is the watchdog's check with the time now, on the clock the frames' receive
 // times are on. Once now is at or past LostAt, it returns telemetry.lost, and the
-// session's end when the loss came in a pause, and leaves the rules a Context
-// with Tick set; otherwise it returns nothing and leaves the Context as it was.
+// session's end when the loss came in a pause, then what the rules (Rules) make
+// of a Context with Tick set; otherwise it returns nothing and leaves the
+// Context as it was.
 func (m *Machine) Tick(now time.Time) []Output {
 	due, ok := m.LostAt()
 	if !ok || now.Before(due) {
@@ -75,6 +76,12 @@ func (m *Machine) Tick(now time.Time) []Output {
 	if m.session != nil && prev.phase == phasePaused && m.lastDriving != nil {
 		m.end(prev, m.prevTime, WhyTelemetryLost)
 		m.endedPaused, m.lastDriving = true, nil
+	}
+	// The rules that watch the feed hear of it (Rules), but not while the start
+	// check holds a start or ignores a replay or a demo, whose frames they have
+	// not seen either (start.go, paddock#74).
+	if !m.check.quiet() {
+		m.runRules()
 	}
 	return m.out
 }
