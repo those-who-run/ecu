@@ -160,6 +160,14 @@ func (s *Settings) get(key string) (any, bool) {
 	return v, ok && v != nil
 }
 
+// Null says the file sets key to null. The getters read null as not set, as v1
+// read most settings; a rule whose v1 read null as off (temps' thresholds:
+// `float(raw) if raw else None`) asks this.
+func (s *Settings) Null(key string) bool {
+	v, ok := s.raw[key]
+	return ok && v == nil
+}
+
 // Float is the setting key as a number, or def when it is not set.
 func (s *Settings) Float(key string, def float64) float64 {
 	v, ok := s.get(key)

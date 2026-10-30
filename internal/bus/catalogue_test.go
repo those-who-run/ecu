@@ -340,3 +340,54 @@ func TestAPitTeleportIsInTheCatalogue(t *testing.T) {
 		t.Errorf("stats %+v, want the event acknowledged", s)
 	}
 }
+
+// paddock#97, R5: a car alarm, which only the rule engine raises (the temps
+// rule), goes on its subject in subjects.yaml with its ce-type and its id scheme,
+// <src>:<sid>:car.alarm:<check>:<run>:<seq>.
+func TestACarAlarmIsInTheCatalogue(t *testing.T) {
+	r := newRig(t, "parity")
+	const sid, run = "01JBUSSESSION0000000000000", "01JBUSRUN00000000000000000"
+	sub, err := r.nc.SubscribeSync("twr.v1.parity.evt." + sid + ".>")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.nc.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	r.pub.Publish([]race.Output{{
+		Event:   ce.Event{ID: sid + ":car.alarm:tyre_hot:" + run + ":554", Source: race.Source, Time: epoch},
+		Session: sid,
+		Alarm: &eventsv1.CarAlarmRaised{
+			SessionId: sid, Check: eventsv1.CarCheck_CAR_CHECK_TYRE_HOT, At: 554, RunId: run, ValueC: 178.8, ThresholdC: 120,
+			Tyres: []*eventsv1.TyreTemp{{Corner: eventsv1.Corner_CORNER_REAR_LEFT, TempC: 178.8}},
+		},
+	}})
+	msg, err := sub.NextMsg(5 * time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "twr.v1.parity.evt." + sid + ".car.alarm"; msg.Subject != want {
+		t.Errorf("subject %s, want %s", msg.Subject, want)
+	}
+	var found bool
+	for _, e := range catalogue(t) {
+		if !matches(e.pattern, msg.Subject) {
+			continue
+		}
+		found = true
+		if got := msg.Header.Get(ce.TypeHeader); got != e.ceType {
+			t.Errorf("ce-type %s; subjects.yaml says %s", got, e.ceType)
+		}
+		values := map[string]string{"src": "parity", "sid": sid, "check": "tyre_hot", "run": run}
+		if id := msg.Header.Get(ce.IDHeader); !followsScheme(e.msgID, id, values) ||
+			id != "parity:"+sid+":car.alarm:tyre_hot:"+run+":554" {
+			t.Errorf("id %q, want the scheme %q", id, e.msgID)
+		}
+	}
+	if !found {
+		t.Errorf("%s is not in subjects.yaml", msg.Subject)
+	}
+	if s := r.close(t); s.Events != 1 {
+		t.Errorf("stats %+v, want the event acknowledged", s)
+	}
+}

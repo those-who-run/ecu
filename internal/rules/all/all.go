@@ -10,4 +10,5 @@ import (
 	_ "github.com/those-who-run/ecu/internal/rules/position"    // position, paddock#94
 	_ "github.com/those-who-run/ecu/internal/rules/racesummary" // race_summary, paddock#96
 	_ "github.com/those-who-run/ecu/internal/rules/startbrief"  // start_brief, paddock#95
+	_ "github.com/those-who-run/ecu/internal/rules/temps"       // temps, paddock#97
 )

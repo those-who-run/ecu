@@ -50,6 +50,12 @@ type Callout struct {
 	// at the crossing's time). Its Time is created_at. nil is the frame raised on.
 	// at is always the frame raised on.
 	AsOf *race.View
+	// Alarm is the car alarm the same firing raises (contracts' CarAlarmRaised,
+	// paddock#97: the temps rule), nil for none. The rule sets what fired; the
+	// engine stamps session_id, at and run_id and publishes it as an event on the
+	// frame raised on, whatever the pit lane does with the callout. It is not
+	// published with no session open.
+	Alarm *eventsv1.CarAlarmRaised
 }
 
 // Gauge is a rule that has a value to show between callouts (R8), such as the
