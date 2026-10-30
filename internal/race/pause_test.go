@@ -132,6 +132,41 @@ func TestThePausesAreV1sOnEveryRecording(t *testing.T) {
 	}
 }
 
+// AC2, as the maintainer reworded it (2026-10-30): the live race of 2026-10-29,
+// lap 6 of its session 2, cut to testdata/pause's fixture. GT7 flags a pause for
+// 1.3 s, then sends a frozen stream for 2.9 s, from the first frame after the
+// flagged ones, until the driver quits to the menu: two pauses, flagged then
+// frozen, each with session.paused and session.resumed, and v1's 1,325 ms,
+// 2,913 ms and 4,238 ms paused, in the events and the summary; nothing else
+// against v1 (the golden, from v1's engine on the fixture).
+func TestAFlaggedThenFrozenPauseBeforeAQuit(t *testing.T) {
+	const name = "real-nuc-short-shift-pauses-2026-10-29"
+	out := replay(t, name)
+	if got, want := pauseLines(out), readPauseGolden(t, name); !slices.Equal(got, want) {
+		t.Errorf("got\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+	var kinds []eventsv1.PauseKind
+	var lengths []int32
+	var ended *eventsv1.SessionEnded
+	for _, o := range out {
+		switch {
+		case o.Paused != nil:
+			kinds = append(kinds, o.Paused.GetKind())
+		case o.Resumed != nil:
+			lengths = append(lengths, o.Resumed.GetPauseMs())
+		case o.Ended != nil:
+			ended = o.Ended
+		}
+	}
+	if !slices.Equal(kinds, []eventsv1.PauseKind{eventsv1.PauseKind_PAUSE_KIND_FLAGGED, eventsv1.PauseKind_PAUSE_KIND_FROZEN}) ||
+		!slices.Equal(lengths, []int32{1325, 2913}) {
+		t.Errorf("pauses %v of %v ms, want flagged then frozen, 1325 and 2913", kinds, lengths)
+	}
+	if s := ended.GetSummary(); ended.GetReason() != eventsv1.EndReason_END_REASON_MENU || s.GetPausedMs() != 4238 || s.GetEndedPaused() {
+		t.Errorf("ended %v", ended)
+	}
+}
+
 // AC1: SUGO's 45 s frozen stream on lap 2 of the first race goes out paused,
 // every frame of it, as part of one pause: GT7 flags the first 1.2 s, then
 // freezes, and v1's PauseClock reads it all as the one pause, so it is flagged

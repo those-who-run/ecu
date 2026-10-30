@@ -56,13 +56,19 @@ func testIDs() IDs {
 // keeps (its testdata/v1/README.md says where each comes from).
 var trackFixtures = filepath.Join("..", "track", "testdata", "v1")
 
+// pauseFixtures are the recordings cut for the pauses (paddock#77):
+// testdata/pause/make_fixture.py says how.
+var pauseFixtures = filepath.Join("testdata", "pause")
+
 // packets is every packet of a recording, with its wall-clock time: one of
-// salsa's, else one of internal/track's.
+// salsa's, else one of internal/track's or of the pauses'.
 func packets(tb testing.TB, name string) []Received {
 	tb.Helper()
-	path := filepath.Join(trackFixtures, name+".jsonl.gz")
-	if _, err := os.Stat(path); err != nil {
-		path = filepath.Join(fixtures(tb), name+".jsonl.gz")
+	path := filepath.Join(fixtures(tb), name+".jsonl.gz")
+	for _, dir := range []string{trackFixtures, pauseFixtures} {
+		if p := filepath.Join(dir, name+".jsonl.gz"); fileExists(p) {
+			path = p
+		}
 	}
 	src, err := salsa.OpenRecording(path)
 	if err != nil {
@@ -85,6 +91,11 @@ func packets(tb testing.TB, name string) []Received {
 		at := epoch.Add(time.Duration(math.Round((r.T - t0) * float64(time.Second))))
 		all = append(all, Received{Received: r, Time: at})
 	}
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 // replay runs a recording through a new machine, then closes it, as ecu does when

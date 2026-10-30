@@ -439,7 +439,9 @@ and never ends a session on its own.
   `ended_paused` are v1's, as `make_golden.py` in
   [`internal/race/testdata/pause/`](internal/race/testdata/pause) wrote them
   from v1.0.0, with every start taken for a drive. No callout is raised on a
-  paused frame of any of them.
+  paused frame of any of them. A slice of the live race of 2026-10-29,
+  which `make_fixture.py` there cut, holds a pause GT7 flags and then
+  freezes before a quit: two pauses, flagged then frozen, as v1 read them.
 
 ## The laps
 
