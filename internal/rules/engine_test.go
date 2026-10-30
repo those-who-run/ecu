@@ -493,3 +493,19 @@ func TestOnATickOnlyTheWatchersRun(t *testing.T) {
 		t.Errorf("ids on the frame %v and on the tick %v: want two, the tick's marked", back.GetId(), got)
 	}
 }
+
+// A frame the machine ignored, after a session ended paused, runs no race rule
+// and resets none, as v1 never stepped it; the rules that watch the feed still
+// run, so telemetry coming back then is still said (paddock#77).
+func TestAnIgnoredFrameRunsOnlyTheWatchers(t *testing.T) {
+	var n, fed int
+	r := &stub{raise: func(*race.Context) []Callout { n++; return []Callout{{Kind: "k"}} }}
+	w := &watcher{stub{raise: func(*race.Context) []Callout { fed++; return []Callout{{Kind: "template_back"}} }}}
+	e := testEngine(t, nil, "lap_time", r, "telemetry", w)
+	ctx := frame(9, false)
+	ctx.Ignored, ctx.Started, ctx.Restored = true, true, &eventsv1.TelemetryRestored{At: 9}
+	out := callouts(e.Step(ctx))
+	if n != 0 || r.resets != 0 || w.resets != 0 || fed != 1 || len(out) != 1 || out[0].GetRule() != "telemetry" {
+		t.Errorf("ignored frame: %v, %d race evaluations, %d resets, %d feed evaluations", out, n, r.resets, fed)
+	}
+}

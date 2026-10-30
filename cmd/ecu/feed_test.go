@@ -118,7 +118,11 @@ func TestALiveDriveLosesAndRestoresTheFeed(t *testing.T) {
 		lost[0].lost.GetSilenceMs() < 300 || lost[0].lost.GetAt() != 3 {
 		t.Errorf("lost %v after the last packet: %v", after, lost[0].lost)
 	}
-	if r := restored[0].restored; r.GetGapMs() < 500 || r.GetGapMs() > 3000 || r.GetLostAt() != 3 || r.GetAt() != 4 {
+	// The gap is the receive times' on the wall clock: a loaded runner can stamp
+	// the packets either side of the sleep a little closer than gap (498 ms of
+	// 500 seen in CI), so the floor has 100 ms of slack, still above the timeout.
+	floor := (gap - 100*time.Millisecond).Milliseconds()
+	if r := restored[0].restored; int64(r.GetGapMs()) < floor || r.GetGapMs() > 3000 || r.GetLostAt() != 3 || r.GetAt() != 4 {
 		t.Errorf("restored %v", r)
 	}
 	ended := only(outs, func(o *fakeOut) *eventsv1.SessionEnded { return o.ended })

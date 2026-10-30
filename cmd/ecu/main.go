@@ -17,6 +17,10 @@
 // defaults. A file that cannot be read, or a setting in it that is wrong, stops
 // ecu at start.
 //
+// A pause never ends a session on its own (paddock#77): TWR_ECU_PAUSE_LIMIT_SECS,
+// a number of seconds, ends one paused once a pause has lasted that long. Unset or
+// 0, the default, there is no limit.
+//
 // `ecu replay PATH` replays a v1 recording instead, under a source of its own, and
 // exits at its end (paddock#35): replay.go.
 package main
@@ -28,8 +32,10 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -102,6 +108,10 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout,
 		liveCfg, err = live.ConfigFromEnv(getenv)
 		liveCfg.Listen = or(listenAddr, liveCfg.Listen)
 	}
+	var limit float64
+	if err == nil {
+		limit, err = pauseLimit(getenv)
+	}
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, err)
 		return 2
@@ -154,6 +164,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout,
 		start := src.Start()
 		at := func(r salsa.Received) time.Time { return start.Add(time.Duration(r.T * float64(time.Second))) }
 		m := race.New(ulid.Make)
+		m.SetPauseLimit(limit)
 		m.WatchTelemetry(liveCfg.TelemetryTimeout) // live only (paddock#87)
 		_ = drive(driveCtx, src, at, m, eng, pub, rec)
 	}()
@@ -219,6 +230,23 @@ func drive(ctx context.Context, src salsa.Source, at func(salsa.Received) time.T
 		}
 		pub.Publish(m.Step(race.Received{Received: r, Time: at(r)}))
 	}
+}
+
+// pauseLimitEnv is the pause limit, in seconds.
+const pauseLimitEnv = "TWR_ECU_PAUSE_LIMIT_SECS"
+
+// pauseLimit is TWR_ECU_PAUSE_LIMIT_SECS: 0, no limit, when unset; a value that is
+// not a number of seconds, 0 or more, is an error.
+func pauseLimit(getenv func(string) string) (float64, error) {
+	v := getenv(pauseLimitEnv)
+	if v == "" {
+		return 0, nil
+	}
+	secs, err := strconv.ParseFloat(v, 64)
+	if err != nil || math.IsNaN(secs) || math.IsInf(secs, 0) || secs < 0 {
+		return 0, fmt.Errorf("%s: %q is not a number of seconds, 0 or more", pauseLimitEnv, v)
+	}
+	return secs, nil
 }
 
 // lossGrace is the last wait for a packet before the feed is called lost.

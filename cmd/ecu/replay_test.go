@@ -403,7 +403,7 @@ func TestEventsNotTakenExitTwo(t *testing.T) {
 	replayGrace = 300 * time.Millisecond
 	t.Cleanup(func() { replayGrace = 30 * time.Second })
 	got := runReplay(t, nil, "--speed", "max", "--src", "parity", "--nats", srv.URL(), recordingPath(t, suzuka))
-	if got.code != 2 || !strings.Contains(got.stderr, "20 events and") {
+	if got.code != 2 || !strings.Contains(got.stderr, "22 events and") {
 		t.Errorf("exit %d, stderr %q; want 2 and the events dropped", got.code, got.stderr)
 	}
 }

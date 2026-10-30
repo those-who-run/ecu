@@ -21,13 +21,14 @@
 // v1's FinalLapRule and PositionRule (position.go here, paddock#84), and the lap
 // model: each lap's pit role and whether it counts for the best, from
 // Engine._step's lap_time rule, and the best, from results.best_lap with
-// contracts v0.2.3's one difference (laps.go here, paddock#83), and the
-// telemetry watchdog's loss and return, from App._watchdog and Engine.feed_lost
-// (feed.go here, paddock#87), the caller giving it the time. The start check
-// that holds a start GT7's cars-on-track flag is off for and drops a replay or a
-// demo race is v1's DriverCheck and Engine.process (start.go here, paddock#74).
-// What else v1's engine reads (continuing after a restart and the frozen pause)
-// is not here yet.
+// contracts v0.2.3's one difference (laps.go here, paddock#83), the telemetry
+// watchdog's loss and return, from App._watchdog and Engine.feed_lost (feed.go
+// here, paddock#87), the caller giving it the time, the start check that holds a
+// start GT7's cars-on-track flag is off for and drops a replay or a demo race,
+// v1's DriverCheck and Engine.process (start.go here, paddock#74), and the
+// pauses, flagged and frozen, from v1's PauseClock and Engine._end_paused
+// (pause.go here, paddock#77). What else v1's engine reads (continuing after a
+// restart) is not here yet.
 package race
 
 import (
@@ -100,15 +101,18 @@ const (
 	// WhyTimedFinish is the end of a session after its timed finish (v1's
 	// race_ended once Engine._timed_finish had set finished).
 	WhyTimedFinish
-	// WhyTelemetryLost is the feed lost in a pause (v1's Engine._end_paused "the
-	// feed was lost", feed.go): the session ends paused.
+	// WhyTelemetryLost is the feed lost during a pause (Machine.Tick, v1's
+	// _end_paused "the feed was lost"): the session ends paused.
 	WhyTelemetryLost
+	// WhyPauseLimit is a pause that lasted the pause limit (Machine.SetPauseLimit,
+	// v1's _end_paused "paused for N min").
+	WhyPauseLimit
 )
 
 var whyNames = map[Why]string{
 	WhyFinished: "finished", WhyQuit: "quit", WhyRestart: "restart", WhyStart: "start",
 	WhyInputEnded: "input ended", WhyStopped: "stopped", WhyMenu: "menu",
-	WhyTimedFinish: "timed finish", WhyTelemetryLost: "telemetry lost",
+	WhyTimedFinish: "timed finish", WhyTelemetryLost: "telemetry lost", WhyPauseLimit: "pause limit",
 }
 
 func (w Why) String() string {
@@ -139,6 +143,8 @@ func (w Why) Reason() eventsv1.EndReason {
 		return eventsv1.EndReason_END_REASON_TIMED_FINISH
 	case WhyTelemetryLost:
 		return eventsv1.EndReason_END_REASON_TELEMETRY_LOST
+	case WhyPauseLimit:
+		return eventsv1.EndReason_END_REASON_PAUSE_LIMIT
 	default:
 		return eventsv1.EndReason_END_REASON_UNKNOWN
 	}
@@ -146,8 +152,9 @@ func (w Why) Reason() eventsv1.EndReason {
 
 // Output is a frame or an event, with its CloudEvents id and time: exactly one of
 // Frame, Started, Lap, Best, Track, Kind, PitEntered, PitExited, PitTeleport,
-// FinalLap, Position, Finished, Discarded, Ended, TelemetryLost, TelemetryRestored, Callout and Alarm is set, each the contracts message of that name
-// (Callout and Alarm are the rule engine's, internal/rules). SessionStarted's
+// FinalLap, Position, Finished, Paused, Resumed, Discarded, Ended, TelemetryLost, TelemetryRestored, Callout
+// and Alarm is set, each the contracts message of that name (Callout and Alarm are the rule engine's,
+// internal/rules). SessionStarted's
 // source is left empty: only the publisher knows the <src> it publishes under, and
 // sets it (internal/bus).
 type Output struct {
@@ -161,8 +168,10 @@ type Output struct {
 	// <sid>:pit.exited:<stop> and <sid>:pit.teleport:<entry> for the pits,
 	// <sid>:race.final_lap:1 and <sid>:race.position:<run>:<seq> for the final
 	// lap and a settled position, <sid>:race.finished:1 for the finish, and
-	// <sid>:session.discarded:1 for a held start that was not a drive. An event's id is the catalogue's
-	// without its <src>: the publisher puts <src>: in front (paddock#279).
+	// <sid>:session.paused:<pause> and <sid>:session.resumed:<pause> for a pause,
+	// and <sid>:session.discarded:1 for a held start that was not a drive. An
+	// event's id is the catalogue's without its <src>: the publisher puts <src>: in
+	// front (paddock#279).
 	Event ce.Event
 	// Session is the id of the session an event belongs to; "" for a frame.
 	Session string
@@ -184,6 +193,9 @@ type Output struct {
 	// Discarded is a held start that was a replay or a demo (start.go,
 	// paddock#74): no session.started came for it.
 	Discarded *eventsv1.SessionDiscarded
+
+	Paused  *eventsv1.SessionPaused
+	Resumed *eventsv1.SessionResumed
 
 	// TelemetryLost and TelemetryRestored are the watchdog's (feed.go,
 	// paddock#87): <sid>:telemetry.lost:<run>:<seq> with a session open and
@@ -232,6 +244,10 @@ func (o Output) Message() proto.Message {
 		return o.Position
 	case o.Finished != nil:
 		return o.Finished
+	case o.Paused != nil:
+		return o.Paused
+	case o.Resumed != nil:
+		return o.Resumed
 	case o.Callout != nil:
 		return o.Callout
 	case o.Discarded != nil:
@@ -264,6 +280,8 @@ type Machine struct {
 	tracks      *track.Detector
 	pits        *pit.Detector
 	session     *session
+	pauses      pauses // the pause clock (pause.go, v1's Engine.pauses)
+	endedPaused bool   // the session ended in a pause: ignored until the next start
 
 	out    []Output
 	ctx    Context // the frame as the rules read it (context.go, paddock#89)
@@ -275,9 +293,6 @@ type Machine struct {
 	check startCheck              // the start check and its hold (start.go, paddock#74)
 	rules func(*Context) []Output // run on each frame the race state takes (Rules)
 	feed  feed                    // the telemetry watchdog (feed.go, paddock#87)
-	// endedPaused: the session ended in a pause, and the frames are ignored until
-	// the next start (v1's Engine.ended_paused).
-	endedPaused bool
 }
 
 // session is the open session: v1's store.Session, cut to what the events need.
@@ -339,6 +354,11 @@ func (m *Machine) Run() string { return m.run }
 func (m *Machine) Step(r Received) []Output {
 	m.seq++
 	s := newState(m.seq, r.T, &r.Packet)
+	// A frozen frame is read as the pause it is before anything else sees it, the
+	// frame that goes out included (v1's Engine.process).
+	// A held start's frames are stepped later (start.go): what the clock read on
+	// each goes with it.
+	s.pause = m.pauses.observe(&s, &r.Packet, r.Time)
 	s.frame, s.received = frame(m.seq, r.T, s.phase, &r.Packet), r.Time
 	m.ctx = Context{}
 	m.out = []Output{{
@@ -364,14 +384,20 @@ func (m *Machine) step(s *state) {
 	restarted := raceRestarted(prev, s)
 	starting := raceStarted(prev, s) || restarted
 	// v1's Engine.process: after a session ended paused, nothing but a start is
-	// read; the frame goes out and the rules see it with no session.
+	// read (pause.go's ignore), and a pause that lasts the limit ends the session
+	// paused on this frame, which is not stepped.
 	if m.endedPaused && !starting {
-		m.ctx.Run, m.ctx.Time, m.ctx.Cur = m.run, t, s.view()
-		m.prev, m.prevTime = s, t
-		m.runRules()
+		m.ignore(s)
 		return
 	}
 	m.endedPaused = false
+	m.pauseEvents(s)
+	if m.pauseLimitPassed(s) {
+		m.endPaused(s, t, WhyPauseLimit)
+		m.ignore(s)
+		return
+	}
+
 	if starting {
 		if m.session != nil && prev != nil {
 			why := WhyStart
@@ -380,6 +406,7 @@ func (m *Machine) step(s *state) {
 			}
 			m.end(prev, m.prevTime, why)
 		}
+		m.pauses.reset()
 		m.lastDriving = nil
 		m.finish = finish{}
 		m.finalLap, m.places = false, places{}
@@ -502,16 +529,22 @@ func (m *Machine) runRules() {
 }
 
 // EndOfInput ends the open session, if there is one, on the last frame, because
-// the input came to its end, as a replayed recording does (END_REASON_INPUT_ENDED).
+// the input came to its end, as a replayed recording does (END_REASON_INPUT_ENDED):
+// paused, as of the pause's start, when the frames stop in a pause.
 func (m *Machine) EndOfInput() []Output { return m.close(WhyInputEnded) }
 
 // Stop ends the open session, if there is one, on the last frame, because ecu is
-// stopping (END_REASON_ENGINEER_STOPPED).
+// stopping (END_REASON_ENGINEER_STOPPED): paused, as of the pause's start, when it
+// stops in a pause.
 func (m *Machine) Stop() []Output { return m.close(WhyStopped) }
 
 func (m *Machine) close(why Why) []Output {
 	m.out = nil
-	if m.session != nil && m.prev != nil {
+	switch {
+	case m.session == nil || m.prev == nil:
+	case m.pauses.open:
+		m.endPaused(m.prev, m.prevTime, why)
+	default:
 		m.end(m.prev, m.prevTime, why)
 	}
 	return m.out
@@ -647,7 +680,6 @@ func (m *Machine) end(s *state, t time.Time, why Why) {
 		FuelUsed:      round3(sess.lapsFuelUsed),
 		SessionType:   kind,
 		Finished:      m.finish.kind != eventsv1.FinishKind_FINISH_KIND_UNSPECIFIED,
-		EndedPaused:   why == WhyTelemetryLost,
 	}
 	if total, ok := sess.laps.totalTimeMs(); ok && summary.Finished {
 		summary.TotalTimeMs = &total
@@ -660,6 +692,11 @@ func (m *Machine) end(s *state, t time.Time, why Why) {
 		summary.Kind = sess.kind.message()
 	}
 	pitSummary(summary, m.pits.Status())
+	// The pause clock's view of the session (v1's _end_session): its time paused
+	// up to s, and whether it ends in a pause (endPaused). When that pause began
+	// is the summary's ended_at, paddock#86's with driving_ms.
+	summary.PausedMs = pausedMillis(m.pauses.pausedFor(s.t))
+	summary.EndedPaused = m.endedPaused
 	if final != 0 && !solo(kind) {
 		summary.FinalPosition = &final
 		if why == WhyFinished && kind == eventsv1.SessionType_SESSION_TYPE_LAP_RACE {

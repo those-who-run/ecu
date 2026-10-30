@@ -1,0 +1,6 @@
+{"event": "session.started", "session": 1, "frame": 1}
+{"event": "session.paused", "session": 1, "frame": 108, "kind": "flagged", "since_frame": 108, "paused_ms": 0}
+{"event": "session.resumed", "session": 1, "frame": 187, "pause_ms": 1325, "paused_ms": 1325}
+{"event": "session.paused", "session": 1, "frame": 248, "kind": "frozen", "since_frame": 187, "paused_ms": 1325}
+{"event": "session.resumed", "session": 1, "frame": 362, "pause_ms": 2913, "paused_ms": 4238}
+{"event": "session.ended", "session": 1, "paused_ms": 4238, "ended_paused": false}

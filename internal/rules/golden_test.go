@@ -54,15 +54,7 @@ var accepted = map[string]map[string]string{
 // pending are callouts ecu raises that v1 did not, by recording and the line's
 // show(), each with the open paddock issue that removes it. Each must still be
 // raised: the issue's PR deletes its line when its fix lands.
-var pending = map[string]map[string]string{
-	"real-nuc-sugo-restarts-2026-10-18": {
-		// 45 s of identical in_race frames on lap 2 are GT7's frozen pause: v1's
-		// PauseClock read them as paused and evaluated no rule, so the rears held
-		// at 179 °C never reached 5 s. ecu reads frozen frames as driving until
-		// paddock#77 (its AC1: no callout in the frozen stream).
-		"session 1 frame 554 temps template_tyre_hot p14 hold": "https://github.com/those-who-run/paddock/issues/77",
-	},
-}
+var pending = map[string]map[string]string{}
 
 func readGolden(t *testing.T, name string) []goldenLine {
 	t.Helper()

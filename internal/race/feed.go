@@ -71,11 +71,10 @@ func (m *Machine) Tick(now time.Time) []Output {
 	}
 	m.out = []Output{{Event: m.event(id, now), Session: sid, TelemetryLost: lost}}
 	m.tickContext(prev, now)
-	// v1's Engine.feed_lost: in a pause, with a session open and driven, the
-	// session ends paused on its last frame.
-	if m.session != nil && prev.phase == phasePaused && m.lastDriving != nil {
-		m.end(prev, m.prevTime, WhyTelemetryLost)
-		m.endedPaused, m.lastDriving = true, nil
+	// v1's Engine.feed_lost: in a pause, flagged or frozen (pause.go), with a
+	// session open and driven, the session ends paused on its last frame.
+	if m.session != nil && m.pauses.open && m.lastDriving != nil {
+		m.endPaused(prev, m.prevTime, WhyTelemetryLost)
 	}
 	// The rules that watch the feed hear of it (Rules), but not while the start
 	// check holds a start or ignores a replay or a demo, whose frames they have

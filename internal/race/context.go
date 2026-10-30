@@ -167,6 +167,12 @@ type Context struct {
 	// one from Prev (the flag frame).
 	Racing bool
 
+	// Ignored: the machine did not step this frame (v1 never called _step on
+	// it), as after a session ended paused until the next start (paddock#77):
+	// only the rules that watch the feed see it, and the rest of the context is
+	// only Run, Time, Cur and Restored.
+	Ignored bool
+
 	// Started: a session started or restarted on this frame. The engine resets
 	// the rules before it hands them the frame (v1's reset). Joined: the session
 	// was joined part way (v1's rule.joined), set from its start.

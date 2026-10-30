@@ -173,11 +173,7 @@ func show(t *testing.T, o *race.Output, c *eventsv1.Callout) string {
 // pending are calls ecu raises that v1 did not, by recording and line, each with
 // the open paddock issue that removes it (internal/rules' golden test has the
 // same, and says why). Each must still be raised until its fix lands.
-var pending = map[string]map[string]string{
-	"real-nuc-sugo-restarts-2026-10-18": {
-		"session 1 frame 554 template_tyre_hot rl,rr | tyre_hot rl=178.83792114257812,rr=134.8776092529297 value 178.83792114257812 threshold 120": "https://github.com/those-who-run/paddock/issues/77",
-	},
-}
+var pending = map[string]map[string]string{}
 
 // R1–R6, AC1, AC2, AC3: on every one of v1's recordings, the rule raises
 // v1's TempsRule's calls (rules.example.yaml's thresholds), on the same frame of

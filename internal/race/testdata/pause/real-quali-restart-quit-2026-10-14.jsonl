@@ -1,0 +1,10 @@
+{"event": "session.started", "session": 1, "frame": 30}
+{"event": "session.paused", "session": 1, "frame": 192, "kind": "flagged", "since_frame": 192, "paused_ms": 0}
+{"event": "session.resumed", "session": 1, "frame": 197, "pause_ms": 4806, "paused_ms": 4806}
+{"event": "session.paused", "session": 1, "frame": 221, "kind": "flagged", "since_frame": 221, "paused_ms": 4806}
+{"event": "session.resumed", "session": 1, "frame": 226, "pause_ms": 4372, "paused_ms": 9178}
+{"event": "session.ended", "session": 1, "paused_ms": 9178, "ended_paused": false}
+{"event": "session.started", "session": 2, "frame": 301}
+{"event": "session.paused", "session": 2, "frame": 633, "kind": "flagged", "since_frame": 633, "paused_ms": 0}
+{"event": "session.resumed", "session": 2, "frame": 637, "pause_ms": 3639, "paused_ms": 3639}
+{"event": "session.ended", "session": 2, "paused_ms": 3639, "ended_paused": false}

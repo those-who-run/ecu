@@ -129,11 +129,20 @@ func (e *Engine) Gauges() map[string]float64 {
 // that ends without a finish with callouts held never publishes them, nor does a
 // start: v1 kept them until the next start, which cleared them.
 //
+// A frame the machine ignored (ctx.Ignored: after a session ended paused, until
+// the next start) runs only the rules that watch the feed (Watcher), as v1 never
+// stepped it but its watchdog still spoke: a feed lost in a pause and then back
+// is still "Telemetry back." A paused frame, flagged or frozen, is not Racing,
+// so no rule evaluates on it, and the frame after a pause compares against the
+// last driving frame with Bridged PHASE_PAUSED (paddock#77).
+//
 // On the telemetry watchdog's tick (ctx.Tick, paddock#87), no frame came: only
 // the rules that watch the feed (Watcher) run, as v1's watchdog fed only its
 // TelemetryVoice, and what they raise goes as any rule's does.
 func (e *Engine) Step(ctx *race.Context) []race.Output {
-	if ctx.Started {
+	// On a tick or an ignored frame, only the watchers run.
+	feedOnly := ctx.Tick || ctx.Ignored
+	if ctx.Started && !ctx.Ignored {
 		e.forget()
 		for _, r := range e.rules {
 			e.reset(r)
@@ -145,7 +154,7 @@ func (e *Engine) Step(ctx *race.Context) []race.Output {
 	}
 	inLane := ctx.Pits.InPitLane
 	for _, r := range e.rules {
-		if _, watches := r.rule.(Watcher); ctx.Tick && !watches {
+		if _, watches := r.rule.(Watcher); feedOnly && !watches {
 			continue
 		}
 		for i, c := range e.evaluate(r, ctx) {

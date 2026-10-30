@@ -133,8 +133,8 @@ func frames(out []Output) map[uint32]*telemetryv1.Frame {
 
 // asStored is the outputs as v1 stored them, the golden's lines. A lap's frames are
 // the frames in its seq range that v1 kept, those in the race or at the flag, less
-// the frames v1 read as a frozen pause (skip).
-func asStored(out []Output, skip map[uint32]bool) []stored {
+// the frames read as a pause, as v1's PauseClock read them (pause.go).
+func asStored(out []Output) []stored {
 	all := frames(out)
 	sessions := map[string]int{}
 	var lines []stored
@@ -155,7 +155,7 @@ func asStored(out []Output, skip map[uint32]bool) []stored {
 			l := o.Lap
 			n := 0
 			for seq := l.GetFirstSeq(); seq <= l.GetLastSeq(); seq++ {
-				if p := all[seq].GetPhase(); (p == phaseInRace || p == phaseFinished) && !skip[seq] {
+				if p := all[seq].GetPhase(); p == phaseInRace || p == phaseFinished {
 					n++
 				}
 			}
@@ -212,36 +212,11 @@ func TestSessionsAndLapsEqualV1s(t *testing.T) {
 				golden[i].Type = ""
 			}
 			want := strs(golden, roundedFixtures[name])
-			got := strs(asStored(run(all), frozen(all)), roundedFixtures[name])
+			got := strs(asStored(run(all)), roundedFixtures[name])
 			if !slices.Equal(got, want) {
 				t.Errorf("got\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 			}
 		})
-	}
-}
-
-// The frozen pause is out of scope: the 45 s of it in the SUGO restarts recording
-// changes no lap number or fuel (the goldens), only which frames a lap holds. If v1
-// stops reading it, or the recording changes, this says so.
-func TestTheFrozenPauseIsInLapTwoOfTheFirstSugoRace(t *testing.T) {
-	all := packets(t, "real-nuc-sugo-restarts-2026-10-18")
-	skip := frozen(all)
-	if len(skip) != 96 {
-		t.Errorf("%d frozen frames, want 96", len(skip))
-	}
-	var inLap2 int
-	for _, o := range run(all) {
-		if o.Lap != nil && o.Lap.GetLap() == 2 && !o.Lap.GetComplete() {
-			for seq := o.Lap.GetFirstSeq(); seq <= o.Lap.GetLastSeq(); seq++ {
-				if skip[seq] {
-					inLap2++
-				}
-			}
-			break
-		}
-	}
-	if inLap2 != 95 {
-		t.Errorf("%d frozen frames in the first race's lap 2, want 95", inLap2)
 	}
 }
 

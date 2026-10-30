@@ -277,6 +277,7 @@ func coast(after func(i int) (throttle uint8, kph float32, paused bool)) []Recei
 		d.add(2, flags, 49, 60000, 3)
 		p := &d.all[len(d.all)-1].Packet
 		p.Throttle, p.Speed = throttle, kph/3.6
+		p.Position.X = float32(i) // a car that moves: not GT7's frozen pause (pause.go)
 	}
 	for i := range d.all {
 		d.all[i].T = float64(i) / 8

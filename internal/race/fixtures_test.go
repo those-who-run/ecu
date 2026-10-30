@@ -56,20 +56,23 @@ func testIDs() IDs {
 // keeps (its testdata/v1/README.md says where each comes from).
 var trackFixtures = filepath.Join("..", "track", "testdata", "v1")
 
+// pauseFixtures are the recordings cut for the pauses (paddock#77):
+// testdata/pause/make_fixture.py says how.
+var pauseFixtures = filepath.Join("testdata", "pause")
+
 // startFixtures are the start check's own recordings (testdata/start/make_fixture.py
 // says where each comes from, paddock#74).
 var startFixtures = filepath.Join("testdata", "start")
 
 // packets is every packet of a recording, with its wall-clock time: one of
-// salsa's, else one of internal/track's or the start check's.
+// salsa's, else one of internal/track's, the start check's or the pauses'.
 func packets(tb testing.TB, name string) []Received {
 	tb.Helper()
-	path := filepath.Join(trackFixtures, name+".jsonl.gz")
-	if _, err := os.Stat(path); err != nil {
-		path = filepath.Join(startFixtures, name+".jsonl.gz")
-	}
-	if _, err := os.Stat(path); err != nil {
-		path = filepath.Join(fixtures(tb), name+".jsonl.gz")
+	path := filepath.Join(fixtures(tb), name+".jsonl.gz")
+	for _, dir := range []string{trackFixtures, startFixtures, pauseFixtures} {
+		if p := filepath.Join(dir, name+".jsonl.gz"); fileExists(p) {
+			path = p
+		}
 	}
 	src, err := salsa.OpenRecording(path)
 	if err != nil {
@@ -94,6 +97,11 @@ func packets(tb testing.TB, name string) []Received {
 	}
 }
 
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
 // replay runs a recording through a new machine, then closes it, as ecu does when
 // the recording ends.
 func replay(tb testing.TB, name string) []Output {
@@ -113,9 +121,8 @@ func run(all []Received) []Output {
 // frozen is the seqs (from 1) of the frames v1's PauseClock (pause.py at v1.0.0)
 // reads as GT7's frozen pause stream and turns into paused frames: an IN_RACE frame
 // with the car moving, identical in what changes while driving to the frames of the
-// last 1 s or more. Reading the freeze is out of scope for paddock#33, so v1 keeps
-// such frames out of a lap where the machine doesn't; the goldens' frame counts are
-// compared without them.
+// last 1 s or more. It is a second reading of pause.go's, kept apart from it, which
+// TestTheFrozenPauseIsInLapTwoOfTheFirstSugoRace holds the machine to.
 func frozen(all []Received) map[uint32]bool {
 	type still struct {
 		pos, vel         salsa.Vec3

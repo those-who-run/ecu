@@ -239,6 +239,8 @@ func TestLiveModeIsConfiguredAtStart(t *testing.T) {
 		{[]string{"-src", "parity"}, liveEnv(nil), `src "parity": live frames go out under the source "live" only`},
 		{nil, liveEnv(map[string]string{"TWR_SRC": "replay-x"}), `src "replay-x": live frames`},
 		{nil, liveEnv(map[string]string{"TWR_ECU_RECORDINGS_DIR": file}), "TWR_ECU_RECORDINGS_DIR:"},
+		{nil, liveEnv(map[string]string{"TWR_ECU_PAUSE_LIMIT_SECS": "-1"}), "TWR_ECU_PAUSE_LIMIT_SECS"},
+		{nil, liveEnv(map[string]string{"TWR_ECU_PAUSE_LIMIT_SECS": "an hour"}), "TWR_ECU_PAUSE_LIMIT_SECS"},
 	} {
 		var stdout, stderr bytes.Buffer
 		code := run(t.Context(), c.args, c.env, &stdout, &stderr)
@@ -281,5 +283,14 @@ func TestTheRulesFileIsReadAtStart(t *testing.T) {
 		service.NewLogger(&logs, slog.LevelInfo))
 	if err != nil || len(eng.Rules()) == 0 || !strings.Contains(logs.String(), `"msg":"rules"`) {
 		t.Errorf("v1's example: %v, %v, %s", eng, err, logs.String())
+	}
+}
+
+// R6 of paddock#77: the pause limit is off unless TWR_ECU_PAUSE_LIMIT_SECS sets it.
+func TestThePauseLimitIsOffByDefault(t *testing.T) {
+	for v, want := range map[string]float64{"": 0, "0": 0, "600": 600, "90.5": 90.5} {
+		if got, err := pauseLimit(env(map[string]string{"TWR_ECU_PAUSE_LIMIT_SECS": v})); err != nil || got != want {
+			t.Errorf("%q: %v, %v; want %v", v, got, err, want)
+		}
 	}
 }
