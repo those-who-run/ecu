@@ -20,7 +20,7 @@ import (
 // as v1's tests/test_status_api.py does; ecu takes the same frames here.
 
 // v1LeftOut are v1's fields ecu.status and ecu.session leave out, each with why:
-// contracts' statusLeftOut, and the car's name, which waits on paddock#86.
+// contracts' statusLeftOut.
 var v1LeftOut = map[string]string{
 	"status.voice_connected":     "radio's, in its own live key (paddock#62)",
 	"healthz.voice_connected":    "radio's, in its own live key (paddock#62)",
@@ -31,7 +31,6 @@ var v1LeftOut = map[string]string{
 	"healthz.session":            "the session's kind: SessionKindChanged's, and LiveSession's session_type",
 	"healthz.track":              "the session's track: SessionTrackChanged's, and LiveSession's track",
 	"status.session.id":          "v1's own id format; session_id is the ULID ecu mints",
-	"status.session.car":         "TODO(paddock#86): the car's name, from v1's car table",
 }
 
 // v1Unfed are v1's fields its test could not show: it fed the app frames with
@@ -84,6 +83,7 @@ func TestEveryV1StatusFieldIsInTheLiveKV(t *testing.T) {
 		"status.session.laps_total":          float64(s.GetTotalLaps()),
 		"status.session.position":            float64(s.GetPosition()),
 		"status.session.cars":                float64(s.GetTotalCars()),
+		"status.session.car":                 s.GetCarName(),
 		"healthz.idle":                       st.GetIdle(),
 		"healthz.idle_secs":                  st.GetIdleSecs(),
 		"healthz.telemetry_connected":        st.GetTelemetryConnected(),
@@ -114,9 +114,6 @@ func TestEveryV1StatusFieldIsInTheLiveKV(t *testing.T) {
 		if _, ok := v1[key]; !ok {
 			t.Errorf("%s is compared but v1 has no such field", key)
 		}
-	}
-	if s.GetCarName() != "" {
-		t.Error("car_name is set: compare it with v1's car and drop it from v1LeftOut (paddock#86)")
 	}
 	if st.GetIdle() != (st.GetActivity() == statev1.Activity_ACTIVITY_IDLE) {
 		t.Error("idle and the activity disagree")

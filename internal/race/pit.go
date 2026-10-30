@@ -51,6 +51,7 @@ func (m *Machine) observePits(f *telemetryv1.Frame, t time.Time) {
 	m.ctx.PitChange = change
 	// The laps' roles come from the status as applied here (v1's set_pits).
 	sess.laps.pits = status
+	m.summaryPits(status)
 	pits := &sess.pits
 	switch change {
 	case pit.Entered:

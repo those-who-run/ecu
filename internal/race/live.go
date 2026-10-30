@@ -46,8 +46,10 @@ type LiveSession struct {
 	TrackName string
 	TrackSure bool
 	// CarCode is GT7's code for the car on that frame (HasFrame), the one
-	// SessionStarted names: TODO(paddock#86) the car's name, from v1's car table.
+	// SessionStarted names, and CarName its name from the car table (cars.go,
+	// paddock#86): "car <code>" for a car missing from it, "" for none.
 	CarCode int32
+	CarName string
 	// HasFrame says the session has a frame to read Lap and the rest from: the
 	// last driving frame, or the last frame before one (v1's
 	// `engine.last_driving or engine.prev`).
@@ -95,7 +97,7 @@ func (m *Machine) Live() Live {
 		ls.HasFrame = true
 		ls.Lap, ls.TotalLaps = frame.lap, max(frame.totalLaps, 0)
 		ls.Position, ls.TotalCars = frame.racePosition(), max(frame.totalCars, 0)
-		ls.CarCode = frame.carCode
+		ls.CarCode, ls.CarName = frame.carCode, carName(frame.carCode)
 	}
 	if m.prev != nil {
 		ls.FuelLevel, ls.FuelCapacity = m.prev.fuel, m.prev.fuelCapacity

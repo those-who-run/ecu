@@ -304,7 +304,7 @@ func TestTheSessionsBest(t *testing.T) {
 // gives none.
 func TestLapBestOnEachChange(t *testing.T) {
 	m := New(testIDs())
-	m.session = &session{id: "s"}
+	m.session = newSession("s", &state{})
 	book := &m.session.laps
 	closeLap := func(lap, lapMs, gt7 int32, counts bool) *eventsv1.LapBestChanged {
 		m.out = nil

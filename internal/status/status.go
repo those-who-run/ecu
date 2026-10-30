@@ -202,7 +202,7 @@ func liveSession(s race.LiveSession) *statev1.LiveSession {
 	ls := &statev1.LiveSession{
 		SessionId:   s.ID,
 		SessionType: s.Type,
-		// TODO(paddock#86): the car's name from s.CarCode, with v1's car table.
+		CarName:     s.CarName,
 	}
 	if ls.SessionType == eventsv1.SessionType_SESSION_TYPE_UNSPECIFIED {
 		ls.SessionType = eventsv1.SessionType_SESSION_TYPE_UNKNOWN

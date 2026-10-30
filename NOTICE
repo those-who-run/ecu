@@ -10,7 +10,11 @@ This repository includes data from other projects:
   (https://github.com/Bornhall/gt7telemetry, GPL-3.0). The rows with ids from
   100001 were learned from our own laps; ecu's changes to v1's rows are listed
   in README.md, "Track detection".
+- The car table, internal/race/cars.csv: from Those Who Run v1
+  (https://github.com/those-who-run/those-who-run, src/those_who_run/data/cars.csv
+  at v1.0.0), from ddm999/gt7info (https://github.com/ddm999/gt7info, MIT-0),
+  _data/db/cars.csv joined with maker.csv at commit ab025b3.
 
-Gran Turismo is a trademark of Sony Interactive Entertainment. Track names are
-those GT7 and the table above use. Those Who Run is not affiliated with or
+Gran Turismo is a trademark of Sony Interactive Entertainment. Track and car names are
+those GT7 and the tables above use. Those Who Run is not affiliated with or
 endorsed by Sony Interactive Entertainment or Polyphony Digital.
