@@ -193,9 +193,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout,
 	go func() {
 		defer close(written)
 		defer writing.Store(false)
-		grace, cancel := context.WithTimeout(context.WithoutCancel(ctx), closeGrace)
-		defer cancel()
-		status.NewWriter(tracker, kv, logger).Run(writeCtx, grace)
+		status.NewWriter(tracker, kv, logger).Run(writeCtx, statusGrace)
 	}()
 	// The drive ends, with the session it holds, and the status says so; the
 	// source stops, so nothing writes to the recorder once it closes; then the
@@ -248,6 +246,10 @@ func healthOf(t *status.Tracker, tasks map[string]*atomic.Bool, connected func()
 		return healthy, h
 	}
 }
+
+// statusGrace is how long the status's last write may take, from when the drive
+// has ended: a var, so the tests can shorten it.
+var statusGrace = closeGrace
 
 // statusBucket is the KV bucket ecu's status goes in (contracts' subjects.yaml).
 const statusBucket = "live"

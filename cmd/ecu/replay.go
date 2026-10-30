@@ -49,9 +49,6 @@ var (
 	interruptGrace = time.Second
 )
 
-// statusGrace is how long the status's last write may take at the end.
-const statusGrace = 5 * time.Second
-
 // replayOptions are the publisher's limits for a replay: the defaults, which the
 // tests shrink so the replay waits on the hand-over often.
 var replayOptions = bus.Options{}
@@ -158,12 +155,7 @@ func replay(ctx context.Context, args []string, getenv func(string) string, stdi
 	written := make(chan struct{})
 	go func() {
 		defer close(written)
-		// Cut to interruptGrace once a signal comes, as the flush is.
-		grace, cancel := context.WithTimeout(context.WithoutCancel(ctx), statusGrace)
-		defer cancel()
-		cut := interruptGrace
-		defer context.AfterFunc(ctx, func() { time.AfterFunc(cut, cancel) })()
-		status.NewWriter(tracker, kv, logger).Run(writeCtx, grace)
+		status.NewWriter(tracker, kv, logger).Run(writeCtx, statusGrace)
 	}()
 
 	paced := &pacer{src: rec, speed: factor, clock: start}

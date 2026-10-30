@@ -128,22 +128,28 @@ type fakeKV struct {
 
 func newFakeKV() *fakeKV { return &fakeKV{values: map[string][]byte{}} }
 
-func (k *fakeKV) Put(_ context.Context, key string, value []byte) error {
+func (k *fakeKV) Put(ctx context.Context, key string, value []byte) error {
 	k.mu.Lock()
 	defer k.mu.Unlock()
 	if k.fail != nil {
 		return k.fail
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	k.values[key] = append([]byte(nil), value...)
 	k.ops = append(k.ops, "put "+key)
 	return nil
 }
 
-func (k *fakeKV) Delete(_ context.Context, key string) error {
+func (k *fakeKV) Delete(ctx context.Context, key string) error {
 	k.mu.Lock()
 	defer k.mu.Unlock()
 	if k.fail != nil {
 		return k.fail
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	delete(k.values, key)
 	k.ops = append(k.ops, "delete "+key)

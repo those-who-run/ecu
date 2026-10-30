@@ -112,15 +112,17 @@ func TestAFailedWriteIsTriedAgain(t *testing.T) {
 	}
 }
 
-// Run flushes at once, then each second, and once more with the final context
-// when ctx is done.
+// Run flushes at once, then each second, and once more when ctx is done, with
+// the grace counted from then: a run longer than the grace still gets its last
+// write.
 func TestRunFlushesToTheEnd(t *testing.T) {
 	r := newRig(Config{})
 	kv := newFakeKV()
 	w := NewWriter(r.t, kv, slog.New(slog.DiscardHandler))
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan struct{})
-	go func() { defer close(done); w.Run(ctx, t.Context()) }()
+	const grace = 100 * time.Millisecond
+	go func() { defer close(done); w.Run(ctx, grace) }()
 	deadline := time.Now().Add(5 * time.Second)
 	for {
 		kv.mu.Lock()
@@ -134,6 +136,8 @@ func TestRunFlushesToTheEnd(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
+	kv.take()
+	time.Sleep(2 * grace) // the run outlasts the grace
 	kv.take()
 	cancel()
 	<-done

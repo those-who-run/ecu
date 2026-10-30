@@ -492,3 +492,47 @@ func TestAReplayWritesItsOwnStatus(t *testing.T) {
 		t.Errorf("the replay's last status: %v", &st)
 	}
 }
+
+// paddock#88: the status's last write gets its grace from the end of the drive,
+// not from the start of the replay, so a replay that lasts longer than the grace
+// still leaves its status idle and its session's keys deleted.
+func TestALongReplayLeavesItsStatusIdle(t *testing.T) {
+	srv := bustest.WithStreams(t)
+	kv := bustest.AddKV(t, srv.JetStream(), "live")
+	saved := statusGrace
+	statusGrace = 200 * time.Millisecond
+	t.Cleanup(func() { statusGrace = saved })
+	in := readAll(t, openRecording(t, recordingPath(t, suzuka)))
+	n := len(in) / 2 // mid-race: the session is open when the recording ends
+	// Paced at 1, about 1 s: five times the grace.
+	path := synthetic(t, n, func(i int) float64 { return float64(i) / float64(n) })
+	got := runReplay(t, nil, "--speed", "1", "--run", "long", "--nats", srv.URL(), path)
+	if got.code != 0 {
+		t.Fatalf("exit %d, stderr %q, log %s", got.code, got.stderr, got.stdout)
+	}
+	if got.took < 4*statusGrace {
+		t.Fatalf("the replay took %v, not longer than the grace", got.took)
+	}
+	keys, err := kv.ListKeys(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var all []string
+	for k := range keys.Keys() {
+		all = append(all, k)
+	}
+	if len(all) != 1 || all[0] != "ecu.status.replay-long" {
+		t.Fatalf("keys %v, want ecu.status.replay-long alone", all)
+	}
+	e, err := kv.Get(t.Context(), "ecu.status.replay-long")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var st statev1.EcuStatus
+	if err := ce.Unmarshal(e.Value(), &st); err != nil {
+		t.Fatal(err)
+	}
+	if !st.GetIdle() || st.GetRacesStarted() != 1 || int(st.GetPackets()) != n {
+		t.Errorf("the replay's last status: %v", &st)
+	}
+}

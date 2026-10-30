@@ -61,17 +61,20 @@ func NewWriter(t *Tracker, kv KV, logger *slog.Logger) *Writer {
 	}
 }
 
-// Run writes once a second until ctx is done, then once more, within final's
-// deadline, so the last values (the session ended, ecu idle) are what is left.
-// The caller stops the tracker (Tracker.Stop) before ctx is done.
-func (w *Writer) Run(ctx, final context.Context) {
+// Run writes once a second until ctx is done, then once more, within grace of
+// then, so the last values (the session ended, ecu idle) are what is left. The
+// grace starts when ctx is done, not when Run does, so a long run still gets
+// all of it. The caller stops the tracker (Tracker.Stop) before ctx is done.
+func (w *Writer) Run(ctx context.Context, grace time.Duration) {
 	tick := time.NewTicker(every)
 	defer tick.Stop()
 	w.Flush(ctx)
 	for {
 		select {
 		case <-ctx.Done():
+			final, cancel := context.WithTimeout(context.WithoutCancel(ctx), grace)
 			w.Flush(final)
+			cancel()
 			return
 		case <-tick.C:
 			w.Flush(ctx)
