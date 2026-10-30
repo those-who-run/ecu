@@ -1,0 +1,6 @@
+t=6690567.3 lap  0  ambiguous None: 52 layouts near the start still fit, line not yet crossed  [Willow Springs International Raceway: Horse Thief Mile Reverse (0.00), Willow Springs International Raceway: Horse Thief Mile (0.00), Brands Hatch Indy Circuit (0.00), Sardegna - Windmills Reverse (0.00)]
+t=6690573.9 lap  1  probable  WeatherTech Raceway Laguna Seca: finish line crossed in the right direction, no full lap yet  [WeatherTech Raceway Laguna Seca (0.02, line), Brands Hatch Indy Circuit (0.08), Sardegna - Windmills (0.03), Circuit de Barcelona-Catalunya National (0.03)]
+t=6690686.1 lap  2  confirmed WeatherTech Raceway Laguna Seca: finish line crossed, a full lap fits the layout (0.99)  [WeatherTech Raceway Laguna Seca (0.99, line)]
+
+result: confirmed WeatherTech Raceway Laguna Seca (41)
+exit 0

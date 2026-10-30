@@ -1,0 +1,8 @@
+t=6930243.3 lap  7  ambiguous None: 28 layouts near the start still fit, line not yet crossed  [Autodrome Lago Maggiore - East End Reverse (0.00), Red Bull Ring Short Track (0.00), Suzuka Circuit East Course (0.00), Autodrome Lago Maggiore - East End (0.00)]
+t=6930272.2 lap  7  probable  Autodrome Lago Maggiore - East Reverse: finish line crossed in the right direction, no full lap yet  [Autodrome Lago Maggiore - East Reverse (0.35, line), Autodrome Lago Maggiore - Full Course Reverse (0.19, line), Autodrome Lago Maggiore - East End (0.45), Autodrome Lago Maggiore - East (0.34)]
+t=6930288.3 lap  7  probable  Autodrome Lago Maggiore - Full Course Reverse: finish line crossed in the right direction, no full lap yet  [Autodrome Lago Maggiore - Full Course Reverse (0.36, line), Red Bull Ring (0.53), Autodrome Lago Maggiore - Full Course (0.37), High Speed Ring (0.36)]
+t=6930311.5 lap  7  ambiguous None: 4 layouts near the start still fit, line not yet crossed  [Trial Mountain Circuit - Reverse (0.62), Trial Mountain Circuit (0.62), Suzuka Circuit (0.50), Tokyo Expressway - East Clockwise (0.22)]
+t=6930364.2 lap  8  confirmed Suzuka Circuit: finish line crossed, a full lap fits the layout (0.63)  [Suzuka Circuit (0.63, line)]
+
+result: confirmed Suzuka Circuit (10)
+exit 0

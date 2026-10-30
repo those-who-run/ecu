@@ -1,0 +1,6 @@
+t=6682541.5 lap  0  ambiguous None: 43 layouts near the start still fit, line not yet crossed  [Autodrome Lago Maggiore - East End Reverse (0.00), Red Bull Ring Short Track (0.00), Blue Moon Bay Speedway - Infield A (0.00), Blue Moon Bay Speedway - Infield A Reverse (0.00)]
+t=6682551.4 lap  0  ambiguous None: 31 layouts near the start still fit, line not yet crossed  [Autodrome Lago Maggiore - East End Reverse (0.00), Willow Springs International Raceway: Streets of Willow Springs (0.00), Willow Springs International Raceway: Streets of Willow Springs Reverse (0.00), Red Bull Ring Short Track (0.00)]
+t=6682617.8 lap  2  confirmed Suzuka Circuit East Course: finish line crossed, a full lap fits the layout (0.99)  [Suzuka Circuit East Course (0.99, line)]
+
+result: confirmed Suzuka Circuit East Course (442)
+exit 0

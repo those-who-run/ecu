@@ -1,0 +1,6 @@
+t=6689753.8 lap  0  ambiguous None: 55 layouts near the start still fit, line not yet crossed  [Autodrome Lago Maggiore - West End (0.00), Autodrome Lago Maggiore - West End Reverse (0.00), Dragon Trail - Gardens (0.00), Dragon Trail - Gardens Reverse (0.00)]
+t=6689760.9 lap  1  probable  Tokyo Expressway - East Clockwise: finish line crossed in the right direction, no full lap yet  [Tokyo Expressway - East Clockwise (0.00, line), Sportsland SUGO (0.01), Deep Forest Raceway Reverse (0.01), Deep Forest Raceway (0.01)]
+t=6689905.2 lap  2  confirmed Tokyo Expressway - East Clockwise: finish line crossed, a full lap fits the layout (0.63)  [Tokyo Expressway - East Clockwise (0.63, line)]
+
+result: confirmed Tokyo Expressway - East Clockwise (361)
+exit 0

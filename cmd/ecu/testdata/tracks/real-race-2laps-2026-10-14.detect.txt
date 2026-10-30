@@ -1,0 +1,8 @@
+t=      0.0 lap  7  ambiguous None: 83 layouts near the start still fit, line not yet crossed  [Northern Isle Speedway (0.00), Tsukuba Circuit (0.00), BB Raceway Reverse (0.00), BB Raceway (0.00)]
+t=    106.1 lap  0  ambiguous None: 83 layouts near the start still fit, line not yet crossed  [Northern Isle Speedway (0.00), Tsukuba Circuit (0.00), BB Raceway Reverse (0.00), BB Raceway (0.00)]
+t=    113.1 lap  0  ambiguous None: 83 layouts near the start still fit, line not yet crossed  [Northern Isle Speedway (0.00), Tsukuba Circuit (0.00), BB Raceway Reverse (0.00), BB Raceway (0.00)]
+t=    233.1 lap  0  ambiguous None: 83 layouts near the start still fit, line not yet crossed  [Northern Isle Speedway (0.00), Tsukuba Circuit (0.00), BB Raceway Reverse (0.00), BB Raceway (0.00)]
+t=    235.2 lap  0  ambiguous None: 83 layouts near the start still fit, line not yet crossed  [Northern Isle Speedway (0.00), Tsukuba Circuit (0.00), BB Raceway Reverse (0.00), BB Raceway (0.00)]
+
+result: ambiguous None (None)
+exit 1

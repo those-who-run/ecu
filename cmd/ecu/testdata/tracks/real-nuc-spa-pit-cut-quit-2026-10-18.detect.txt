@@ -1,0 +1,7 @@
+t=6932084.2 lap  0  ambiguous None: 32 layouts near the start still fit, line not yet crossed  [Suzuka Circuit East Course (0.00), Autopolis International Racing Course - Short Course (0.00), WeatherTech Raceway Laguna Seca (0.00), Kyoto Driving Park - Yamagiwa (0.00)]
+t=6932092.0 lap  0  ambiguous None: 28 layouts near the start still fit, line not yet crossed  [Sardegna - Windmills Reverse (0.00), Sardegna - Windmills (0.00), Colorado Springs - Lake (0.00), Colorado Springs - Lake Reverse (0.00)]
+t=6932234.7 lap  2  probable  Circuit de Spa-Francorchamps: finish line shared by Circuit de Spa-Francorchamps, Spa 24h Layout; bounds do not separate them; all Circuit de Spa-Francorchamps  [Spa 24h Layout (0.98, line), Circuit de Spa-Francorchamps (0.98, line)]
+t=6932648.3 lap  0  ambiguous None: 28 layouts near the start still fit, line not yet crossed  [Sardegna - Windmills Reverse (0.00), Sardegna - Windmills (0.00), Colorado Springs - Lake (0.00), Colorado Springs - Lake Reverse (0.00)]
+
+result: ambiguous None (None)
+exit 1

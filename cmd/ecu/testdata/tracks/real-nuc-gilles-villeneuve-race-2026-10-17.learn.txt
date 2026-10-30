@@ -1,0 +1,8 @@
+lap length 4300 m over 2 completed lap(s)
+finish line at 265,617 .. 236,622  direction PX
+box -315 -956 309 956
+nearest existing lines: [(0, 100002, 'Circuit Gilles Villeneuve'), (289, 122, 'Willow Springs International Raceway: Big Willow'), (322, 1034, 'Trial Mountain Circuit - Reverse'), (322, 1024, 'Trial Mountain Circuit'), (356, 351, 'Tokyo Expressway - Central Clockwise')]
+
+csv row:
+0,NAME,PX,265.245,616.961,235.623,621.708,-314.611,-955.691,308.921,956.328,4300
+exit 0

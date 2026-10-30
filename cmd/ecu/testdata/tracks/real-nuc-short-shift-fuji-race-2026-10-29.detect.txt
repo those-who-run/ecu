@@ -1,0 +1,5 @@
+t=   1635.2 lap  0  ambiguous None: 58 layouts near the start still fit, line not yet crossed  [Circuit de Barcelona-Catalunya Rallycross (0.00), Willow Springs International Raceway: Horse Thief Mile Reverse (0.00), Willow Springs International Raceway: Horse Thief Mile (0.00), Brands Hatch Indy Circuit (0.00)]
+t=   1840.4 lap  2  probable  Fuji International Speedway: finish line shared by Fuji International Speedway, Fuji International Speedway (Short); bounds do not separate them; all Fuji International Speedway  [Fuji International Speedway (0.98, line), Fuji International Speedway (Short) (0.98, line)]
+
+result: probable Fuji International Speedway (16)
+exit 0

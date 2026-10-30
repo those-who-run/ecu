@@ -1,0 +1,5 @@
+t=6853656.0 lap  5  ambiguous None: 14 layouts near the start still fit, line not yet crossed  [Circuit Gilles Villeneuve (0.00), Kyoto Driving Park - Yamagiwa+Miyabi Reverse (0.00), Kyoto Driving Park - Yamagiwa+Miyabi (0.00), Tokyo Expressway - Central Counterclockwise (0.00)]
+t=6853753.0 lap  6  confirmed Circuit Gilles Villeneuve: finish line crossed, a full lap fits the layout (0.99)  [Circuit Gilles Villeneuve (0.99, line)]
+
+result: confirmed Circuit Gilles Villeneuve (100002)
+exit 0

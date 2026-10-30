@@ -1,0 +1,7 @@
+t=6683444.8 lap  0  ambiguous None: 83 layouts near the start still fit, line not yet crossed  [Northern Isle Speedway (0.00), Tsukuba Circuit (0.00), BB Raceway Reverse (0.00), BB Raceway (0.00)]
+t=6683450.3 lap  0  ambiguous None: 83 layouts near the start still fit, line not yet crossed  [Northern Isle Speedway (0.00), Tsukuba Circuit (0.00), BB Raceway Reverse (0.00), BB Raceway (0.00)]
+t=6683485.3 lap  1  probable  Sportsland SUGO: finish line crossed in the right direction, no full lap yet  [Sportsland SUGO (0.34, line), Colorado Springs - Lake (0.26), Colorado Springs - Lake Reverse (0.26), Blue Moon Bay Speedway (0.23)]
+t=6683585.8 lap  2  confirmed Sportsland SUGO: finish line crossed, a full lap fits the layout (0.99)  [Sportsland SUGO (0.99, line)]
+
+result: confirmed Sportsland SUGO (100001)
+exit 0

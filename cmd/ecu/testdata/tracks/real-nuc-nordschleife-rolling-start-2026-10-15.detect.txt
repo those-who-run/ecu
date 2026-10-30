@@ -1,0 +1,5 @@
+t=6690180.9 lap  1  ambiguous None: 2 layouts near the start still fit, line not yet crossed  [Nurburgring GP (0.00), Nurburgring 24h (0.00)]
+t=6690181.0 lap  1  ambiguous None: no finish line within 1000 m of where the car has been and none crossed yet; 4 layouts contain the path  [Nurburgring Nordschleife Tourist Layout (0.00), Nurburgring Nordschleife (0.00), Nurburgring 24h (0.00), Special Stage Route X (0.00)]
+
+result: ambiguous None (None)
+exit 1

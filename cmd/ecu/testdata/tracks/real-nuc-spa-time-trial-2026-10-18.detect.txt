@@ -1,0 +1,6 @@
+t=6932714.4 lap  0  ambiguous None: 62 layouts near the start still fit, line not yet crossed  [Brands Hatch Indy Circuit (0.00), Autodrome Lago Maggiore - West End (0.00), Autodrome Lago Maggiore - West End Reverse (0.00), Autodrome Lago Maggiore - Centre (0.00)]
+t=6932723.6 lap  0  ambiguous None: 73 layouts near the start still fit, line not yet crossed  [Tsukuba Circuit (0.00), Brands Hatch Indy Circuit (0.00), BB Raceway Reverse (0.00), BB Raceway (0.00)]
+t=6932740.8 lap  1  probable  Circuit de Spa-Francorchamps: finish line shared by Circuit de Spa-Francorchamps, Spa 24h Layout; bounds do not separate them; all Circuit de Spa-Francorchamps  [Spa 24h Layout (0.01, line), Circuit de Spa-Francorchamps (0.01, line), Colorado Springs - Lake Reverse (0.05), Colorado Springs - Lake (0.05)]
+
+result: probable Circuit de Spa-Francorchamps (462)
+exit 0
