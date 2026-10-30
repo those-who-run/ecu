@@ -25,9 +25,9 @@ type said struct {
 // stopped runs a recording live, as ecu's drive does, with the watchdog on and
 // every rule of v1's defaults, until stop is true of a frame; then the feed stops
 // for gap, the watchdog ticks at its deadline, and the rest of the recording
-// resumes gap later. It returns the telemetry rule's callouts and the frame the
-// feed stopped on.
-func stopped(t *testing.T, name string, stop func(*race.Context) bool, gap time.Duration) ([]said, race.View) {
+// resumes gap later. It returns the telemetry rule's callouts, the frame the
+// feed stopped on, and what the machine published on the tick.
+func stopped(t *testing.T, name string, stop func(*race.Context) bool, gap time.Duration) ([]said, race.View, []race.Output) {
 	t.Helper()
 	e, err := rules.New(rules.DefaultConfig(), nil)
 	if err != nil {
@@ -42,6 +42,7 @@ func stopped(t *testing.T, name string, stop func(*race.Context) bool, gap time.
 		}
 	}
 	var last race.View
+	var lost []race.Output
 	var shift time.Duration
 	for _, r := range rulestest.Packets(t, name) {
 		r.Time = r.Time.Add(shift)
@@ -53,7 +54,7 @@ func stopped(t *testing.T, name string, stop func(*race.Context) bool, gap time.
 			if !ok {
 				t.Fatal("not watching the feed")
 			}
-			if lost := m.Tick(due); len(lost) == 0 {
+			if lost = m.Tick(due); len(lost) == 0 {
 				t.Fatalf("no loss %v after frame %d", timeout, last.Seq)
 			}
 			keep(e.Step(m.Context()), true)
@@ -63,7 +64,7 @@ func stopped(t *testing.T, name string, stop func(*race.Context) bool, gap time.
 	if shift == 0 {
 		t.Fatalf("%s: the feed never stopped", name)
 	}
-	return out, last
+	return out, last, lost
 }
 
 func phase(p telemetryv1.Phase) func(*race.Context) bool {
@@ -74,7 +75,7 @@ func phase(p telemetryv1.Phase) func(*race.Context) bool {
 // telemetry." once, on the tick 3 s after the last packet, on .p0 (priority 5),
 // and "Telemetry back." on resuming, both with no slots.
 func TestALossWhileDrivingIsSaidOnceAndItsEndToo(t *testing.T) {
-	got, last := stopped(t, "real-race-2laps-2026-10-14", phase(telemetryv1.Phase_PHASE_IN_RACE), 4*time.Second)
+	got, last, _ := stopped(t, "real-race-2laps-2026-10-14", phase(telemetryv1.Phase_PHASE_IN_RACE), 4*time.Second)
 	if len(got) != 2 {
 		t.Fatalf("%d telemetry callouts %v, want lost then back", len(got), got)
 	}
@@ -101,7 +102,7 @@ func TestALossWhileDrivingIsSaidOnceAndItsEndToo(t *testing.T) {
 
 // AC2: a feed that stops in a menu gives nothing, and nothing on resuming.
 func TestALossInAMenuIsNotSaid(t *testing.T) {
-	got, _ := stopped(t, "real-race-2laps-2026-10-14", func(ctx *race.Context) bool {
+	got, _, _ := stopped(t, "real-race-2laps-2026-10-14", func(ctx *race.Context) bool {
 		return ctx.Cur.Phase == telemetryv1.Phase_PHASE_MENU
 	}, 4*time.Second)
 	if len(got) != 0 {
@@ -109,10 +110,24 @@ func TestALossInAMenuIsNotSaid(t *testing.T) {
 	}
 }
 
-// v1's phases: a loss in a pause is said too, and its end, though the session
-// ends paused on the loss (paddock#87).
-func TestALossInAPauseIsSaid(t *testing.T) {
-	got, _ := stopped(t, "real-nuc-sugo-restarts-2026-10-18", phase(telemetryv1.Phase_PHASE_PAUSED), 4*time.Second)
+// v1's phases: a loss in a pause is said too, and its end. The loss ends the
+// session paused (paddock#87), and the frames that follow are ignored until the
+// next start, but the PS5 waking still gives "Telemetry back." on the first
+// packet, as v1's watchdog said it.
+func TestALossInAPauseIsSaidAndItsEndAfterTheSessionEndedPaused(t *testing.T) {
+	got, last, lost := stopped(t, "real-nuc-sugo-restarts-2026-10-18", phase(telemetryv1.Phase_PHASE_PAUSED), 4*time.Second)
+	var ended *eventsv1.SessionEnded
+	for _, o := range lost {
+		if o.Ended != nil {
+			ended = o.Ended
+		}
+	}
+	if ended == nil || ended.GetReason() != eventsv1.EndReason_END_REASON_TELEMETRY_LOST || !ended.GetSummary().GetEndedPaused() {
+		t.Fatalf("on the loss %v, want the session ended paused", lost)
+	}
+	if len(got) == 2 && got[1].c.GetAt() != last.Seq+1 {
+		t.Errorf("back on frame %d, want the first packet back, %d", got[1].c.GetAt(), last.Seq+1)
+	}
 	if len(got) != 2 || got[0].c.GetKind() != "template_lost" || got[1].c.GetKind() != "template_back" {
 		t.Errorf("in a pause: %v, want lost then back", got)
 	}
@@ -121,7 +136,7 @@ func TestALossInAPauseIsSaid(t *testing.T) {
 // In the pit lane the loss is spoken, not held for an exit that needs frames
 // (pit_lane speak): it is published on the tick.
 func TestALossInThePitLaneIsSpoken(t *testing.T) {
-	got, _ := stopped(t, "real-nuc-suzuka-pit-stop-2026-10-15", func(ctx *race.Context) bool {
+	got, _, _ := stopped(t, "real-nuc-suzuka-pit-stop-2026-10-15", func(ctx *race.Context) bool {
 		return ctx.Pits.InPitLane && ctx.Cur.InRace()
 	}, 4*time.Second)
 	if len(got) != 2 || !got[0].tick || got[0].c.GetKind() != "template_lost" || got[1].c.GetKind() != "template_back" {
