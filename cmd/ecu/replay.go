@@ -182,7 +182,7 @@ func replay(ctx context.Context, args []string, getenv func(string) string, stdi
 		_, _ = fmt.Fprintln(stderr, "ecu replay:", err)
 		return exitNATS
 	}
-	open, rev, read := loadKept(ctx, ecuKV, busCfg.Src, logger)
+	open, rev, read := loadKept(ctx, ecuKV, nil, busCfg.Src, logger) // connected already
 	keeper := sessions.New(ecuKV, busCfg.Src, rev, waiting{ctx, pub}, logger)
 	keeper.Replay()
 	if read {

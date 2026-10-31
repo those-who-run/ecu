@@ -216,7 +216,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout,
 		// Not read, it is read again in the background, and the drive takes it
 		// while the run has opened no session (keeping.restoreLate).
 		kp := &keeping{k: keeper, now: time.Now, window: window}
-		if open, rev, ok := loadKept(driveCtx, ecuKV, busCfg.Src, logger); ok {
+		if open, rev, ok := loadKept(driveCtx, ecuKV, pub.WaitConnected, busCfg.Src, logger); ok {
 			keeper.Loaded(rev)
 			m.Restore(open, window)
 		} else {
