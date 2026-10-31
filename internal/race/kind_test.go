@@ -725,8 +725,7 @@ func TestTheGridIsALongStandThenAQuickLaunch(t *testing.T) {
 		t.Errorf("rolling: %v, want none", got)
 	}
 
-	// A loading screen between the stand and the start forgets it, and a restart,
-	// racing to racing, has no track screen.
+	// A loading screen between the stand and the start forgets it.
 	g = grid{}
 	for p := range int32(13) {
 		g.observe(at(phaseAtTrack, p*30, 0))
@@ -735,8 +734,45 @@ func TestTheGridIsALongStandThenAQuickLaunch(t *testing.T) {
 	if got := g.observe(at(phaseInRace, 430, 90)); got != 0 {
 		t.Errorf("after a loading screen: %v, want none", got)
 	}
-	if got := g.observe(at(phaseInRace, 460, 0)); got != 0 {
+
+	// A racing frame forgets it too: a restart straight back to lap 1, racing to
+	// racing, reads no grid from the stand before the first start.
+	g = grid{}
+	for p := range int32(13) { // 6 s
+		g.observe(at(phaseAtTrack, p*30, 0))
+	}
+	if got := g.observe(at(phaseInRace, 600, 90)); got != 6 {
+		t.Errorf("the first start: %v, want 6", got)
+	}
+	if got := g.observe(at(phaseInRace, 660, 0)); got != 0 {
 		t.Errorf("racing to racing: %v, want none", got)
+	}
+
+	// So does a pause: 3 s in the pit box, a pause at 0 km/h, then 1 s more and
+	// a quick launch is not a 6 s stand.
+	g = grid{}
+	for p := range int32(7) { // 3 s
+		g.observe(at(phaseAtTrack, p*30, 0))
+	}
+	for p := int32(210); p <= 330; p += 30 { // 2 s paused
+		g.observe(at(phasePaused, p, 0))
+	}
+	for p := int32(360); p <= 420; p += 30 { // 1 s
+		g.observe(at(phaseAtTrack, p, 0))
+	}
+	g.observe(at(phaseAtTrack, 450, 40))
+	if got := g.observe(at(phaseInRace, 600, 90)); got != 0 {
+		t.Errorf("a pause between: %v, want none", got)
+	}
+
+	// Lap 1 on a packet before the stand's (GT7's counter started over) is no
+	// launch from it.
+	g = grid{}
+	for p := range int32(13) {
+		g.observe(at(phaseAtTrack, 1000+p*30, 0))
+	}
+	if got := g.observe(at(phaseInRace, 500, 90)); got != 0 {
+		t.Errorf("the counter started over: %v, want none", got)
 	}
 
 	// The last standstill decides: a long stand, a roll, then a short stop is
