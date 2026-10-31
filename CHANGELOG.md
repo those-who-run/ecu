@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.1.15](https://github.com/those-who-run/ecu/compare/v0.1.14...v0.1.15) (2026-10-31)
+
+
+### Features
+
+* **race:** the ranked kind, qualifying or practice with the field out ([#70](https://github.com/those-who-run/ecu/issues/70)) ([0ea5b35](https://github.com/those-who-run/ecu/commit/0ea5b35327e24baf91f344a929d697aa723bc65e))
+
+
+### Bug Fixes
+
+* **race:** paused_ms counts the pauses before an ecu restart ([#73](https://github.com/those-who-run/ecu/issues/73)) ([27701e4](https://github.com/those-who-run/ecu/commit/27701e40148610891db2a96695646692982de2dd))
+* **rules:** a ranked session's first rank, its finish's rank, and the pit lane ([#72](https://github.com/those-who-run/ecu/issues/72)) ([80bbdb4](https://github.com/those-who-run/ecu/commit/80bbdb4f04eb24c949a26fc9972fa1cb6c98d7a3))
+
 ## [0.1.14](https://github.com/those-who-run/ecu/compare/v0.1.13...v0.1.14) (2026-10-31)
 
 
