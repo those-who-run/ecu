@@ -614,15 +614,22 @@ const (
 	sugoCar  = 837
 )
 
-// sugoRecord is the kept record of the run before the restart: its session, in
-// car, on SUGO as probable, last seen a minute before the run's first frame.
-func sugoRecord(car int32) *statev1.OpenSession {
+// sugoRecord is the kept record of the run before the restart, with the facts
+// the fixture's first frame has (a 3-lap race of 20 cars, GT7's cars-on-track
+// flag on, on lap 1): its session, in car, over laps, on SUGO as probable, last
+// seen a minute before the run's first frame.
+func sugoRecord(car, laps int32) *statev1.OpenSession {
 	id := int32(sugoID)
+	cars := int32(20)
 	return &statev1.OpenSession{
 		SessionId:  "01KDVDKEPT0000000000000000",
 		LastSeenAt: timestamppb.New(epoch.Add(-time.Minute)),
+		Lap:        &statev1.OpenLap{Lap: 1, FuelAtStart: 100},
 		Summary: &eventsv1.SessionSummary{
-			CarCode: car,
+			CarCode: car, TotalLaps: &laps, TotalCars: &cars,
+			Kind: &eventsv1.SessionKind{
+				SessionType: eventsv1.SessionType_SESSION_TYPE_LAP_RACE, TotalLaps: &laps, Field: true, CarsOnTrack: true,
+			},
 			Track: &eventsv1.TrackVerdict{
 				TrackId: &id, Name: "Sportsland SUGO", Confidence: eventsv1.TrackConfidence_TRACK_CONFIDENCE_PROBABLE,
 				Evidence: "finish line crossed in the right direction, no full lap yet",
@@ -700,7 +707,7 @@ func TestALap1RunWithNoRecordIsV1s(t *testing.T) {
 // on SUGO opens a fresh session that starts with SUGO, carried, on its first
 // frame, and never names Willow Springs or Fuji.
 func TestALap1RestartCarriesTheKeptTrack(t *testing.T) {
-	tracks, sum := sugoTracks(t, sugoRecord(sugoCar))
+	tracks, sum := sugoTracks(t, sugoRecord(sugoCar, 3))
 	if len(tracks) == 0 || tracks[0].GetTrackId() != sugoID || !tracks[0].GetCarried() {
 		t.Fatalf("session.track %v: want SUGO carried first", trackNames(tracks))
 	}
@@ -718,10 +725,24 @@ func TestALap1RestartCarriesTheKeptTrack(t *testing.T) {
 // part way: no line crossing from a mid-lap anchor, and no partial lap judged
 // whole, so neither Willow Springs nor Fuji, and SUGO by the lap 2 tick.
 func TestALap1RestartInAnotherCarStillJoinsTheDetector(t *testing.T) {
-	tracks, sum := sugoTracks(t, sugoRecord(sugoCar+1))
+	joinedNotCarried(t, sugoRecord(sugoCar+1, 3))
+}
+
+// A record that would not be continued on more than the lap 1 rule is another
+// race: a record of a 5-lap race carries nothing into this 3-lap one, and the
+// detector still joins.
+func TestALap1RestartOfAnotherRaceCarriesNothing(t *testing.T) {
+	joinedNotCarried(t, sugoRecord(sugoCar, 5))
+}
+
+// joinedNotCarried checks the lap 1 run, given record: no track carried, and the
+// detector joined, so neither Willow Springs nor Fuji, and SUGO at the end.
+func joinedNotCarried(t *testing.T, record *statev1.OpenSession) {
+	t.Helper()
+	tracks, sum := sugoTracks(t, record)
 	for _, v := range tracks {
 		if v.GetCarried() {
-			t.Errorf("another car's track carried: %v", v)
+			t.Errorf("a track carried: %v", v)
 		}
 		if strings.Contains(v.GetName(), "Willow") || strings.Contains(v.GetName(), "Fuji") {
 			t.Errorf("session.track %q", v.GetName())

@@ -103,9 +103,11 @@ func (m *Machine) expire(now time.Time) {
 // ecu 0.1.11): when the run's first frame is already racing on lap 1 or later
 // (first) and the session is not continued, the new session opens as v1's
 // would, but the track detector is told it joined part way (track.Detector.Join),
-// as a joined session's is, and a record of the same car whose track the
-// continue path would carry (carriedTrack) gives the new session that track,
-// carried, which resume returns. A run that came up 40 s into lap 1 opened a
+// as a joined session's is, and a record that would be continued but for the lap
+// 1 rule (continueMismatch: the window, the car, the type, the lap total, the
+// field and the lap), with a track the continue path would carry
+// (carriedTrack), gives the new session that track, carried, which resume
+// returns. A run that came up 40 s into lap 1 opened a
 // fresh session there, as v1 does, since a join on lap 1 can't be told from a
 // flying start; its detector, taking the run for one seen from its start,
 // counted the car's path across Streets of Willow Springs Reverse's line, then
@@ -127,11 +129,13 @@ func (m *Machine) resume(s *state, t time.Time, joined, first bool) (bool, *trac
 			return false, nil
 		}
 		m.tracks.Join()
-		sum := k.open.GetSummary()
-		if sum.GetCarCode() != s.carCode {
+		// The track is carried only from a record the run would continue but for
+		// the lap 1 rule: the same car, type, lap total and field, within the
+		// window, and not on an earlier lap (a record past lap 1 is another race).
+		if continueMismatch(k.open, s, t.Sub(k.open.GetLastSeenAt().AsTime()), k.window) != "" {
 			return false, nil
 		}
-		if match, ok := carriedTrack(sum.GetTrack()); ok {
+		if match, ok := carriedTrack(k.open.GetSummary().GetTrack()); ok {
 			return false, &match
 		}
 		return false, nil

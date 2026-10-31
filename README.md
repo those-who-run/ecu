@@ -780,9 +780,11 @@ A restart in the middle of a race does not split it (paddock#76, v1's
   so it is not continued, as in v1, and a fresh session opens. A departure from
   v1.0.0, which had no record there: when the run's first frame is already
   racing (lap 1 or later, nothing before it), the track detector is told it
-  joined part way, as a joined session's is, and a record of the same car
-  gives the new session the track it had, `carried`, when a continued one
-  would carry it. At SUGO on 2026-10-31, ecu 0.1.11 came up 40 s into lap 1:
+  joined part way, as a joined session's is, and a record that matches as a
+  continue would (the window, the car, cars on track, the lap total, the field,
+  and not past the run's lap), all but the lap 1 rule, gives the new session
+  the track it had, `carried`, when a continued one would carry it. A record
+  of another race carries nothing. At SUGO on 2026-10-31, ecu 0.1.11 came up 40 s into lap 1:
   seen as a run from its start, the detector counted the path across Streets
   of Willow Springs Reverse's line, then Fuji's, 98 m from SUGO's, judged the
   partial lap 1 whole at the lap 2 tick and ended on none, as v1.0.0 does on
