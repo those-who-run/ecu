@@ -498,7 +498,7 @@ func (m *Machine) step(s *state) {
 	// and a lap the verdict when it ends.
 	kindChanged := m.kinds.observe(s)
 	if starting {
-		m.start(s, t, joinedPartWay(prev, s))
+		m.start(s, t, joinedPartWay(prev, s), prev == nil)
 		// A rolling start crosses the line before lap 1, so the detector may know
 		// the track already when the session opens (paddock#81, R3).
 		if match := m.tracks.Match(); match.Confidence != track.None {
@@ -623,10 +623,11 @@ func (m *Machine) event(id string, t time.Time) ce.Event {
 // start opens a session on its first driving frame (v1's SessionStore.start_session).
 // The first start of the run decides the session an earlier run left open
 // (continue.go): a join that matches it continues it, and anything else ends it
-// first.
-func (m *Machine) start(s *state, t time.Time, joined bool) {
+// first. first says s is the run's first frame.
+func (m *Machine) start(s *state, t time.Time, joined, first bool) {
 	m.opened = true
-	if m.resume(s, t, joined) {
+	continued, carry := m.resume(s, t, joined, first)
+	if continued {
 		return
 	}
 	id := m.sessionID()
@@ -659,6 +660,9 @@ func (m *Machine) start(s *state, t time.Time, joined bool) {
 		Session: id,
 		Started: started,
 	})
+	if carry != nil {
+		m.carryTrack(*carry, s, t)
+	}
 }
 
 // observe is v1's SessionStore.observe: a driving frame joins the lap in progress,

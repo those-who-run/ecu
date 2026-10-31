@@ -98,10 +98,26 @@ func (m *Machine) expire(now time.Time) {
 
 // resume decides the recorded session on the run's first start, s: it continues
 // it and says so, or ends it and says not, and the caller opens a new session.
-func (m *Machine) resume(s *state, t time.Time, joined bool) bool {
+//
+// A departure from v1.0.0, which had no record to read here (SUGO, 2026-10-31,
+// ecu 0.1.11): when the run's first frame is already racing on lap 1 or later
+// (first) and the session is not continued, the new session opens as v1's
+// would, but the track detector is told it joined part way (track.Detector.Join),
+// as a joined session's is, and a record that would be continued but for the lap
+// 1 rule (continueMismatch: the window, the car, the type, the lap total, the
+// field and the lap), with a track the continue path would carry
+// (carriedTrack), gives the new session that track, carried, which resume
+// returns. A run that came up 40 s into lap 1 opened a
+// fresh session there, as v1 does, since a join on lap 1 can't be told from a
+// flying start; its detector, taking the run for one seen from its start,
+// counted the car's path across Streets of Willow Springs Reverse's line, then
+// Fuji's, 98 m from SUGO's, and at the lap 2 tick judged the partial lap 1
+// whole, ruled SUGO out on its length and ended on none. With no record, or a
+// start seen from the grid, nothing changes: v1's behaviour.
+func (m *Machine) resume(s *state, t time.Time, joined, first bool) (bool, *track.Match) {
 	k := m.kept
 	if k.open == nil {
-		return false
+		return false, nil
 	}
 	why := "a session seen from its start"
 	if joined {
@@ -109,11 +125,24 @@ func (m *Machine) resume(s *state, t time.Time, joined bool) bool {
 	}
 	if why != "" {
 		m.endKept(t, why)
-		return false
+		if !first || !s.inRace() || s.lap < 1 {
+			return false, nil
+		}
+		m.tracks.Join()
+		// The track is carried only from a record the run would continue but for
+		// the lap 1 rule: the same car, type, lap total and field, within the
+		// window, and not on an earlier lap (a record past lap 1 is another race).
+		if continueMismatch(k.open, s, t.Sub(k.open.GetLastSeenAt().AsTime()), k.window) != "" {
+			return false, nil
+		}
+		if match, ok := carriedTrack(k.open.GetSummary().GetTrack()); ok {
+			return false, &match
+		}
+		return false, nil
 	}
 	m.kept = kept{}
 	m.continueSession(k.open, s, t)
-	return true
+	return true, nil
 }
 
 // continueMismatch is v1's continue_mismatch: why a join on s, since after the
@@ -222,10 +251,7 @@ func (m *Machine) continueSession(open *statev1.OpenSession, s *state, t time.Ti
 	// out (R6, paddock#81 R4), as any verdict is (applyTrack).
 	var carried *eventsv1.TrackVerdict
 	if match, ok := carriedTrack(sum.GetTrack()); ok {
-		sess.track, sess.carried = &match, true
-		carried = verdict(match)
-		carried.Carried = true
-		sum.Track = carried
+		carried = carry(sess, match)
 	}
 	m.out = append(m.out, Output{
 		Event:   m.event(id+":session.continued:"+m.run, t),
@@ -235,16 +261,39 @@ func (m *Machine) continueSession(open *statev1.OpenSession, s *state, t time.Ti
 		},
 	})
 	if carried != nil {
-		m.trackChanges = append(m.trackChanges, sess.track)
-		seq := strconv.FormatUint(uint64(s.seq), 10)
-		m.out = append(m.out, Output{
-			Event:   m.event(id+":session.track:"+m.run+":"+seq, t),
-			Session: id,
-			Track: &eventsv1.SessionTrackChanged{
-				SessionId: id, Track: proto.CloneOf(carried), At: s.seq, RunId: m.run,
-			},
-		})
+		m.trackCarried(carried, s, t)
 	}
+}
+
+// carryTrack gives the open session match, carried over the restart, and its
+// session.track on s: the track a fresh session opened on a restart's first
+// frame starts with (resume).
+func (m *Machine) carryTrack(match track.Match, s *state, t time.Time) {
+	m.trackCarried(carry(m.session, match), s, t)
+}
+
+// carry makes match sess's track, carried (TrackVerdict.carried), and returns
+// its verdict.
+func carry(sess *session, match track.Match) *eventsv1.TrackVerdict {
+	sess.track, sess.carried = &match, true
+	v := verdict(match)
+	v.Carried = true
+	sess.summary.Track = v
+	return v
+}
+
+// trackCarried publishes the open session's carried track, v, on s.
+func (m *Machine) trackCarried(v *eventsv1.TrackVerdict, s *state, t time.Time) {
+	sess := m.session
+	m.trackChanges = append(m.trackChanges, sess.track)
+	seq := strconv.FormatUint(uint64(s.seq), 10)
+	m.out = append(m.out, Output{
+		Event:   m.event(sess.id+":session.track:"+m.run+":"+seq, t),
+		Session: sess.id,
+		Track: &eventsv1.SessionTrackChanged{
+			SessionId: sess.id, Track: proto.CloneOf(v), At: s.seq, RunId: m.run,
+		},
+	})
 }
 
 // carriedTrack is v1's carried_track: the track the session had found, as the

@@ -192,8 +192,9 @@ v1.0.0, in [`internal/race/track.go`](internal/race/track.go).
   when the race ends (the flag, a quit, back to the menu), the detector's
   final candidates and fit replace it when they are the same decision and the
   same circuit, as v1's "final candidates and fit".
-- **Not yet carried.** `carried` is always false: a session continued after
-  an ecu restart, which starts with the track it had, is paddock#76's.
+- **Carried.** `carried` is true on the track a session starts with after an
+  ecu restart: a continued session's, and a lap 1 restart's
+  ([After a restart](#after-a-restart)), until the next verdict replaces it.
 - **Tests.** On every one of v1's 25 recordings, the `session.track` events
   and each summary's track are v1's: where v1's engine applied a verdict, the
   same verdict (the last of a frame's), its first 8 candidates and its
@@ -775,6 +776,19 @@ A restart in the middle of a race does not split it (paddock#76, v1's
   `END_REASON_ENGINEER_STOPPED`: the lap it was on as a partial lap, a stop it
   was in as an open stop, and ended paused, as of the pause's start, when it
   was in one.
+- **A restart on lap 1.** A join on lap 1 can't be told from a flying start,
+  so it is not continued, as in v1, and a fresh session opens. A departure from
+  v1.0.0, which had no record there: when the run's first frame is already
+  racing (lap 1 or later, nothing before it), the track detector is told it
+  joined part way, as a joined session's is, and a record that matches as a
+  continue would (the window, the car, cars on track, the lap total, the field,
+  and not past the run's lap), all but the lap 1 rule, gives the new session
+  the track it had, `carried`, when a continued one would carry it. A record
+  of another race carries nothing. At SUGO on 2026-10-31, ecu 0.1.11 came up 40 s into lap 1:
+  seen as a run from its start, the detector counted the path across Streets
+  of Willow Springs Reverse's line, then Fuji's, 98 m from SUGO's, judged the
+  partial lap 1 whole at the lap 2 tick and ended on none, as v1.0.0 does on
+  those frames. With no record nothing changes.
 - **Never read.** A run that could not read the record before its first
   session reads the key before its first write: a record of another session
   there is ended from it, as above, before the run writes over it. Live keeps
@@ -793,7 +807,9 @@ A restart in the middle of a race does not split it (paddock#76, v1's
   gives what v1.0.0 let go of in each, field for field, as `make_golden.py` in
   [`internal/race/testdata/continue/`](internal/race/testdata/continue) wrote
   it; restarts cut into one recording check the pit lane, a pause, the kind
-  and a carried track ruled out.
+  and a carried track ruled out; SUGO's lap 1 restart
+  (`make_fixture.py` there) gives v1's tracks with no record, and SUGO carried
+  from the first frame with one.
 
 ## The callouts
 
