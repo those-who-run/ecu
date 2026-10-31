@@ -346,3 +346,17 @@ func TestASoloTimedSessionHasNoTimedFinish(t *testing.T) {
 		t.Errorf("%v, want no finish", f[0].Finished)
 	}
 }
+
+// paddock#146: the timed finish reads the kind's field, not GT7's cars-on-track
+// flag. A timed field whose flag drops after the start, coasting after the line,
+// still finishes timed.
+func TestATimedFieldFinishesWithoutTheFlag(t *testing.T) {
+	all := coast(func(int) (uint8, float32, bool) { return 0, 150, false })
+	for i := 3; i < len(all); i++ { // flagged at the start, so the start check takes it
+		all[i].Flags &^= salsa.FlagCarsOnTrack
+	}
+	f := finishes(run(all))
+	if len(f) != 1 || f[0].Finished.GetKind() != eventsv1.FinishKind_FINISH_KIND_TIMED {
+		t.Fatalf("%v, want one timed finish", f)
+	}
+}
