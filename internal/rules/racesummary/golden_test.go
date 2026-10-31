@@ -44,7 +44,8 @@ func summaries(t *testing.T, name string) []string {
 			hold = c.GetHoldUntil().AsTime().Sub(created).Seconds()
 		}
 		lines = append(lines, line(session, int(c.GetAt()), asOf, c.GetKind(), slotsOf(c.GetSlots()),
-			c.GetPriority(), c.GetExpiresAt().AsTime().Sub(created).Seconds(), hold, c.GetPitLane()))
+			c.GetPriority(), c.GetExpiresAt().AsTime().Sub(created).Seconds(), hold, c.GetPitLane())+
+			trackOf(c.GetSlots().GetTrack()))
 	}
 	return lines
 }
@@ -61,6 +62,14 @@ func slotsOf(s *eventsv1.CalloutSlots) map[string]int32 {
 		out["laps"] = s.GetLaps()
 	}
 	return out
+}
+
+// trackOf is the track slot as a line ends with it, "" for none.
+func trackOf(name string) string {
+	if name == "" {
+		return ""
+	}
+	return " at " + name
 }
 
 var pitLanes = map[string]eventsv1.PitLane{
@@ -98,6 +107,21 @@ type golden struct {
 	Outcome  string           `json:"outcome"`
 }
 
+// named is the departure from v1 decided on 2026-10-31: the summary names the
+// track when the session's verdict is confirmed by the time it is raised. By
+// recording and session, the track ecu names in a summary v1 said without one;
+// every other summary names none. Not named: Fuji and Spa (a circuit, its layout
+// not picked), Suzuka East (confirmed on the flag's own frame, after the rules),
+// and the 2-lap race (never placed).
+var named = map[string]map[int]string{
+	"real-nuc-sugo-restarts-2026-10-18":     {3: "Sportsland SUGO"},
+	"real-nuc-sugo-timed-2026-10-15":        {1: "Sportsland SUGO"},
+	"real-nuc-sugo-two-stops-2026-10-18":    {1: "Sportsland SUGO"},
+	"real-nuc-suzuka-no-stop-2026-10-15":    {1: "Suzuka Circuit East Course"},
+	"real-nuc-suzuka-pit-stop-2026-10-15":   {1: "Suzuka Circuit East Course"},
+	"real-nuc-suzuka-timed-race-2026-10-16": {1: "Suzuka Circuit East Course"},
+}
+
 // readGolden is each callout v1 published, in the golden's order: a callout v1
 // dropped in the pit lane is not published, and a held one would be published
 // at its release (race_summary speaks in the lane, so v1 held and dropped none).
@@ -123,7 +147,8 @@ func readGolden(t *testing.T, name string) []string {
 			if g.Outcome != "spoken" {
 				t.Fatalf("v1 %s a race_summary callout: %s", g.Outcome, sc.Text())
 			}
-			lines = append(lines, line(g.Session, g.At, g.AsOf, g.Kind, g.Slots, g.Priority, g.MaxAge, g.Hold, pitLanes[g.PitLane]))
+			lines = append(lines, line(g.Session, g.At, g.AsOf, g.Kind, g.Slots, g.Priority, g.MaxAge, g.Hold, pitLanes[g.PitLane])+
+				trackOf(named[name][g.Session]))
 		}
 	}
 	if err := sc.Err(); err != nil {
@@ -147,7 +172,8 @@ func readGolden(t *testing.T, name string) []string {
 // 843. AC3, the timed finish at the line, P1: suzuka-timed-race at 752, as of
 // the crossing at 745. AC4, leaving through the menu with no position:
 // fuji-timed at 633. AC5, no quit summary for the restarted races:
-// sugo-restarts has only the last race's finish.
+// sugo-restarts has only the last race's finish. The summary names the track
+// when ecu is sure of it (named, the decision of 2026-10-31).
 func TestTheRaceSummaryIsV1sOnEveryRecording(t *testing.T) {
 	for _, name := range rulestest.Recordings {
 		t.Run(name, func(t *testing.T) {

@@ -43,6 +43,16 @@ func (l goldenLine) show() string {
 // accepted are v1's callouts ecu does not raise on purpose, by recording and the
 // line's show(), with the decision that says so. Each rule's port adds its own.
 var accepted = map[string]map[string]string{
+	// No track at the start (noTrackAtStart): a brief that only named the track
+	// is not raised, nor is the track named on its own after the brief.
+	"real-nuc-fuji-timed-2026-10-15":     {"session 1 frame 97 start_brief template p8 hold": noTrackAtStart},
+	"real-nuc-spa-time-trial-2026-10-18": {"session 1 frame 72 start_brief template p8 hold": noTrackAtStart},
+	"real-nuc-sugo-timed-2026-10-15":     {"session 1 frame 100 start_brief template p8 hold": noTrackAtStart},
+	"real-nuc-unknown-track-2026-10-15":  {"session 1 frame 5 start_brief template p8 hold": noTrackAtStart},
+	"real-quali-restart-quit-2026-10-14": {
+		"session 1 frame 72 start_brief template_track p8 hold":  noTrackAtStart,
+		"session 2 frame 320 start_brief template_track p8 hold": noTrackAtStart,
+	},
 	"real-nuc-sugo-replay-2026-10-18": {
 		// GT7 jumps the lap counter from 4 to 13 on the way to the results: v1 called
 		// "lap twelve" with no lap closed behind it, and ecu's lap_time, which calls
@@ -50,6 +60,12 @@ var accepted = map[string]map[string]string{
 		"session 1 frame 864 lap_time delta_slower p20 hold": "https://github.com/those-who-run/paddock/issues/83#issuecomment-6504879235",
 	},
 }
+
+// noTrackAtStart is the maintainer's decision of 2026-10-31, a departure from
+// v1: the engineer names no track at the start (start_brief), only in the race
+// summary when ecu is sure of it; every wrong track spoken so far was named
+// before the detector could be sure.
+const noTrackAtStart = "the maintainer's decision of 2026-10-31: no track named at the start"
 
 // pending are callouts ecu raises that v1 did not, by recording and the line's
 // show(), each with the open paddock issue that removes it. Each must still be

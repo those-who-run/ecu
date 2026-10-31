@@ -6,6 +6,7 @@ import (
 	eventsv1 "github.com/those-who-run/contracts/gen/go/twr/events/v1"
 	"github.com/those-who-run/ecu/internal/race"
 	"github.com/those-who-run/ecu/internal/rules"
+	"github.com/those-who-run/ecu/internal/track"
 )
 
 const (
@@ -183,5 +184,44 @@ func TestLeavingASoloSession(t *testing.T) {
 		if got := r.Evaluate(ctx); len(got) != 0 {
 			t.Errorf("a quit summary on %+v", ctx)
 		}
+	}
+}
+
+// The decision of 2026-10-31, a departure from v1: the finish and the quit
+// summary name the track when the session's verdict is confirmed ("Race over at
+// Sportsland SUGO."), and none when it is only probable, a circuit whose layout
+// isn't picked, ambiguous, or not there.
+func TestTheSummaryNamesASureTrack(t *testing.T) {
+	sugo := track.Match{TrackID: 9, Name: "Sportsland SUGO", Confidence: track.Confirmed}
+	probable := sugo
+	probable.Confidence = track.Probable
+	fuji := track.Match{TrackID: 100003, Name: "Fuji International Speedway", Family: "Fuji International Speedway",
+		Confidence: track.Probable}
+	ambiguous := track.Match{Confidence: track.Ambiguous}
+	for _, tc := range []struct {
+		name string
+		m    *track.Match
+		want string
+	}{
+		{"confirmed", &sugo, "Sportsland SUGO"},
+		{"probable", &probable, ""},
+		{"a circuit", &fuji, ""},
+		{"ambiguous", &ambiguous, ""},
+		{"none", nil, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := New(Default())
+			ctx := finish(field, race.View{Position: 1})
+			ctx.Track = tc.m
+			if got := one(t, r.Evaluate(ctx), KindTemplatePositionWin, i32(1), nil, nil).Slots.GetTrack(); got != tc.want {
+				t.Errorf("at the finish, track %q, want %q", got, tc.want)
+			}
+			r.Reset()
+			ctx = end(soloLaps, race.View{Lap: 4})
+			ctx.Track = tc.m
+			if got := one(t, r.Evaluate(ctx), KindTemplateQuit, nil, nil, i32(3)).Slots.GetTrack(); got != tc.want {
+				t.Errorf("leaving, track %q, want %q", got, tc.want)
+			}
+		})
 	}
 }

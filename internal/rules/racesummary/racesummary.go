@@ -12,6 +12,12 @@
 // session whose only lap is lap 1). Each lap counts once, on its first post.
 // Fuel is not said (those-who-run#245).
 //
+// A departure from v1 (the maintainer's decision, 2026-10-31): the summary names
+// the track (the track slot) when the session's verdict is confirmed by then, a
+// full lap fitting one layout; start_brief no longer names it at the start. A
+// probable verdict, or a circuit whose layout can't be picked (Fuji), names
+// none: in VR a wrong name is worse than none.
+//
 // v1's defaults that the engine applies (internal/rules/config.go): priority
 // 25, after the final lap time posted on the same frame; max_age_seconds 30, so
 // it waits behind that lap time; pit_lane speak, since the flag can fall in a
@@ -25,6 +31,7 @@ import (
 	eventsv1 "github.com/those-who-run/contracts/gen/go/twr/events/v1"
 	"github.com/those-who-run/ecu/internal/race"
 	"github.com/those-who-run/ecu/internal/rules"
+	"github.com/those-who-run/ecu/internal/track"
 )
 
 // Name is the rule's name, its key in the rules file.
@@ -109,7 +116,7 @@ func (r *Rule) Evaluate(ctx *race.Context) []rules.Callout {
 			return []rules.Callout{c}
 		}
 	case ctx.EndedEarly != nil && !ctx.Finished:
-		if c, ok := r.ended(ctx.Kind.Type, ctx.EndedEarly); ok {
+		if c, ok := r.ended(ctx, ctx.EndedEarly); ok {
 			return []rules.Callout{c}
 		}
 	}
@@ -153,6 +160,7 @@ func (r *Rule) finished(ctx *race.Context, at *race.View) (rules.Callout, bool) 
 		}
 	}
 	r.best(slots, at.BestLapMs)
+	slots.Track = sureTrack(ctx.Track)
 	asOf := *at
 	return rules.Callout{Kind: kind, Slots: slots, AsOf: &asOf}, true
 }
@@ -161,14 +169,15 @@ func (r *Rule) finished(ctx *race.Context, at *race.View) (rules.Callout, bool) 
 // quit_min_laps laps, gives template_quit. The laps are counted from GT7's
 // counter on last, the last driving frame, too: it knows laps the session
 // joined too late to see.
-func (r *Rule) ended(kind eventsv1.SessionType, last *race.View) (rules.Callout, bool) {
+func (r *Rule) ended(ctx *race.Context, last *race.View) (rules.Callout, bool) {
 	laps := max(r.lapsDone, last.Lap-1)
-	if r.announced || !slices.Contains(r.quitKinds, kind) || laps < r.quitMinLaps {
+	if r.announced || !slices.Contains(r.quitKinds, ctx.Kind.Type) || laps < r.quitMinLaps {
 		return rules.Callout{}, false
 	}
 	r.announced = true
 	slots := &eventsv1.CalloutSlots{Laps: &laps}
 	r.best(slots, last.BestLapMs)
+	slots.Track = sureTrack(ctx.Track)
 	return rules.Callout{Kind: KindTemplateQuit, Slots: slots}, true
 }
 
@@ -185,4 +194,14 @@ func (r *Rule) best(slots *eventsv1.CalloutSlots, gt7BestMs int32) {
 	if best > 0 {
 		slots.BestLapMs = &best
 	}
+}
+
+// sureTrack is the track to name at the end: the verdict's layout when it is
+// confirmed (contracts' TRACK_CONFIDENCE_CONFIRMED), as the verdict names it;
+// "" for none, or for a verdict any less sure.
+func sureTrack(m *track.Match) string {
+	if m == nil || m.Confidence != track.Confirmed || m.TrackID == 0 || m.Family != "" {
+		return ""
+	}
+	return m.Name
 }

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 
 	eventsv1 "github.com/those-who-run/contracts/gen/go/twr/events/v1"
 	"github.com/those-who-run/ecu/internal/rules"
@@ -48,13 +49,14 @@ var pitLanes = map[string]eventsv1.PitLane{
 	"speak": eventsv1.PitLane_PIT_LANE_SPEAK, "hold": eventsv1.PitLane_PIT_LANE_HOLD, "drop": eventsv1.PitLane_PIT_LANE_DROP,
 }
 
-func readGolden(t *testing.T, name string) []string {
+// readGolden is v1's callouts, the track taken out (noTrack); raised counts them
+// as v1 raised them.
+func readGolden(t *testing.T, name string) (out []string, raised int) {
 	t.Helper()
 	data, err := os.ReadFile(filepath.Join("testdata", name+".jsonl")) //nolint:gosec // a golden of the tests
 	if err != nil {
 		t.Fatal(err)
 	}
-	var out []string
 	for line := range strings.Lines(string(data)) {
 		var g goldenLine
 		if err := json.Unmarshal([]byte(line), &g); err != nil {
@@ -63,15 +65,32 @@ func readGolden(t *testing.T, name string) []string {
 		if g.Event != "callout" {
 			continue
 		}
+		raised++
 		slots := &eventsv1.CalloutSlots{}
 		if err := protojson.Unmarshal(g.Slots, slots); err != nil {
 			t.Fatal(err)
 		}
+		if noTrack(g.Kind, slots) {
+			continue
+		}
 		out = append(out, show(g.Session, g.Frame, g.Kind, slots, g.Priority, g.HoldSecs, g.ExpirySecs,
 			pitLanes[g.PitLane].String(), g.Outcome))
 	}
-	return out
+	return out, raised
 }
+
+// noTrack is the departure from v1 decided on 2026-10-31: ecu names no track at
+// the start. It takes the track out of v1's callout, and says whether nothing is
+// left of it: v1's template_track, or a brief that only named the track (a time
+// trial). The golden stays v1's.
+func noTrack(kind string, slots *eventsv1.CalloutSlots) (gone bool) {
+	slots.Track = ""
+	return kind == kindTrackV1 || (kind == KindBrief && proto.Size(slots) == 0)
+}
+
+// kindTrackV1 is v1's template_track, the track named on its own after the
+// brief, which ecu doesn't raise.
+const kindTrackV1 = "template_track"
 
 // replay runs a recording through the machine and an engine of this rule alone,
 // with v1's defaults, and shows its callouts.
@@ -120,8 +139,8 @@ func replay(t *testing.T, name string) []string {
 func TestTheStartBriefIsV1sOnEveryRecording(t *testing.T) {
 	for _, name := range rulestest.Recordings {
 		t.Run(name, func(t *testing.T) {
-			want := readGolden(t, name)
-			if len(want) == 0 && !rulestest.Discarded[name] {
+			want, raised := readGolden(t, name)
+			if raised == 0 && !rulestest.Discarded[name] {
 				t.Fatal("an empty golden")
 			}
 			if got := replay(t, name); !slices.Equal(got, want) {
