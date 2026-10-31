@@ -307,6 +307,7 @@ func TestHasFieldIsTheKinds(t *testing.T) {
 		{"a ghost, flagged", state{carsOnTrack: true, totalCars: 2, position: 1}, false},
 		{"one car, flagged", state{carsOnTrack: true, totalCars: 1, position: 1}, false},
 		{"a time trial, -1 cars", state{carsOnTrack: true, totalCars: -1, position: -1}, false},
+		{"-1 cars, a position", state{totalLaps: 3, totalCars: -1, position: 4}, false},
 		{"three cars, unflagged", state{totalCars: 3, position: 1}, true},
 		{"two cars and a lap total", state{totalLaps: 3, totalCars: 2, position: 1}, true},
 		{"two cars, passed", state{totalCars: 2, position: 2}, true},

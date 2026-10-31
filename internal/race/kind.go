@@ -72,9 +72,10 @@ const (
 
 // frameField says one frame shows a field, as the kind reads it: three or more
 // cars, a driver who is anything but first, or a lap total and a second car.
-// Two cars alone with no lap total are a time trial's ghost.
+// Two cars alone with no lap total are a time trial's ghost, and total_cars of -1
+// says nothing, as the kind ignores it.
 func frameField(laps, cars, position int32) bool {
-	return cars >= 3 || position > 1 || (laps > 0 && cars >= 2)
+	return cars >= 0 && (cars >= 3 || position > 1 || (laps > 0 && cars >= 2))
 }
 
 // kindVerdict is v1's SessionKind: the decision, and the evidence for it.
