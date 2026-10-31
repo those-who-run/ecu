@@ -8,6 +8,7 @@ import (
 	"math/rand/v2"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -15,6 +16,7 @@ import (
 	"github.com/those-who-run/contracts/ce"
 	eventsv1 "github.com/those-who-run/contracts/gen/go/twr/events/v1"
 	statev1 "github.com/those-who-run/contracts/gen/go/twr/state/v1"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 // Suzuka's restart pair (paddock#76): the old pod's view of a timed race, laps 1
@@ -600,5 +602,132 @@ func TestALineCrossedInTheGapKeepsThatLap(t *testing.T) {
 	}
 	if !b.opened || b.Restore(rec, window) {
 		t.Error("a record taken after the run opened a session")
+	}
+}
+
+// The lap 1 restart at SUGO on 2026-10-31 (testdata/continue): ecu 0.1.11 came
+// up 40 s into lap 1 with the session before it kept, SUGO found. A join on lap
+// 1 can't be told from a flying start, so a fresh session opens, as v1's.
+const (
+	sugoLap1 = "real-nuc-sugo-restart-lap1-2026-10-31"
+	sugoID   = 100001
+	sugoCar  = 837
+)
+
+// sugoRecord is the kept record of the run before the restart: its session, in
+// car, on SUGO as probable, last seen a minute before the run's first frame.
+func sugoRecord(car int32) *statev1.OpenSession {
+	id := int32(sugoID)
+	return &statev1.OpenSession{
+		SessionId:  "01KDVDKEPT0000000000000000",
+		LastSeenAt: timestamppb.New(epoch.Add(-time.Minute)),
+		Summary: &eventsv1.SessionSummary{
+			CarCode: car,
+			Track: &eventsv1.TrackVerdict{
+				TrackId: &id, Name: "Sportsland SUGO", Confidence: eventsv1.TrackConfidence_TRACK_CONFIDENCE_PROBABLE,
+				Evidence: "finish line crossed in the right direction, no full lap yet",
+			},
+		},
+	}
+}
+
+// sugoTracks runs the lap 1 restart's run, given record (nil for none): the
+// session.track verdicts of the session it opens, and its summary.
+func sugoTracks(t *testing.T, record *statev1.OpenSession) ([]*eventsv1.TrackVerdict, *eventsv1.SessionSummary) {
+	t.Helper()
+	m := New(testIDs())
+	m.Restore(record, window)
+	var out []Output
+	for _, r := range packets(t, sugoLap1) {
+		out = append(out, m.Step(r)...)
+	}
+	out = append(out, m.EndOfInput()...)
+	var opened string
+	var tracks []*eventsv1.TrackVerdict
+	for _, o := range out {
+		switch {
+		case o.Started != nil:
+			if o.Started.GetJoinedPartWay() {
+				t.Error("the lap 1 run opened a session joined part way")
+			}
+			opened = o.Session
+		case o.Track != nil && o.Session == opened:
+			tracks = append(tracks, o.Track.GetTrack())
+		}
+	}
+	if opened == "" {
+		t.Fatal("no session opened")
+	}
+	var sum *eventsv1.SessionSummary
+	for _, o := range out {
+		if o.Ended != nil && o.Session == opened {
+			sum = o.Ended.GetSummary()
+		}
+	}
+	return tracks, sum
+}
+
+func trackNames(vs []*eventsv1.TrackVerdict) []string {
+	names := make([]string, len(vs))
+	for i, v := range vs {
+		names[i] = v.GetConfidence().String() + " " + v.GetName()
+	}
+	return names
+}
+
+// With no record, the lap 1 run is v1.0.0's: the detector takes it for a run
+// seen from its start, counts the path across Willow Springs Reverse's line,
+// then Fuji's, and at the lap 2 tick judges the partial lap whole and rules SUGO
+// out: none.
+func TestALap1RunWithNoRecordIsV1s(t *testing.T) {
+	tracks, sum := sugoTracks(t, nil)
+	want := []string{
+		"TRACK_CONFIDENCE_AMBIGUOUS ",
+		"TRACK_CONFIDENCE_PROBABLE Willow Springs International Raceway: Streets of Willow Springs Reverse",
+		"TRACK_CONFIDENCE_AMBIGUOUS ",
+		"TRACK_CONFIDENCE_PROBABLE Fuji International Speedway",
+		"TRACK_CONFIDENCE_NONE ",
+	}
+	if got := trackNames(tracks); !slices.Equal(got, want) {
+		t.Errorf("session.track %v, want v1's %v", got, want)
+	}
+	if c := sum.GetTrack().GetConfidence(); c != eventsv1.TrackConfidence_TRACK_CONFIDENCE_NONE {
+		t.Errorf("the summary's track %v, want none", sum.GetTrack())
+	}
+}
+
+// A departure from v1 (resume): a lap 1 run with a kept record of the same car
+// on SUGO opens a fresh session that starts with SUGO, carried, on its first
+// frame, and never names Willow Springs or Fuji.
+func TestALap1RestartCarriesTheKeptTrack(t *testing.T) {
+	tracks, sum := sugoTracks(t, sugoRecord(sugoCar))
+	if len(tracks) == 0 || tracks[0].GetTrackId() != sugoID || !tracks[0].GetCarried() {
+		t.Fatalf("session.track %v: want SUGO carried first", trackNames(tracks))
+	}
+	for _, v := range tracks {
+		if v.GetTrackId() != sugoID {
+			t.Errorf("session.track %q after SUGO carried", v.GetName())
+		}
+	}
+	if sum.GetTrack().GetTrackId() != sugoID {
+		t.Errorf("the summary's track %v, want SUGO", sum.GetTrack())
+	}
+}
+
+// Another car's record carries no track, but the detector still knows it joined
+// part way: no line crossing from a mid-lap anchor, and no partial lap judged
+// whole, so neither Willow Springs nor Fuji, and SUGO by the lap 2 tick.
+func TestALap1RestartInAnotherCarStillJoinsTheDetector(t *testing.T) {
+	tracks, sum := sugoTracks(t, sugoRecord(sugoCar+1))
+	for _, v := range tracks {
+		if v.GetCarried() {
+			t.Errorf("another car's track carried: %v", v)
+		}
+		if strings.Contains(v.GetName(), "Willow") || strings.Contains(v.GetName(), "Fuji") {
+			t.Errorf("session.track %q", v.GetName())
+		}
+	}
+	if sum.GetTrack().GetTrackId() != sugoID {
+		t.Errorf("the summary's track %v (session.track %v), want SUGO", sum.GetTrack(), trackNames(tracks))
 	}
 }
