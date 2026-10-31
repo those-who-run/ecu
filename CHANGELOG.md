@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.12](https://github.com/those-who-run/ecu/compare/v0.1.11...v0.1.12) (2026-10-31)
+
+
+### Features
+
+* **rules:** no track at the start, the sure track in the race summary ([#60](https://github.com/those-who-run/ecu/issues/60)) ([4a72685](https://github.com/those-who-run/ecu/commit/4a726858e69ef4afe3919fb2bed47984c59d0060))
+
+
+### Bug Fixes
+
+* **race:** keep the track over an ecu restart on lap 1 ([#59](https://github.com/those-who-run/ecu/issues/59)) ([b66b596](https://github.com/those-who-run/ecu/commit/b66b5968ed8a12bab8cd1c0695b15d24086d522e))
+
 ## [0.1.11](https://github.com/those-who-run/ecu/compare/v0.1.10...v0.1.11) (2026-10-30)
 
 
