@@ -293,22 +293,34 @@ func TestAPositionSettlesAfterThreeSeconds(t *testing.T) {
 	}
 }
 
-// R2: before the kind is known (a start's first frame), a field is GT7's
-// cars-on-track flag and more than one car; after, the kind's field and flag.
-func TestHasFieldIsV1s(t *testing.T) {
-	s := &state{carsOnTrack: true, totalCars: 2}
-	if !hasField(unknownKind, s) {
-		t.Error("two cars flagged before the kind: want a field")
-	}
-	if hasField(unknownKind, &state{carsOnTrack: true, totalCars: 1}) {
-		t.Error("one car before the kind: want no field")
+// R2: before the kind is known (a start's first frame), a field is the one the
+// kind reads from that frame; after, the kind's field. GT7's cars-on-track flag
+// is never read (paddock#146): it is set in a time trial too. v1 read the flag
+// and more than one car before the kind, so a time trial's ghost was a field on
+// its first frame; that is a departure from v1, on that one frame.
+func TestHasFieldIsTheKinds(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		s    state
+		want bool
+	}{
+		{"a ghost, flagged", state{carsOnTrack: true, totalCars: 2, position: 1}, false},
+		{"one car, flagged", state{carsOnTrack: true, totalCars: 1, position: 1}, false},
+		{"a time trial, -1 cars", state{carsOnTrack: true, totalCars: -1, position: -1}, false},
+		{"three cars, unflagged", state{totalCars: 3, position: 1}, true},
+		{"two cars and a lap total", state{totalLaps: 3, totalCars: 2, position: 1}, true},
+		{"two cars, passed", state{totalCars: 2, position: 2}, true},
+	} {
+		if got := hasField(unknownKind, &c.s); got != c.want {
+			t.Errorf("%s before the kind: field %t, want %t", c.name, got, c.want)
+		}
 	}
 	ghost := kindVerdict{kind: eventsv1.SessionType_SESSION_TYPE_SOLO_TIMED, field: false, carsOnTrack: true}
-	if hasField(ghost, s) {
+	if hasField(ghost, &state{carsOnTrack: true, totalCars: 2}) {
 		t.Error("a time trial's ghost: want no field")
 	}
-	race := kindVerdict{kind: eventsv1.SessionType_SESSION_TYPE_LAP_RACE, field: true, carsOnTrack: true}
+	race := kindVerdict{kind: eventsv1.SessionType_SESSION_TYPE_LAP_RACE, field: true, carsOnTrack: false}
 	if !hasField(race, &state{}) {
-		t.Error("a lap race flagged: want a field")
+		t.Error("a lap race, unflagged: want a field")
 	}
 }

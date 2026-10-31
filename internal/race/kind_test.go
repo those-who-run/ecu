@@ -541,3 +541,77 @@ func TestSessionKindCarriesTheRunAndTheFrame(t *testing.T) {
 		t.Error("no session.kind")
 	}
 }
+
+// paddock#146: GT7 flags cars on track in a time trial too, so the flag says
+// nothing about a field. On each of v1's four time trials every racing frame is
+// flagged, and the session still starts, runs and ends solo timed, with no field
+// and no position on any lap: the type is the kind's, never the flag's.
+func TestATimeTrialIsSoloTimedThoughGT7FlagsCarsOnTrack(t *testing.T) {
+	for _, name := range []string{
+		"real-nuc-sugo-timed-2026-10-15",
+		"real-nuc-fuji-timed-2026-10-15",
+		"real-nuc-spa-time-trial-2026-10-18",
+		"real-nuc-unknown-track-2026-10-15",
+	} {
+		t.Run(name, func(t *testing.T) {
+			racing := 0
+			for i, r := range packets(t, name) {
+				if s := newState(uint32(i+1), r.T, &r.Packet); s.inRace() { //nolint:gosec // a recording's frame count
+					if !s.carsOnTrack {
+						t.Fatalf("frame %d racing without the flag", i+1)
+					}
+					racing++
+				}
+			}
+			if racing == 0 {
+				t.Fatal("no racing frame")
+			}
+			solo := eventsv1.SessionType_SESSION_TYPE_SOLO_TIMED
+			var starts int
+			for _, o := range replay(t, name) {
+				switch {
+				case o.Started != nil:
+					starts++
+					if got := o.Started.GetSessionType(); got != solo {
+						t.Errorf("session.started: %v, want solo timed", got)
+					}
+				case o.Kind != nil:
+					if k := o.Kind.GetKind(); k.GetSessionType() != solo || k.GetField() || !k.GetCarsOnTrack() {
+						t.Errorf("session.kind: %v, want solo timed, no field, flagged", k)
+					}
+				case o.Lap != nil && o.Lap.Position != nil:
+					t.Errorf("lap %d: position %d, want none", o.Lap.GetLap(), o.Lap.GetPosition())
+				case o.Ended != nil:
+					if got := o.Ended.GetSummary().GetSessionType(); got != solo {
+						t.Errorf("session.ended: %v, want solo timed", got)
+					}
+				}
+			}
+			if starts != 1 {
+				t.Errorf("%d sessions, want 1", starts)
+			}
+		})
+	}
+}
+
+// paddock#146, #145: the practice at Suzuka on 2026-10-31 (testdata/sessions),
+// a custom race's practice with the AI field out on track, reads as v1.0.0 reads
+// it, a timed field with a flying start and no fuel use, as its v1 golden says.
+// That is not the cars-on-track flag: GT7 reports 16 cars and no lap total, and
+// ranks the driver by lap time, P1 on the first racing frame and P2 to P4 as the
+// AI post their times, which is what qualifying sends too
+// (real-quali-restart-quit-2026-10-14). GT7 sends no mode, so the kind cannot
+// tell this practice from qualifying; contracts' SESSION_TYPE_SOLO_TIMED, which
+// names practice, assumed practice was driven alone. Telling them apart needs a
+// decision on the session types, so this pins what ecu does until then.
+func TestAPracticeWithTheFieldOutReadsAsATimedFieldAsV1s(t *testing.T) {
+	const name = "real-nuc-suzuka-practice-2026-10-31"
+	got, want := showKinds(kindLines(replay(t, name))), showKinds(readKindGolden(t, name))
+	if !slices.Equal(got, want) {
+		t.Errorf("got\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+	if len(want) == 0 || !strings.HasPrefix(want[len(want)-1], "session.ended 1 timed_field laps 0 field true fuel false") ||
+		!strings.Contains(want[len(want)-1], "start flying") {
+		t.Errorf("the golden's verdict %q, want a timed field, fuel off, flying", want)
+	}
+}

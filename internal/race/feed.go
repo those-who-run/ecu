@@ -92,7 +92,7 @@ func (m *Machine) tickContext(prev *state, now time.Time) {
 	m.ctx = Context{Run: m.run, Time: now, Cur: prev.view(), Tick: true, Lost: m.feed.lost}
 	c := &m.ctx
 	kind := m.kinds.verdict()
-	c.Kind = Kind{Type: kind.kind, Field: kind.field, CarsOnTrack: kind.carsOnTrack}
+	c.Kind = Kind{Type: kind.kind, Field: kind.field}
 	c.Finished = m.finish.kind != eventsv1.FinishKind_FINISH_KIND_UNSPECIFIED
 	if sess := m.session; sess != nil {
 		c.Session, c.Track, c.Pits, c.timed = sess.id, sess.track, sess.laps.pits, sess.laps.timed

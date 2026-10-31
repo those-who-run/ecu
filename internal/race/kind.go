@@ -70,6 +70,13 @@ const (
 	gridKph     = 30.0
 )
 
+// frameField says one frame shows a field, as the kind reads it: three or more
+// cars, a driver who is anything but first, or a lap total and a second car.
+// Two cars alone with no lap total are a time trial's ghost.
+func frameField(laps, cars, position int32) bool {
+	return cars >= 3 || position > 1 || (laps > 0 && cars >= 2)
+}
+
 // kindVerdict is v1's SessionKind: the decision, and the evidence for it.
 type kindVerdict struct {
 	kind        eventsv1.SessionType // 0 before any verdict
