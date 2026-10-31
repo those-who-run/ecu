@@ -812,6 +812,17 @@ rule.
   (paddock#95), `race_summary` (paddock#96), `temps` (paddock#97) and
   `telemetry` ([Telemetry lost and restored](#telemetry-lost-and-restored),
   paddock#98) so far, each a package under `internal/rules`.
+- **The track, a departure from v1** (the maintainer's decision, 2026-10-31).
+  `start_brief` names no track: the brief is the distance and the grid slot
+  ("Three laps. P ten of twenty."), and v1's `template_track`, the track named
+  on its own after the brief ("Session starting at Fuji International
+  Speedway."), is never raised. `race_summary` names the track at the end, in
+  the `track` slot of the finish and of `template_quit`, when the session's
+  verdict is confirmed by then (a full lap fits one layout); a probable
+  verdict, or a circuit whose layout can't be picked, names none. Why: every
+  wrong track spoken so far was named before the detector could be sure, and
+  in VR a wrong name is worse than none. v1's `announce_track`,
+  `late_track_first_lap_only` and `min_confidence` still load and do nothing.
 - **Car alarms.** Each firing of `temps` (a tyre, the water or the oil hot, or
   cold tyres at the start) is also published as `car.alarm` (contracts'
   `CarAlarmRaised`) on `twr.v1.<src>.evt.<sid>.car.alarm`, from the same
@@ -840,9 +851,11 @@ rule.
   the other rules carry on.
 - **Tests.** `internal/rules/testdata/callouts` holds every callout v1.0.0
   raised on each of the 25 recordings, written by its `make_golden.py`; the
-  callouts of every registered rule are compared with it. A callout ecu raises
-  that v1 did not, until an open issue fixes it, is listed with the issue
-  (`pending` in its `golden_test.go`), and must still be raised.
+  callouts of every registered rule are compared with it. A callout of v1's
+  that ecu doesn't raise on purpose is listed with the decision (`accepted`),
+  and one ecu raises that v1 did not, until an open issue fixes it, with the
+  issue (`pending`), both in its `golden_test.go`; a pending one must still be
+  raised.
 
 ## Fuel
 
