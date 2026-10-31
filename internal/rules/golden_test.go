@@ -176,7 +176,9 @@ func TestEveryCalloutIsV1sOnEveryRecording(t *testing.T) {
 			}
 			want = append(want, rankedQuits[name]...)
 			for _, c := range rulestest.RankCalls[name] {
-				want = append(want, goldenLine{Session: c.Session, Frame: c.Frame, Rule: "position", Kind: c.Kind, Priority: 12, PitLane: "drop"}.show())
+				want = append(want, goldenLine{
+					Session: c.Session, Frame: c.Frame, Rule: "position", Kind: c.Kind, Priority: 12, PitLane: "drop",
+				}.show())
 			}
 			var got []string
 			extra := maps.Clone(pending[name])

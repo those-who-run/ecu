@@ -187,9 +187,10 @@ func RankedKind(rule, kind string) string {
 }
 
 // RankCall is a position call ecu raises in a ranked session: the rank, read 3 s
-// after one of the driver's line crossings, when it differs from the last rank
-// called (the maintainer's decision of 2026-10-31: where the driver's lap put
-// them, not each time the field posts a time).
+// after a line crossing that closed a lap counting for best, out of the pit lane:
+// the first as it is (template_rank, From 0), then when it differs from the last
+// rank called (the maintainer's decisions of 2026-10-31: where the driver's lap
+// put them, not each time the field posts a time).
 type RankCall struct {
 	Session  int
 	Frame    uint32
@@ -202,11 +203,14 @@ type RankCall struct {
 // 12 calls in Spa's session, 9 in Suzuka's.
 var RankCalls = map[string][]RankCall{
 	"real-nuc-spa-pit-cut-quit-2026-10-18": {
-		{1, 327, "template_rank_lost", 1, 2},
-		{1, 623, "template_rank_lost", 2, 4},
+		{1, 623, "template_rank", 0, 4},
 	},
 	"real-nuc-suzuka-before-restart-2026-10-18": {
-		{1, 205, "template_rank_gained", 4, 3},
+		{1, 378, "template_rank", 0, 3},
 		{1, 1480, "template_rank_gained", 3, 1},
+	},
+	// The second qualifying: its lap 2 is the first that counts.
+	"real-quali-restart-quit-2026-10-14": {
+		{2, 750, "template_rank", 0, 1},
 	},
 }

@@ -157,7 +157,14 @@ func (r *Rule) finished(ctx *race.Context, at *race.View) (rules.Callout, bool) 
 	r.announced = true
 	slots := &eventsv1.CalloutSlots{}
 	kind := KindTemplate
-	if pos := at.RacePosition(); pos > 0 && ctx.HasFieldOn(at) {
+	// A ranked session's place on the crossing is stale: GT7 ranks the lap a
+	// moment later, so the rank is the frame's the finish is found on (the
+	// timed finish, 3 s of coasting after the line).
+	place := at
+	if ctx.Ranked() {
+		place = &ctx.Cur
+	}
+	if pos := place.RacePosition(); pos > 0 && ctx.HasFieldOn(place) {
 		slots.Position = &pos
 		switch {
 		case pos == 1:
