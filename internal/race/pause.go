@@ -145,7 +145,10 @@ func (m *Machine) SetPauseLimit(secs float64) { m.pauses.limit = max(secs, 0) }
 
 // pauseEvents publishes the start or the end of a pause in the open session, on
 // the frame it was read on: session.paused for a pause that began with the session
-// open, and session.resumed for one session.paused went out for.
+// open, and session.resumed for one session.paused went out for. Their paused_ms
+// is the session's time paused so far, so a session continued after an ecu
+// restart (continue.go) adds what the earlier runs paused (pausedBefore), as the
+// summary does (found reviewing logbook#32).
 func (m *Machine) pauseEvents(s *state) {
 	c, mark, sess, t := &m.pauses, s.pause, m.session, s.received
 	switch {
@@ -154,7 +157,7 @@ func (m *Machine) pauseEvents(s *state) {
 		c.published = true
 		c.paused = &eventsv1.SessionPaused{
 			SessionId: sess.id, Kind: mark.kind, SinceT: mark.sinceT, Since: timestamppb.New(mark.since),
-			PausedMs: pausedMillis(mark.secs), At: s.seq, Pause: c.count,
+			PausedMs: pausedMillis(mark.secs) + sess.pausedBefore, At: s.seq, Pause: c.count,
 		}
 		m.out = append(m.out, Output{
 			Event:   m.event(sess.id+":session.paused:"+strconv.Itoa(int(c.count)), t),
@@ -168,7 +171,8 @@ func (m *Machine) pauseEvents(s *state) {
 			Session: sess.id,
 			Resumed: &eventsv1.SessionResumed{
 				SessionId: sess.id, Kind: mark.kind, SinceT: mark.sinceT, Since: timestamppb.New(mark.since),
-				PauseMs: pausedMillis(s.t - mark.sinceT), PausedMs: pausedMillis(mark.secs), At: s.seq, Pause: c.count,
+				PauseMs: pausedMillis(s.t - mark.sinceT), PausedMs: pausedMillis(mark.secs) + sess.pausedBefore,
+				At: s.seq, Pause: c.count,
 			},
 		})
 	}

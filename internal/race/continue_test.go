@@ -427,6 +427,50 @@ func TestARestartInAPause(t *testing.T) {
 	}
 }
 
+// paused_ms is the session's time paused so far (contracts' SessionPaused and
+// SessionResumed), the earlier runs' pauses included: a session continued after an
+// ecu restart between Suzuka's first pause and its second publishes the second
+// pause's paused_ms as the whole recording does, not the new run's alone (found
+// reviewing logbook#32).
+func TestPausedMsCountsThePausesBeforeTheRestart(t *testing.T) {
+	const name = beforeRestart
+	var want []int32 // the whole run's paused_ms on pause 2 and its resume
+	for _, o := range replay(t, name) {
+		switch {
+		case o.Paused != nil && o.Paused.GetPause() == 2:
+			want = append(want, o.Paused.GetPausedMs())
+		case o.Resumed != nil && o.Resumed.GetPause() == 2:
+			want = append(want, o.Resumed.GetPausedMs())
+		}
+	}
+	if len(want) != 2 || want[0] == 0 {
+		t.Fatalf("the whole run's pause 2: %v, want a paused and a resumed after pause 1", want)
+	}
+	at := packetOf(t, name, func(o Output) bool { return o.Resumed != nil && o.Resumed.GetPause() == 1 }) + 60
+	p := split(t, name, at, 2*time.Second, nil)
+	if p.record.GetSummary().GetPausedMs() == 0 {
+		t.Fatal("the record has no time paused")
+	}
+	var got []int32
+	for _, o := range p.second {
+		switch {
+		case o.Paused != nil:
+			got = append(got, o.Paused.GetPausedMs())
+		case o.Resumed != nil:
+			got = append(got, o.Resumed.GetPausedMs())
+		}
+	}
+	if len(got) != 2 {
+		t.Fatalf("after the restart: %v, want pause 2 and its resume", got)
+	}
+	for i := range want {
+		// Each run rounds its own time to the millisecond.
+		if d := got[i] - want[i]; d < -1 || d > 1 {
+			t.Errorf("paused_ms %d after the restart, want the whole run's %d", got[i], want[i])
+		}
+	}
+}
+
 // The kind's start, seen before the restart, is kept by the continued session's
 // verdict of the same kind (v1's set_kind).
 func TestTheKindsStartIsCarried(t *testing.T) {
