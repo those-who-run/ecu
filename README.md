@@ -446,12 +446,16 @@ events' and callouts' ids, are new on each run (paddock#35's decision of
 With `--seed` (paddock#309) they are reproducible. The ULIDs' time is the
 replay's own clock (`--clock`, then each frame's time), and their entropy is a
 ChaCha8 stream keyed by the sha256 of the seed, the recording's sha256 (its
-bytes as stored; standard input is read whole first) and the source. So the
+bytes as stored) and the source. So the
 same recording, seed, `--src` and `--clock` give the same run, session, frame,
 event and callout ids, and so the same `Nats-Msg-Id`s; and the default
 source's 6 characters come from the seed and the recording too, so a seeded
 replay under the default `--src` is the same twice. The ids are not promised
 to stay the same across ecu versions.
+
+With `--seed`, a recording on standard input (`-`) is read whole, and held in
+memory, for its sha256 before the replay starts: pipe the gzipped file
+(`ecu replay --seed 7 - < x.jsonl.gz`), not the decompressed one.
 
 - **Not live's.** A seeded ULID is dated by the replay's clock (2026-01-01
   unless `--clock` says otherwise) and its 80 random bits are the seed's, and
