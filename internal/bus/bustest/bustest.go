@@ -377,6 +377,27 @@ func (s *Server) Count(stream string) uint64 {
 	return info.State.Msgs
 }
 
+// Settled is how many messages the stream holds once it has taken what was sent:
+// it waits, 10 s at most, until the count reaches want, or, with want 0, until it
+// has not changed for 250 ms. Frames go out with a plain publish, which a
+// publisher's Close only flushes to the server, so the stream may store the last
+// ones just after a replay returns.
+func (s *Server) Settled(stream string, want uint64) uint64 {
+	s.t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	n, since := s.Count(stream), time.Now()
+	for time.Now().Before(deadline) {
+		if want > 0 && n >= want || want == 0 && time.Since(since) >= 250*time.Millisecond {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+		if m := s.Count(stream); m != n {
+			n, since = m, time.Now()
+		}
+	}
+	return n
+}
+
 // Read is the first n messages the stream holds, in order, or every one when n is
 // 0.
 func (s *Server) Read(stream string, n uint64) []Msg {

@@ -109,6 +109,7 @@ func TestAReplayAtMaxPublishesEveryFrameAndEvent(t *testing.T) {
 	}
 
 	// Every frame, in order: seq runs 1..N in stream order, under one run id.
+	srv.Settled("TELEMETRY", uint64(len(in)))
 	frames := srv.Read("TELEMETRY", 0)
 	if len(frames) != len(in) {
 		t.Errorf("TELEMETRY holds %d frames, want every one of the %d", len(frames), len(in))
@@ -264,7 +265,7 @@ func TestTheExitCodes(t *testing.T) {
 	if got.code != 1 || !strings.Contains(got.stderr, broken+":4:") {
 		t.Errorf("broken line: exit %d, stderr %q; want 1 naming %s:4", got.code, got.stderr, broken)
 	}
-	if n := srv.Count("TELEMETRY"); n != 3 {
+	if n := srv.Settled("TELEMETRY", 3); n != 3 {
 		t.Errorf("TELEMETRY holds %d frames, want the 3 before the broken line", n)
 	}
 	missing := filepath.Join(t.TempDir(), "missing.jsonl.gz")
@@ -397,7 +398,7 @@ func TestAnInterruptedReplay(t *testing.T) {
 	if code := replay(ctx, []string{"--nats", srv.URL(), path}, env(nil), nil, &stdout, &stderr); code != 130 {
 		t.Fatalf("exit %d, stderr %q", code, stderr.String())
 	}
-	if n := srv.Count("TELEMETRY"); n != 1 {
+	if n := srv.Settled("TELEMETRY", 1); n != 1 {
 		t.Errorf("TELEMETRY holds %d frames, want the first only", n)
 	}
 }

@@ -24,6 +24,7 @@ func storedBy(t *testing.T, srv *bustest.Server) stored {
 	var s stored
 	s.events = srv.Read("EVENTS", 0)
 	s.callouts = srv.Read("CALLOUTS", 0)
+	srv.Settled("TELEMETRY", 0) // the last frames can land just after the replay returns
 	for _, m := range srv.Read("TELEMETRY", 0) {
 		s.frames = append(s.frames, ce.Header(m.Header).Get(ce.IDHeader))
 	}
@@ -138,11 +139,15 @@ func TestASecondSeededReplayIsDeduplicated(t *testing.T) {
 	if got := runReplay(t, nil, args...); got.code != 0 {
 		t.Fatalf("the first replay: exit %d, stderr %q", got.code, got.stderr)
 	}
-	frames, events := srv.Count("TELEMETRY"), srv.Count("EVENTS")
+	frames, events := srv.Settled("TELEMETRY", 200), srv.Count("EVENTS")
+	if frames != 200 {
+		t.Fatalf("the first replay left %d frames, want 200", frames)
+	}
 	if got := runReplay(t, nil, args...); got.code != 0 {
 		t.Fatalf("the second replay: exit %d, stderr %q, log %s", got.code, got.stderr, got.stdout)
 	}
-	if f, e := srv.Count("TELEMETRY"), srv.Count("EVENTS"); f != frames || e != events {
+	// Settled with no count to reach: a frame of the second run stored late counts.
+	if f, e := srv.Settled("TELEMETRY", 0), srv.Count("EVENTS"); f != frames || e != events {
 		t.Errorf("after the second replay the streams hold %d frames and %d events, want the first's %d and %d",
 			f, e, frames, events)
 	}
