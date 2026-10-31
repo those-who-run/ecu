@@ -229,6 +229,13 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout,
 	go func() {
 		defer close(written)
 		defer writing.Store(false)
+		// Connect returns before the first connection is made, and the client
+		// buffers nothing until then (bus.Connect), so a write now fails at once
+		// with "outbound buffer limit exceeded". The writer starts once NATS is
+		// reached, or after connectTimeout, when a failure is worth the warning.
+		wait, cancel := context.WithTimeout(writeCtx, connectTimeout)
+		_ = pub.WaitConnected(wait)
+		cancel()
 		status.NewWriter(tracker, kv, logger).Run(writeCtx, statusGrace)
 	}()
 	// The record's last write goes after the status's, each with its own grace.

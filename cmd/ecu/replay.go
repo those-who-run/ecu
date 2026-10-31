@@ -38,7 +38,8 @@ const (
 )
 
 // connectTimeout is how long a replay waits for the NATS server before it gives up
-// with exit 2: a var, so the tests can shorten it.
+// with exit 2, and how long live's status writer waits for it before its first
+// write: a var, so the tests can shorten it.
 var connectTimeout = 10 * time.Second
 
 // replayGrace is how long a replay waits at the end for the server to take and
