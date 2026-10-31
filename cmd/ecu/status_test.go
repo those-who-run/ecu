@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"flag"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"github.com/those-who-run/ecu/internal/bus"
+	"github.com/those-who-run/ecu/internal/bus/bustest"
 	"github.com/those-who-run/ecu/internal/live"
 	"github.com/those-who-run/ecu/internal/race"
 	"github.com/those-who-run/ecu/internal/service"
@@ -173,5 +175,50 @@ func TestNoSecretInTheStatus(t *testing.T) {
 				t.Errorf("%s's %q is in the status:\n%s", name, part, text.String())
 			}
 		}
+	}
+}
+
+// Live's status writer waits for NATS's first connection before its first
+// write: with the server reached a moment after the start, as on every deploy,
+// ecu.status.live is written with no "cannot be written" warning (2026-10-31's
+// "outbound buffer limit exceeded" at each start).
+func TestLiveWritesItsStatusOnceNATSIsReached(t *testing.T) {
+	srv := bustest.NewServer(t)
+	theirs := bustest.AddKV(t, srv.JetStream(), "live")
+	bustest.AddKV(t, srv.JetStream(), "ecu")
+	srv.Stop()
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	stdout := newReadyLog()
+	exit := make(chan int, 1)
+	go func() {
+		exit <- run(ctx, []string{"-nats", srv.URL(), "-src", "live"},
+			liveEnv(map[string]string{"ADDR": "127.0.0.1:0", "TWR_ECU_RECORDINGS_DIR": t.TempDir()}), stdout, &bytes.Buffer{})
+	}()
+	select {
+	case <-stdout.ready:
+	case code := <-exit:
+		t.Fatalf("exit %d before serving, log %q", code, stdout.String())
+	case <-time.After(10 * time.Second):
+		t.Fatal("not serving after 10 s")
+	}
+	time.Sleep(200 * time.Millisecond) // past the writer's start
+	srv.Start()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		if _, err := theirs.Get(t.Context(), "ecu.status.live"); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("no ecu.status.live 10 s after NATS came up: %s", stdout.String())
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	cancel()
+	if code := <-exit; code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+	if log := stdout.String(); strings.Contains(log, "cannot be written") {
+		t.Errorf("a write failed before NATS was first reached: %s", log)
 	}
 }

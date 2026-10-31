@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nats-io/nats.go"
+
 	"github.com/those-who-run/ecu/internal/bus/bustest"
 )
 
@@ -98,5 +100,37 @@ func TestDeleteIfIsACompareAndSet(t *testing.T) {
 	}
 	if err := kv.DeleteIf(ctx, key, rev2); err != nil {
 		t.Fatalf("a clear on the current revision: %v", err)
+	}
+}
+
+// Connect returns before the first connection is made, and the client buffers
+// nothing until then, so a KV call before it fails at once with the client's
+// "outbound buffer limit exceeded", however small: what live's status writer
+// logged at each start (2026-10-31). Once connected, the same handle works.
+func TestAKVCallBeforeTheFirstConnectionFails(t *testing.T) {
+	srv := bustest.NewServer(t)
+	bustest.AddKV(t, srv.JetStream(), "live")
+	srv.Stop()
+	pub, err := Connect(Config{URL: srv.URL(), Src: "live"}, (&logs{}).logger(), Options{ReconnectWait: 20 * time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { pub.nc.Close() })
+	kv, err := pub.KV("live")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	if err := kv.Put(ctx, "ecu.status.live", []byte("{}")); !errors.Is(err, nats.ErrReconnectBufExceeded) {
+		t.Fatalf("a put before the first connection: %v, want %v", err, nats.ErrReconnectBufExceeded)
+	}
+
+	srv.Start()
+	if err := pub.WaitConnected(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := kv.Put(ctx, "ecu.status.live", []byte("{}")); err != nil {
+		t.Fatalf("a put once connected: %v", err)
 	}
 }
