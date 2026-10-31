@@ -238,6 +238,11 @@ type Context struct {
 	timed []timedLap // the session's timed laps before this frame
 }
 
+// Ranked says the session is ranked by lap time (qualifying, or practice with the
+// field out), by the kind before this frame: its place is a rank, not a race
+// position. ecu's own kind, which v1 read as a timed field.
+func (c *Context) Ranked() bool { return c.Kind.Type == eventsv1.SessionType_SESSION_TYPE_RANKED }
+
 // HasField is v1's Rule.has_field for Cur: other cars are racing for position,
 // by the kind before this frame.
 func (c *Context) HasField() bool { return c.HasFieldOn(&c.Cur) }

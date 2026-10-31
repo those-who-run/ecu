@@ -199,3 +199,20 @@ func TestTheSettingsAreV1s(t *testing.T) {
 		})
 	}
 }
+
+// The ranked kind (the maintainer's decision, 2026-10-31): a ranked session's
+// brief is template_ranked with the field's size, not "Timed race. P one of
+// sixteen.": the place before anyone has a time is no rank.
+func TestARankedSessionHasItsOwnBrief(t *testing.T) {
+	ranked := race.Kind{Type: eventsv1.SessionType_SESSION_TYPE_RANKED, Field: true}
+	r := newRule()
+	check(t, r.Evaluate(frame(10, ranked, race.View{Position: 1, TotalCars: 16})))
+	check(t, r.Evaluate(frame(12, ranked, race.View{Position: 1, TotalCars: 16})),
+		rules.Callout{Kind: KindRanked, Slots: &eventsv1.CalloutSlots{TotalCars: proto.Int32(16)}})
+
+	r.Reset() // a timed race is still v1's
+	r.Evaluate(frame(10, timedKind, timedRace))
+	check(t, r.Evaluate(frame(12, timedKind, timedRace)), rules.Callout{Kind: KindBrief, Slots: &eventsv1.CalloutSlots{
+		Timed: true, Position: proto.Int32(1), TotalCars: proto.Int32(20),
+	}})
+}

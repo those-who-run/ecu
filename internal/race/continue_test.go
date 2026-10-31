@@ -451,6 +451,35 @@ func TestTheKindsStartIsCarried(t *testing.T) {
 	}
 }
 
+// A ranked session stays ranked over an ecu restart (kind.go): the continuing
+// run joined it part way, so it never sees the start's leap. Suzuka's session of
+// 2026-10-18 leapt from slot 16 to P3.
+func TestARankedSessionStaysRankedOverAnEcuRestart(t *testing.T) {
+	p := split(t, beforeRestart, lap5(t), 2*time.Second, nil)
+	if got := p.record.GetSummary().GetKind().GetSessionType(); got != eventsv1.SessionType_SESSION_TYPE_RANKED {
+		t.Fatalf("the first run's kind %v, want ranked", got)
+	}
+	var n int
+	for _, o := range p.second {
+		var st eventsv1.SessionType
+		switch {
+		case o.Kind != nil:
+			st = o.Kind.GetKind().GetSessionType()
+		case o.Ended != nil:
+			st = o.Ended.GetSummary().GetSessionType()
+		default:
+			continue
+		}
+		n++
+		if st != eventsv1.SessionType_SESSION_TYPE_RANKED {
+			t.Errorf("after the restart: %v, want ranked", st)
+		}
+	}
+	if n == 0 {
+		t.Fatal("no kind after the restart")
+	}
+}
+
 // R6 (paddock#81 R4): a carried track is the session's at once, and the detector
 // can still rule it out: carried as Suzuka Circuit East Course, which the car
 // leaves the box of, the session ends at Suzuka Circuit.

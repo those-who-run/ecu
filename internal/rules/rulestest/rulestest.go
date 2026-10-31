@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -151,4 +152,61 @@ var Recordings = []string{
 	"real-nuc-willow-springs-pit-stop-2026-10-17",
 	"real-quali-restart-quit-2026-10-14",
 	"real-race-2laps-2026-10-14",
+}
+
+// RankedDecision is the maintainer's decision of 2026-10-31, a departure from v1:
+// a session ranked by lap time (qualifying, or practice with the field out) is
+// told from a timed race, which v1 read it as, and said as one.
+const RankedDecision = "the maintainer's decision of 2026-10-31: a ranked session is not a timed race"
+
+// RankedSessions are the sessions of v1's recordings that v1 read as a timed field
+// and ecu reads as ranked (RankedDecision; internal/race's rankedDepartures has
+// the evidence), by recording, numbered from 1 as they start.
+var RankedSessions = map[string][]int{
+	"real-quali-restart-quit-2026-10-14":        {1, 2},
+	"real-nuc-suzuka-before-restart-2026-10-18": {1},
+	"real-nuc-spa-pit-cut-quit-2026-10-18":      {1},
+}
+
+// Ranked says session n of recording name is ranked (RankedSessions).
+func Ranked(name string, n int) bool { return slices.Contains(RankedSessions[name], n) }
+
+// RankedKind is the kind ecu raises in a ranked session for v1's callout of rule
+// and kind: the start brief is template_ranked and the finish template_ranked;
+// "" for v1's position calls, which ecu doesn't raise there (RankCalls are
+// ecu's). Every other kind is v1's.
+func RankedKind(rule, kind string) string {
+	switch {
+	case rule == "start_brief" && kind == "template",
+		rule == "race_summary" && kind != "template_quit":
+		return "template_ranked"
+	case rule == "position":
+		return ""
+	}
+	return kind
+}
+
+// RankCall is a position call ecu raises in a ranked session: the rank, read 3 s
+// after one of the driver's line crossings, when it differs from the last rank
+// called (the maintainer's decision of 2026-10-31: where the driver's lap put
+// them, not each time the field posts a time).
+type RankCall struct {
+	Session  int
+	Frame    uint32
+	Kind     string
+	From, To int32
+}
+
+// RankCalls are ecu's position calls in the ranked sessions of v1's recordings,
+// in place of v1's (RankedKind). v1 called every move as AI cars posted times:
+// 12 calls in Spa's session, 9 in Suzuka's.
+var RankCalls = map[string][]RankCall{
+	"real-nuc-spa-pit-cut-quit-2026-10-18": {
+		{1, 327, "template_rank_lost", 1, 2},
+		{1, 623, "template_rank_lost", 2, 4},
+	},
+	"real-nuc-suzuka-before-restart-2026-10-18": {
+		{1, 205, "template_rank_gained", 4, 3},
+		{1, 1480, "template_rank_gained", 3, 1},
+	},
 }

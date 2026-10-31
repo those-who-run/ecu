@@ -122,6 +122,15 @@ var named = map[string]map[int]string{
 	"real-nuc-suzuka-timed-race-2026-10-16": {1: "Suzuka Circuit East Course"},
 }
 
+// rankedQuits are the summaries ecu raises on leaving a ranked session, which v1,
+// reading a timed field, never raised (rulestest.RankedDecision: ranked is in
+// quit_kinds by default). The qualifying's second session names the track it is
+// sure of by then, as any summary does.
+var rankedQuits = map[string][]string{
+	"real-nuc-spa-pit-cut-quit-2026-10-18": {"session 1 at 1192 as of 1192: template_quit {best_lap_ms=129918 laps=4} p25 life 30s hold 0s PIT_LANE_SPEAK"},
+	"real-quali-restart-quit-2026-10-14":   {"session 2 at 774 as of 774: template_quit {best_lap_ms=500204 laps=2} p25 life 30s hold 0s PIT_LANE_SPEAK at Nurburgring 24h"},
+}
+
 // readGolden is each callout v1 published, in the golden's order: a callout v1
 // dropped in the pit lane is not published, and a held one would be published
 // at its release (race_summary speaks in the lane, so v1 held and dropped none).
@@ -157,7 +166,7 @@ func readGolden(t *testing.T, name string) []string {
 	if sessions == 0 && !rulestest.Discarded[name] {
 		t.Fatal("a golden with no session")
 	}
-	return lines
+	return append(lines, rankedQuits[name]...)
 }
 
 // R1–R6, AC1–AC7: on each of v1's 25 recordings the rule raises v1's
@@ -173,7 +182,8 @@ func readGolden(t *testing.T, name string) []string {
 // the crossing at 745. AC4, leaving through the menu with no position:
 // fuji-timed at 633. AC5, no quit summary for the restarted races:
 // sugo-restarts has only the last race's finish. The summary names the track
-// when ecu is sure of it (named, the decision of 2026-10-31).
+// when ecu is sure of it (named, the decision of 2026-10-31), and a ranked
+// session left without a finish gets template_quit (rankedQuits).
 func TestTheRaceSummaryIsV1sOnEveryRecording(t *testing.T) {
 	for _, name := range rulestest.Recordings {
 		t.Run(name, func(t *testing.T) {

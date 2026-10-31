@@ -214,6 +214,11 @@ func (m *Machine) continueSession(open *statev1.OpenSession, s *state, t time.Ti
 		sess.laps.best = &timedLap{lap: sum.GetBestLap(), ms: sum.GetBestLapTimeMs(), counts: true}
 	}
 	sess.kindBefore = sum.GetKind()
+	// A ranked session stays ranked: the continuing run joined it part way, so it
+	// never sees the start's leap (kind.go).
+	if sess.kindBefore.GetSessionType() == eventsv1.SessionType_SESSION_TYPE_RANKED {
+		m.kinds.carryRank()
+	}
 	// The pits: the detector starts from the stops done and the one the car is in,
 	// and the ids' counts go on.
 	sess.pits = pitCounts{entries: open.GetEntries(), before: sum.GetPitStops()}

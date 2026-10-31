@@ -286,6 +286,7 @@ var (
 		eventsv1.SessionType_SESSION_TYPE_SOLO_LAPS:   "solo_laps",
 		eventsv1.SessionType_SESSION_TYPE_TIMED_FIELD: "timed_field",
 		eventsv1.SessionType_SESSION_TYPE_SOLO_TIMED:  "solo_timed",
+		eventsv1.SessionType_SESSION_TYPE_RANKED:      "ranked",
 	}
 	startNames = map[eventsv1.StartType]string{
 		eventsv1.StartType_START_TYPE_UNKNOWN: "unknown",
@@ -378,6 +379,81 @@ var kindDepartures = map[string][][2]string{
 	}},
 }
 
+// rankedDepartures are the sessions v1 read as a timed field that ecu reads as
+// ranked (the maintainer's decision, 2026-10-31): qualifying or practice with the
+// field out, the place ranked by lap time. Each is the session's number, the frame
+// its place leapt on (0 for a restart of a ranked session, ranked from its first
+// frame), and the leap. TestTheRankedRuleOnEveryRecording has the evidence.
+var rankedDepartures = map[string][]rankedSession{
+	"real-quali-restart-quit-2026-10-14": {
+		{session: 1, frame: 31, from: 20, to: 1},
+		{session: 2}, // GT7's restart on lap 2, straight back to lap 1
+	},
+	"real-nuc-suzuka-before-restart-2026-10-18": {{session: 1, frame: 49, from: 16, to: 3}},
+	"real-nuc-spa-pit-cut-quit-2026-10-18":      {{session: 1, frame: 74, from: 18, to: 1}},
+	"real-nuc-suzuka-practice-2026-10-31":       {{session: 1, frame: 268, from: 11, to: 1}},
+	// The maintainer's practice and qualifying of 2026-10-31 evening, recorded for
+	// the decision: a leap to P2, and one from slot 5.
+	"real-nuc-suzuka-practice-evening-2026-10-31": {{session: 1, frame: 143, from: 16, to: 2}},
+	"real-nuc-suzuka-qualifying-2026-10-31":       {{session: 1, frame: 177, from: 5, to: 1}},
+}
+
+// rankedSession is a session of rankedDepartures.
+type rankedSession struct {
+	session  int
+	frame    uint32
+	from, to int32
+}
+
+// asRanked is a kind golden's lines with ecu's ranked kind (rankedDepartures):
+// from the frame the place leapt on, where ecu publishes a session.kind of its
+// own, each of the session's kinds is ranked, its evidence saying so.
+func asRanked(name string, lines []kindLine) []kindLine {
+	var out []kindLine
+	leapt := map[int]bool{}
+	for _, l := range lines {
+		for _, r := range rankedDepartures[name] {
+			if l.Session != r.session || l.Kind == nil {
+				continue
+			}
+			if r.frame > 0 && !leapt[r.session] && (l.Frame > r.frame || l.Event == "session.ended") {
+				// The leap's own session.kind, before the next of v1's.
+				out = append(out, ranked(kindLine{Event: "session.kind", Session: r.session, Frame: r.frame, Kind: lastKind(out)}, r))
+			}
+			if l.Frame >= r.frame || l.Event == "session.ended" {
+				leapt[r.session] = true
+				l = ranked(l, r)
+			}
+		}
+		out = append(out, l)
+	}
+	return out
+}
+
+// lastKind is the last kind in lines.
+func lastKind(lines []kindLine) *goldenKind {
+	for i := len(lines) - 1; i >= 0; i-- {
+		if lines[i].Kind != nil {
+			return lines[i].Kind
+		}
+	}
+	return nil
+}
+
+// ranked is l's kind as ecu reads the ranked session r.
+func ranked(l kindLine, r rankedSession) kindLine {
+	k := *l.Kind
+	k.Kind = "ranked"
+	head, tail, _ := strings.Cut(k.Evidence, ";")
+	head += ", ranked by lap time"
+	if r.frame > 0 {
+		head += fmt.Sprintf(" (P%d to P%d at the start)", r.from, r.to)
+	}
+	k.Evidence = head + ";" + tail
+	l.Kind = &k
+	return l
+}
+
 // asEcu is a recording's golden lines with ecu's departures (kindDepartures)
 // made.
 func asEcu(name string, want []string) []string {
@@ -395,12 +471,12 @@ func asEcu(name string, want []string) []string {
 // v1's engine applied a new kind to the session (v1's "session ..." log line), with
 // v1's verdict and its evidence word for word, and each session.ended's summary
 // keeps the kind v1 stored for the session, but for ecu's named departures
-// (kindDepartures). On the replay and the demos v1's start check drops
+// (kindDepartures, and the ranked sessions of rankedDepartures). On the replay and the demos v1's start check drops
 // (paddock#74, discards) there is no session, and no kind.
 func TestSessionKindIsV1sOnEveryRecording(t *testing.T) {
 	for _, name := range v1Recordings {
 		t.Run(name, func(t *testing.T) {
-			got, want := showKinds(kindLines(replay(t, name))), asEcu(name, showKinds(readKindGolden(t, name)))
+			got, want := showKinds(kindLines(replay(t, name))), asEcu(name, showKinds(asRanked(name, readKindGolden(t, name))))
 			if _, ok := discards[name]; len(want) == 0 && !ok {
 				t.Fatal("an empty golden")
 			}
@@ -417,12 +493,14 @@ func TestSessionKindIsV1sOnEveryRecording(t *testing.T) {
 // was not seen, so it is unknown (R4), as v1's engine stores it, where
 // FIXTURES.yaml names the start v1's detector reads fed from the recording's
 // first frame for three of them (2laps' first session, the Willow Springs and
-// Gilles Villeneuve pit stops), and for SUGO's two stops, a grid behind the line
-// v1 read as rolling (kindDepartures, paddock#148).
+// Gilles Villeneuve pit stops), for SUGO's two stops, a grid behind the line
+// v1 read as rolling (kindDepartures, paddock#148), and for the qualifying and
+// the two Spa and Suzuka sessions of 2026-10-18 FIXTURES.yaml calls timed fields,
+// which ecu reads as ranked (rankedDepartures).
 func TestTheLastKindOfEachSessionIsFixturesYAMLs(t *testing.T) {
 	for name, want := range map[string][]string{
 		"real-race-2laps-2026-10-14":                     {"solo_timed (start not seen)", "lap_race (rolling)"},
-		"real-quali-restart-quit-2026-10-14":             {"timed_field (flying)", "timed_field (flying)"},
+		"real-quali-restart-quit-2026-10-14":             {"ranked (flying)", "ranked (flying)"}, // FIXTURES.yaml: timed_field
 		"real-n24h-race-lap1-positions-2026-10-14":       {"lap_race (rolling)"},
 		"real-nuc-unknown-track-2026-10-15":              {"solo_timed (flying)"},
 		"real-nuc-suzuka-east-2026-10-15":                {"solo_laps (flying)"},
@@ -441,8 +519,8 @@ func TestTheLastKindOfEachSessionIsFixturesYAMLs(t *testing.T) {
 		"real-nuc-sugo-two-stops-2026-10-18":             {"lap_race (grid)"}, // FIXTURES.yaml: rolling
 		"real-nuc-sugo-restarts-2026-10-18":              {"lap_race (rolling)", "lap_race (rolling)", "lap_race (rolling)"},
 		"real-nuc-suzuka-joined-mid-race-2026-10-18":     {"timed_field (start not seen)"},
-		"real-nuc-suzuka-before-restart-2026-10-18":      {"timed_field (flying)"},
-		"real-nuc-spa-pit-cut-quit-2026-10-18":           {"timed_field (flying)"},
+		"real-nuc-suzuka-before-restart-2026-10-18":      {"ranked (flying)"}, // FIXTURES.yaml: timed_field
+		"real-nuc-spa-pit-cut-quit-2026-10-18":           {"ranked (flying)"}, // FIXTURES.yaml: timed_field
 		"real-nuc-spa-time-trial-2026-10-18":             {"solo_timed (flying)"},
 	} {
 		var got []string
@@ -568,7 +646,8 @@ func TestSessionKindCarriesTheRunAndTheFrame(t *testing.T) {
 				}
 				perFrame[o.Session+at] = true
 				st := k.GetKind().GetSessionType()
-				if field := st == eventsv1.SessionType_SESSION_TYPE_LAP_RACE || st == eventsv1.SessionType_SESSION_TYPE_TIMED_FIELD; k.GetKind().GetField() != field {
+				if field := st == eventsv1.SessionType_SESSION_TYPE_LAP_RACE || st == eventsv1.SessionType_SESSION_TYPE_TIMED_FIELD ||
+					st == eventsv1.SessionType_SESSION_TYPE_RANKED; k.GetKind().GetField() != field {
 					t.Errorf("%s: frame %s: field %t for %v", name, at, k.GetKind().GetField(), st)
 				}
 			}
@@ -632,24 +711,51 @@ func TestATimeTrialIsSoloTimedThoughGT7FlagsCarsOnTrack(t *testing.T) {
 }
 
 // paddock#146, #145: the practice at Suzuka on 2026-10-31 (testdata/sessions),
-// a custom race's practice with the AI field out on track, reads as v1.0.0 reads
-// it, a timed field with a flying start and no fuel use, as its v1 golden says.
-// That is not the cars-on-track flag: GT7 reports 16 cars and no lap total, and
-// ranks the driver by lap time, P1 on the first racing frame and P2 to P4 as the
-// AI post their times, which is what qualifying sends too
-// (real-quali-restart-quit-2026-10-14). GT7 sends no mode, so the kind cannot
-// tell this practice from qualifying; contracts' SESSION_TYPE_SOLO_TIMED, which
-// names practice, assumed practice was driven alone. Telling them apart needs a
-// decision on the session types, so this pins what ecu does until then.
-func TestAPracticeWithTheFieldOutReadsAsATimedFieldAsV1s(t *testing.T) {
+// a custom race's practice with the AI field out on track. v1.0.0 reads it as a
+// timed field with a flying start and no fuel use (its golden): GT7 reports 16
+// cars, no lap total, and a place ranked by lap time, as qualifying does
+// (real-quali-restart-quit-2026-10-14). ecu reads it as ranked (the maintainer's
+// decision, 2026-10-31): the place leaps from slot 11 to P1 on the frame after the
+// first racing frame, where ecu publishes a session.kind of its own; every verdict
+// after it is v1's but ranked (rankedDepartures).
+func TestAPracticeWithTheFieldOutIsRanked(t *testing.T) {
 	const name = "real-nuc-suzuka-practice-2026-10-31"
-	got, want := showKinds(kindLines(replay(t, name))), showKinds(readKindGolden(t, name))
+	v1 := showKinds(readKindGolden(t, name))
+	if len(v1) == 0 || !strings.HasPrefix(v1[len(v1)-1], "session.ended 1 timed_field laps 0 field true fuel false") ||
+		!strings.Contains(v1[len(v1)-1], "start flying") {
+		t.Fatalf("v1's golden %q, want a timed field, fuel off, flying", v1)
+	}
+	got, want := showKinds(kindLines(replay(t, name))), showKinds(asRanked(name, readKindGolden(t, name)))
 	if !slices.Equal(got, want) {
 		t.Errorf("got\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
-	if len(want) == 0 || !strings.HasPrefix(want[len(want)-1], "session.ended 1 timed_field laps 0 field true fuel false") ||
-		!strings.Contains(want[len(want)-1], "start flying") {
-		t.Errorf("the golden's verdict %q, want a timed field, fuel off, flying", want)
+	if !strings.HasPrefix(want[len(want)-1], "session.ended 1 ranked laps 0 field true fuel false") ||
+		!strings.Contains(want[len(want)-1], `ranked by lap time (P11 to P1 at the start)`) {
+		t.Errorf("the verdict %q, want ranked from slot 11 to P1", want[len(want)-1])
+	}
+}
+
+// The maintainer's practice and qualifying at Suzuka on 2026-10-31 evening
+// (testdata/sessions), 16 cars, no fuel use, recorded to settle the ranked kind.
+// v1.0.0 reads both as timed fields (their goldens); ecu reads both as ranked:
+// the practice's place leaps from slot 16 to P2 (the AI had times already), the
+// qualifying's from slot 5 to P1, each on the frame after the first racing frame.
+func TestTheEveningPracticeAndQualifyingAreRanked(t *testing.T) {
+	for name, leap := range map[string]string{
+		"real-nuc-suzuka-practice-evening-2026-10-31": "(P16 to P2 at the start)",
+		"real-nuc-suzuka-qualifying-2026-10-31":       "(P5 to P1 at the start)",
+	} {
+		v1 := showKinds(readKindGolden(t, name))
+		if len(v1) == 0 || !strings.HasPrefix(v1[len(v1)-1], "session.ended 1 timed_field laps 0 field true fuel false") {
+			t.Fatalf("%s: v1's golden %q, want a timed field", name, v1)
+		}
+		got, want := showKinds(kindLines(replay(t, name))), showKinds(asRanked(name, readKindGolden(t, name)))
+		if !slices.Equal(got, want) {
+			t.Errorf("%s: got\n%s\nwant\n%s", name, strings.Join(got, "\n"), strings.Join(want, "\n"))
+		}
+		if last := want[len(want)-1]; !strings.HasPrefix(last, "session.ended 1 ranked") || !strings.Contains(last, leap) {
+			t.Errorf("%s: the verdict %q, want ranked %s", name, last, leap)
+		}
 	}
 }
 
@@ -799,5 +905,66 @@ func TestTheGridIsALongStandThenAQuickLaunch(t *testing.T) {
 	if v := k.verdict(); v.start != eventsv1.StartType_START_TYPE_GRID ||
 		!strings.HasSuffix(v.evidence, "; grid start at 100 km/h, after standing 6 s") {
 		t.Errorf("stood 6.2 s: %v %q, want a grid start", v.start, v.evidence)
+	}
+}
+
+// The ranked kind (the maintainer's decision, 2026-10-31): a timed field whose
+// place rises rankLeap or more above the first racing frame's within the start
+// window. Each case is a timed session's racing frames from lap 1's first packet,
+// one a packet, as (packet offset, total cars, position).
+func TestARankedSessionLeapsFromItsSlot(t *testing.T) {
+	type f struct{ p, cars, pos int32 }
+	run := func(laps int32, frames []f) kindVerdict {
+		var k kinds
+		for _, x := range frames {
+			k.observe(&state{phase: phaseInRace, lap: 1, totalLaps: laps, packetID: 5000 + x.p,
+				totalCars: x.cars, position: x.pos, speedKph: 100, fuelCapacity: 100, fuel: 50})
+		}
+		return k.verdict()
+	}
+	for _, c := range []struct {
+		name   string
+		laps   int32
+		frames []f
+		want   eventsv1.SessionType
+	}{
+		{"qualifying: slot 20 to P1 on the next packet", 0, []f{{0, 20, 20}, {1, 20, 1}, {2, 20, 1}}, eventsv1.SessionType_SESSION_TYPE_RANKED},
+		{"Suzuka 2026-10-18: slot 16 to P3", 0, []f{{0, 16, 16}, {1, 16, 3}, {2, 16, 4}}, eventsv1.SessionType_SESSION_TYPE_RANKED},
+		{"the leap at the window's last packet", 0, []f{{0, 16, 11}, {17, 16, 9}}, eventsv1.SessionType_SESSION_TYPE_RANKED},
+		{"a timed race keeps its slot", 0, []f{{0, 20, 10}, {1, 20, 10}, {17, 20, 10}, {40, 20, 7}}, eventsv1.SessionType_SESSION_TYPE_TIMED_FIELD},
+		{"one place is a pass, not a rank", 0, []f{{0, 20, 10}, {5, 20, 9}}, eventsv1.SessionType_SESSION_TYPE_TIMED_FIELD},
+		{"after the window", 0, []f{{0, 16, 11}, {18, 16, 1}}, eventsv1.SessionType_SESSION_TYPE_TIMED_FIELD},
+		{"no place on the first frame: the slot is the first place", 0, []f{{0, 16, -1}, {1, 16, 11}, {2, 16, 1}}, eventsv1.SessionType_SESSION_TYPE_RANKED},
+		{"a lap race's leap is still a lap race", 3, []f{{0, 20, 10}, {1, 20, 1}}, eventsv1.SessionType_SESSION_TYPE_LAP_RACE},
+		{"a time trial's ghost", 0, []f{{0, 2, 1}, {1, 2, 1}}, eventsv1.SessionType_SESSION_TYPE_SOLO_TIMED},
+	} {
+		v := run(c.laps, c.frames)
+		if v.kind != c.want {
+			t.Errorf("%s: %v (%q), want %v", c.name, v.kind, v.evidence, c.want)
+		}
+		if v.kind == eventsv1.SessionType_SESSION_TYPE_RANKED && !v.field {
+			t.Errorf("%s: ranked without a field", c.name)
+		}
+	}
+	if v := run(0, []f{{0, 20, 20}, {1, 20, 1}}); !strings.HasPrefix(v.evidence, "no lap total, 20 cars, ranked by lap time (P20 to P1 at the start); ") {
+		t.Errorf("the evidence %q", v.evidence)
+	}
+
+	// Joined part way: the start was not seen, so no leap counts.
+	var k kinds
+	k.join()
+	for p, pos := range []int32{11, 1} {
+		k.observe(&state{phase: phaseInRace, lap: 3, packetID: int32(p), totalCars: 16, position: pos})
+	}
+	if got := k.kind(); got != eventsv1.SessionType_SESSION_TYPE_TIMED_FIELD {
+		t.Errorf("joined: %v, want a timed field", got)
+	}
+	// Carried (a restart of a ranked session, or ecu's own): ranked from the first
+	// frame, with no leap to see.
+	k = kinds{}
+	k.carryRank()
+	k.observe(&state{phase: phaseInRace, lap: 1, packetID: 1, totalCars: 20, position: 1})
+	if v := k.verdict(); v.kind != eventsv1.SessionType_SESSION_TYPE_RANKED || !strings.HasPrefix(v.evidence, "no lap total, 20 cars, ranked by lap time; ") {
+		t.Errorf("carried: %v %q, want ranked", v.kind, v.evidence)
 	}
 }

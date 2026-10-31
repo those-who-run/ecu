@@ -3,7 +3,11 @@ package position
 import (
 	"testing"
 
+	"google.golang.org/protobuf/proto"
+
 	eventsv1 "github.com/those-who-run/contracts/gen/go/twr/events/v1"
+	telemetryv1 "github.com/those-who-run/contracts/gen/go/twr/telemetry/v1"
+	"github.com/those-who-run/ecu/internal/race"
 	"github.com/those-who-run/ecu/internal/rules"
 )
 
@@ -154,5 +158,82 @@ func TestSettings(t *testing.T) {
 	cfg.Rules[Name].Decode(&got)
 	if want := (Config{SettleSecs: 2, MinIntervalSecs: 10, StartGraceSecs: 30}); got != want {
 		t.Errorf("config %+v, want %+v", got, want)
+	}
+}
+
+// The ranked kind (the maintainer's decisions, 2026-10-31): in a ranked session the
+// place is a rank by lap time, called only where the driver's own lap put them:
+// read 3 s after each line crossing, and called as template_rank_gained or
+// template_rank_lost when it differs from the last rank called. The AI posting
+// times between crossings is not called. A timed race is v1's.
+func TestARankedSessionCallsRanksAtTheLine(t *testing.T) {
+	ranked := race.Kind{Type: eventsv1.SessionType_SESSION_TYPE_RANKED, Field: true}
+	// run drives a frame every 0.5 s for 120 s: the place is places(t), and the
+	// driver crosses the line at each of crossings.
+	run := func(kind race.Kind, places func(t float64) int32, crossings ...float64) []rules.Callout {
+		r := &rule{cfg: DefaultConfig}
+		var got []rules.Callout
+		for i := range 240 {
+			now := float64(i) * 0.5
+			ctx := &race.Context{
+				Racing: true, Kind: kind,
+				Cur: race.View{T: now, Phase: telemetryv1.Phase_PHASE_IN_RACE, Lap: 1, Position: places(now), TotalCars: 16},
+			}
+			for _, c := range crossings {
+				if c == now {
+					ctx.Lap = &race.ClosedLap{Lap: 1}
+				}
+			}
+			for _, c := range r.Evaluate(ctx) {
+				c.Slots.Lap = proto.Int32(int32(now * 10)) // when, for the check
+				got = append(got, c)
+			}
+		}
+		return got
+	}
+	type want struct {
+		at       float64
+		kind     string
+		from, to int32
+	}
+	check := func(name string, got []rules.Callout, wants ...want) {
+		t.Helper()
+		if len(got) != len(wants) {
+			t.Fatalf("%s: %d calls %v, want %v", name, len(got), got, wants)
+		}
+		for i, w := range wants {
+			s := got[i].Slots
+			if got[i].Kind != w.kind || s.GetPreviousPosition() != w.from || s.GetPosition() != w.to || s.GetLap() != int32(w.at*10) {
+				t.Errorf("%s: call %d %s %v, want %v", name, i, got[i].Kind, s, w)
+			}
+		}
+	}
+	// The evening practice: P2 after the leap, the AI's times push the driver to
+	// P11 through lap 2, and the lap at 60 s puts them P4, a frame later.
+	practice := func(now float64) int32 {
+		switch {
+		case now < 30:
+			return 2
+		case now < 60.5:
+			return 11
+		}
+		return 4
+	}
+	check("practice", run(ranked, practice, 20, 60), want{63, KindRankLost, 2, 4})
+	// No crossing, no call, however the field moves.
+	check("no crossing", run(ranked, practice))
+	// A crossing that leaves the rank where it was called says nothing.
+	check("unchanged", run(ranked, practice, 20))
+	// Up the order: the qualifying's lap to P1, after P3.
+	check("gained", run(ranked, func(now float64) int32 {
+		if now < 40.5 {
+			return 3
+		}
+		return 1
+	}, 40), want{43, KindRankGained, 3, 1})
+	// A timed race is v1's: every settled move, crossing or not.
+	got := run(race.Kind{Type: eventsv1.SessionType_SESSION_TYPE_TIMED_FIELD, Field: true}, practice)
+	if len(got) != 2 || got[0].Kind != KindLostLead && got[0].Kind != KindLost {
+		t.Errorf("timed race: %v, want v1's calls", got)
 	}
 }

@@ -91,19 +91,41 @@ func replay(t *testing.T, name string) []string {
 	return lines
 }
 
+// asRanked is v1's calls with ecu's in a ranked session (rulestest.RankedDecision):
+// v1's calls there are not raised, and ecu's rank calls (rulestest.RankCalls) are.
+func asRanked(t *testing.T, name string, v1 []string) []string {
+	t.Helper()
+	var out []string
+	for _, l := range v1 {
+		var n int
+		if _, err := fmt.Sscanf(l, "session %d", &n); err != nil {
+			t.Fatal(err)
+		}
+		if !rulestest.Ranked(name, n) {
+			out = append(out, l)
+		}
+	}
+	for _, c := range rulestest.RankCalls[name] {
+		out = append(out, goldenLine{Session: c.Session, Frame: c.Frame, Kind: c.Kind, Position: c.To, PreviousPosition: c.From}.String())
+	}
+	return out
+}
+
 // R1–R7, AC1–AC5: on every one of v1's recordings, the rule raises v1's
 // PositionRule's calls (rules.example.yaml's 15 s grace, 10 s between calls and
 // 3 s settle), on the same frame of the same session, with the kind contracts'
 // table names and the places as slots, and the engine stamps v1's priority, hold
 // and pit lane. v1's one call still held at a pit entry (SUGO's two stops, frame
 // 421) is published, for radio to drop. The replay and the demos v1's start check
-// drops (paddock#74) have none.
+// drops (paddock#74) have none. In a ranked session ecu calls the rank at the
+// driver's line crossings instead (asRanked).
 func TestTheCallsAreV1sOnEveryRecording(t *testing.T) {
 	total := 0
 	for _, name := range rulestest.Recordings {
 		t.Run(name, func(t *testing.T) {
 			want := published(t, name)
 			total += len(want)
+			want = asRanked(t, name, want)
 			if got := replay(t, name); !slices.Equal(got, want) {
 				t.Errorf("got\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 			}

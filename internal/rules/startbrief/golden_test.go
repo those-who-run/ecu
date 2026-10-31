@@ -49,7 +49,8 @@ var pitLanes = map[string]eventsv1.PitLane{
 	"speak": eventsv1.PitLane_PIT_LANE_SPEAK, "hold": eventsv1.PitLane_PIT_LANE_HOLD, "drop": eventsv1.PitLane_PIT_LANE_DROP,
 }
 
-// readGolden is v1's callouts, the track taken out (noTrack); raised counts them
+// readGolden is v1's callouts, the track taken out (noTrack) and a ranked
+// session's brief as ecu's (asRanked); raised counts them
 // as v1 raised them.
 func readGolden(t *testing.T, name string) (out []string, raised int) {
 	t.Helper()
@@ -73,6 +74,9 @@ func readGolden(t *testing.T, name string) (out []string, raised int) {
 		if noTrack(g.Kind, slots) {
 			continue
 		}
+		if rulestest.Ranked(name, g.Session) {
+			g.Kind, slots = asRanked(g.Kind, slots)
+		}
 		out = append(out, show(g.Session, g.Frame, g.Kind, slots, g.Priority, g.HoldSecs, g.ExpirySecs,
 			pitLanes[g.PitLane].String(), g.Outcome))
 	}
@@ -86,6 +90,16 @@ func readGolden(t *testing.T, name string) (out []string, raised int) {
 func noTrack(kind string, slots *eventsv1.CalloutSlots) (gone bool) {
 	slots.Track = ""
 	return kind == kindTrackV1 || (kind == KindBrief && proto.Size(slots) == 0)
+}
+
+// asRanked is the departure from v1 decided on 2026-10-31
+// (rulestest.RankedDecision): a ranked session's brief is template_ranked with
+// the field's size, in place of v1's timed brief and its place.
+func asRanked(kind string, slots *eventsv1.CalloutSlots) (string, *eventsv1.CalloutSlots) {
+	if kind != KindBrief {
+		return kind, slots
+	}
+	return KindRanked, &eventsv1.CalloutSlots{TotalCars: slots.TotalCars}
 }
 
 // kindTrackV1 is v1's template_track, the track named on its own after the

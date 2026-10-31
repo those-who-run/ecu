@@ -23,6 +23,19 @@ import (
 //     can appear part way through (the ghost), so two cars only make a field once
 //     the driver has been anything but first.
 //
+// One kind is ecu's own, a departure from v1 (the maintainer's decision,
+// 2026-10-31): ranked, qualifying or practice with the field out, where GT7's
+// place is the rank by best lap. v1 read it as a timed field. On the first racing
+// frame the place is still the grid slot; in a ranked session it leaps up the
+// order within a packet or two (slot 20 to P1 in qualifying 2026-10-14, 18 to P1
+// at Spa and 16 to P3 at Suzuka 2026-10-18, 11 to P1 in practice 2026-10-31),
+// while a timed race keeps its slot (P10, Suzuka 2026-10-16). So a timed field
+// whose place rises rankLeap or more above the first racing frame's within the
+// start window is ranked. A restart of a ranked session (racing straight back to
+// lap 1, its first frame already ranked) stays ranked, and so does a session ecu
+// continues after its own restart; one joined part way, whose start ecu never saw,
+// stays a timed field.
+//
 // Fuel use is on once the level drops fuelDrop below the highest seen while
 // racing (a refuel raises the mark), off after fuelSettle of driving at moving
 // speed without a drop, or at once with no tank. The start is read from the
@@ -58,6 +71,12 @@ type kinds struct {
 	startKnown  bool
 	stood       float64 // the seconds the car stood on the grid before the start, 0 for none (grid)
 
+	// The rank (ranked): the place on the first racing frame, and the place it
+	// leapt to in the start window, if it did.
+	slot, leapt int32
+	ranked      bool // a ranked session: leapt, or carried over a restart
+	rankKnown   bool // the start window has passed, or the place leapt
+
 	joined bool
 	last   kindVerdict // the verdict so far (v1's SessionDetector._kind)
 }
@@ -70,6 +89,11 @@ const (
 	maxStepSecs = 1.0 // a pause or a gap is not driving time
 	startWindow = 18  // packets, 0.3 s at 60 Hz
 	gridKph     = 30.0
+	// rankLeap is the places the position must rise above the first racing
+	// frame's within the start window for a ranked session. The ranked
+	// sessions recorded rose 10 to 19 places in one packet; no other session,
+	// a lap race's rolling start included, rose at all in the window.
+	rankLeap = 2
 )
 
 // The grid behind the line (paddock#148). GT7 puts the car on the grid on the
@@ -198,6 +222,7 @@ func (k *kinds) observe(s *state) bool {
 	}
 	k.observeFuel(s)
 	k.observeStart(s)
+	k.observeRank(s)
 	v := k.decide()
 	changed := !v.sameDecision(k.verdict())
 	k.last = v
@@ -242,7 +267,38 @@ func (k *kinds) observeStart(s *state) {
 	}
 }
 
-// decide is SessionDetector._decide, with v1's evidence word for word.
+// observeRank watches the start window for the place leaping up the order
+// (ranked). Call after observeStart, which keeps the window's first packet.
+func (k *kinds) observeRank(s *state) {
+	if k.rankKnown || k.joined {
+		return
+	}
+	p := s.racePosition()
+	if packets := s.packetID - k.startPacket; packets >= startWindow || packets < 0 {
+		k.rankKnown = true
+		return
+	}
+	switch {
+	case p <= 0:
+	case k.slot == 0:
+		k.slot = p
+	case k.slot-p >= rankLeap:
+		k.leapt, k.ranked, k.rankKnown = p, true, true
+	}
+}
+
+// carryRank keeps a ranked session ranked after a restart: GT7's (racing
+// straight back to lap 1) or ecu's own (continue.go). The restart's first frame
+// is already ranked, so there is no leap to see.
+func (k *kinds) carryRank() {
+	k.ranked, k.rankKnown = true, true
+	if k.valid {
+		k.last = k.decide()
+	}
+}
+
+// decide is SessionDetector._decide, with v1's evidence word for word, and
+// ecu's ranked kind (above).
 func (k *kinds) decide() kindVerdict {
 	if !k.valid {
 		return unknownKind
@@ -264,6 +320,13 @@ func (k *kinds) decide() kindVerdict {
 		why = "no lap total, " + cars + " cars"
 		if k.field && k.cars < 3 {
 			why += ", not always first"
+		}
+		if k.field && k.ranked {
+			v.kind = eventsv1.SessionType_SESSION_TYPE_RANKED
+			why += ", ranked by lap time"
+			if k.leapt > 0 {
+				why += " (P" + strconv.Itoa(int(k.slot)) + " to P" + strconv.Itoa(int(k.leapt)) + " at the start)"
+			}
 		}
 	}
 	switch {
@@ -295,7 +358,8 @@ func (k *kinds) decide() kindVerdict {
 		}
 		why += "; " + name + " start at " + strconv.FormatFloat(k.startKph, 'f', 0, 64) + " km/h" + stood
 	}
-	v.field = v.kind == eventsv1.SessionType_SESSION_TYPE_LAP_RACE || v.kind == eventsv1.SessionType_SESSION_TYPE_TIMED_FIELD
+	v.field = v.kind == eventsv1.SessionType_SESSION_TYPE_LAP_RACE || v.kind == eventsv1.SessionType_SESSION_TYPE_TIMED_FIELD ||
+		v.kind == eventsv1.SessionType_SESSION_TYPE_RANKED
 	v.evidence = why
 	return v
 }
@@ -309,7 +373,7 @@ func (k *kinds) verdict() kindVerdict {
 }
 
 // kind is the verdict's kind, as the contracts' SessionType: one value for each
-// of v1's kinds.
+// of v1's kinds, and ranked.
 func (k *kinds) kind() eventsv1.SessionType { return k.verdict().kind }
 
 // applyKind publishes the verdict as the open session's session.kind, on the frame

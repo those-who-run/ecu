@@ -478,7 +478,11 @@ func (m *Machine) step(s *state) {
 		m.lastDriving = nil
 		m.finish = finish{}
 		m.finalLap, m.places, m.published = false, places{}, 0
+		ranked := restarted && m.kinds.ranked
 		m.kinds = kinds{stood: s.stood}
+		if ranked {
+			m.kinds.carryRank() // a ranked session restarted is ranked (kind.go)
+		}
 		m.pits.Reset()
 		m.joined, m.trackChanges = joinedPartWay(prev, s), nil
 		// The track detector starts over by itself after a menu or a loading screen

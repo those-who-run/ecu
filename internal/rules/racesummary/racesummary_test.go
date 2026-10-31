@@ -71,7 +71,8 @@ func one(t *testing.T, got []rules.Callout, kind string, position, best, laps *i
 // R6: the rule's own settings, v1's defaults, and the ones the rules file sets.
 func TestTheSettings(t *testing.T) {
 	r := New(Default())
-	if len(r.quitKinds) != 2 || r.quitKinds[0] != soloTimed || r.quitKinds[1] != soloLaps || r.quitMinLaps != 1 {
+	if len(r.quitKinds) != 3 || r.quitKinds[0] != soloTimed || r.quitKinds[1] != soloLaps ||
+		r.quitKinds[2] != eventsv1.SessionType_SESSION_TYPE_RANKED || r.quitMinLaps != 1 {
 		t.Errorf("got quit kinds %v after %d laps", r.quitKinds, r.quitMinLaps)
 	}
 	cfg, err := rules.ParseConfig([]byte("rules:\n  race_summary:\n    quit_kinds: [lap_race, no_such_kind]\n    quit_min_laps: 3\n"))
@@ -223,5 +224,27 @@ func TestTheSummaryNamesASureTrack(t *testing.T) {
 				t.Errorf("leaving, track %q, want %q", got, tc.want)
 			}
 		})
+	}
+}
+
+// The ranked kind (the maintainer's decision, 2026-10-31): a ranked session's
+// finish is template_ranked, the place a rank by lap time, whatever the place;
+// with no place, the best alone. Leaving one without a finish is template_quit, as
+// a solo session's.
+func TestARankedSessionIsNoRaceToWin(t *testing.T) {
+	ranked := race.Kind{Type: eventsv1.SessionType_SESSION_TYPE_RANKED, Field: true}
+	for _, pos := range []int32{1, 3, 6} {
+		r := New(Default())
+		one(t, r.Evaluate(finish(ranked, race.View{Position: pos, BestLapMs: 96595})), KindTemplateRanked, i32(pos), i32(96595), nil)
+	}
+	r := New(Default())
+	one(t, r.Evaluate(finish(ranked, race.View{Position: -1, BestLapMs: 96595})), KindTemplateRanked, nil, i32(96595), nil)
+
+	r.Reset()
+	r.Evaluate(post(2, 129918, false))
+	one(t, r.Evaluate(end(eventsv1.SessionType_SESSION_TYPE_RANKED, race.View{Lap: 5})), KindTemplateQuit, nil, i32(129918), i32(4))
+	r.Reset()
+	if got := r.Evaluate(end(eventsv1.SessionType_SESSION_TYPE_TIMED_FIELD, race.View{Lap: 5})); len(got) != 0 {
+		t.Error("a quit summary for a timed race")
 	}
 }
