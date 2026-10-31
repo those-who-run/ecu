@@ -32,8 +32,8 @@ func frame(t float64, kind race.Kind, v race.View, changes ...*track.Match) *rac
 }
 
 var (
-	lapRaceKind = race.Kind{Type: eventsv1.SessionType_SESSION_TYPE_LAP_RACE, Field: true, CarsOnTrack: true}
-	timedKind   = race.Kind{Type: eventsv1.SessionType_SESSION_TYPE_TIMED_FIELD, Field: true, CarsOnTrack: true}
+	lapRaceKind = race.Kind{Type: eventsv1.SessionType_SESSION_TYPE_LAP_RACE, Field: true}
+	timedKind   = race.Kind{Type: eventsv1.SessionType_SESSION_TYPE_TIMED_FIELD, Field: true}
 	soloKind    = race.Kind{Type: eventsv1.SessionType_SESSION_TYPE_SOLO_TIMED}
 	unknownKind = race.Kind{Type: eventsv1.SessionType_SESSION_TYPE_UNKNOWN}
 	lapRace     = race.View{TotalLaps: 2, Position: 10, TotalCars: 20, CarsOnTrack: true}

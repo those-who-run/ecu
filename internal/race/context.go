@@ -106,9 +106,10 @@ func (v *View) state() *state {
 type Kind struct {
 	// Type is the kind, SESSION_TYPE_UNKNOWN before a verdict.
 	Type eventsv1.SessionType
-	// Field: the kind has other cars racing for position; CarsOnTrack: GT7's
-	// flag, as of the verdict.
-	Field, CarsOnTrack bool
+	// Field: the kind has other cars racing for position. The rules read it,
+	// never GT7's cars-on-track flag, which is true in a time trial too
+	// (paddock#146).
+	Field bool
 }
 
 // ClosedLap is the complete lap that closed on the frame (lap.completed), as the
@@ -241,13 +242,14 @@ type Context struct {
 // by the kind before this frame.
 func (c *Context) HasField() bool { return c.HasFieldOn(&c.Cur) }
 
-// HasFieldOn is v1's Rule.has_field(v), by the kind before this frame: the kind
-// once there is a verdict, else GT7's flag and more than one car on v.
+// HasFieldOn is v1's Rule.has_field(v), by the kind before this frame, never
+// GT7's cars-on-track flag (paddock#146): the kind's field once there is a
+// verdict, else the field the kind reads from v alone.
 func (c *Context) HasFieldOn(v *View) bool {
 	if c.Kind.Type != eventsv1.SessionType_SESSION_TYPE_UNKNOWN {
-		return c.Kind.Field && c.Kind.CarsOnTrack
+		return c.Kind.Field
 	}
-	return v.CarsOnTrack && v.TotalCars > 1
+	return frameField(v.TotalLaps, v.TotalCars, v.RacePosition())
 }
 
 // TimedLaps are the session's complete laps with a time, closed before this
@@ -301,7 +303,7 @@ func (m *Machine) ruleContext(prev, seen, s *state, t time.Time, starting bool, 
 		}
 	}
 	c.Racing = s.inRace() || racingFrame(seen, s)
-	c.Kind = Kind{Type: kind.kind, Field: kind.field, CarsOnTrack: kind.carsOnTrack}
+	c.Kind = Kind{Type: kind.kind, Field: kind.field}
 	if lapTimePosted(seen, s) {
 		c.Posted = &PostedLap{
 			Lap:      max(s.lap-1, 1),

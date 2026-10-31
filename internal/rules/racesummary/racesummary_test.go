@@ -31,8 +31,8 @@ func show(v *int32) any {
 	return *v
 }
 
-// field is a race with a field, GT7 flagging cars on track.
-var field = race.Kind{Type: lapRace, Field: true, CarsOnTrack: true}
+// field is a race with a field.
+var field = race.Kind{Type: lapRace, Field: true}
 
 // post is a racing frame that posts lap's time.
 func post(lap, ms int32, startLap bool) *race.Context {

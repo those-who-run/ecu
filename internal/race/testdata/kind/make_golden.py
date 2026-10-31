@@ -7,6 +7,9 @@ environment (`uv sync --extra engineer`), for each of v1's recordings:
 
     python3 make_golden.py RECORDING > NAME.jsonl
 
+and, the same way, for the live sessions cut in ../sessions/ (paddock#145), such
+as real-nuc-suzuka-practice-2026-10-31.
+
 It replays the recording as v1's `replay` does, with no rules (they do not change
 the kind), into a store of its own, and writes one line per event, in order:
 
