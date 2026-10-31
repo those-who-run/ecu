@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.14](https://github.com/those-who-run/ecu/compare/v0.1.13...v0.1.14) (2026-10-31)
+
+
+### Features
+
+* **replay:** --seed for reproducible ids, and one line per session at the end ([#64](https://github.com/those-who-run/ecu/issues/64)) ([0591323](https://github.com/those-who-run/ecu/commit/0591323ffabad4b31d681a7962bef501825fe81d))
+
 ## [0.1.13](https://github.com/those-who-run/ecu/compare/v0.1.12...v0.1.13) (2026-10-31)
 
 
