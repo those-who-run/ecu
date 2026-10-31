@@ -13,6 +13,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	eventsv1 "github.com/those-who-run/contracts/gen/go/twr/events/v1"
+	telemetryv1 "github.com/those-who-run/contracts/gen/go/twr/telemetry/v1"
 	"github.com/those-who-run/salsa"
 )
 
@@ -356,15 +357,50 @@ func showKinds(lines []kindLine) []string {
 	return s
 }
 
+// kindDepartures are ecu's named departures from v1's kind, by recording: each
+// replaces what v1 said (the golden's text) with what ecu says.
+//
+// A grid behind the line (paddock#148): v1 read the start from the first 18
+// packets of racing alone, so a car that stood on the grid, launched and crossed
+// the line at speed read as a rolling start. SUGO's 12-lap race of 2026-10-18 is
+// one: the car stands in slot 10 at 0 km/h for 6 s on the track screen, launches,
+// and starts lap 1 at 113 km/h 4.3 s later, as the grid start of 2026-10-31 does
+// (TestAGridBehindTheLineIsAGridStart). Its FIXTURES.yaml entry says rolling
+// because v1 said so.
+var kindDepartures = map[string][][2]string{
+	"real-nuc-sugo-two-stops-2026-10-18": {{
+		`start rolling "12 laps, 20 cars; fuel use on; rolling start at 129 km/h"`,
+		`start grid "12 laps, 20 cars; fuel use on; grid start at 129 km/h, after standing 6 s"`,
+	}},
+	"real-nuc-suzuka-east-grid-start-2026-10-31": {{
+		`start rolling "5 laps, 20 cars; fuel use on; rolling start at 101 km/h"`,
+		`start grid "5 laps, 20 cars; fuel use on; grid start at 101 km/h, after standing 6 s"`,
+	}},
+}
+
+// asEcu is a recording's golden lines with ecu's departures (kindDepartures)
+// made.
+func asEcu(name string, want []string) []string {
+	out := make([]string, len(want))
+	for i, l := range want {
+		for _, d := range kindDepartures[name] {
+			l = strings.ReplaceAll(l, d[0], d[1])
+		}
+		out[i] = l
+	}
+	return out
+}
+
 // R1, R2, AC3: on every one of v1's recordings, ecu publishes session.kind where
 // v1's engine applied a new kind to the session (v1's "session ..." log line), with
 // v1's verdict and its evidence word for word, and each session.ended's summary
-// keeps the kind v1 stored for the session. On the replay and the demos v1's
-// start check drops (paddock#74, discards) there is no session, and no kind.
+// keeps the kind v1 stored for the session, but for ecu's named departures
+// (kindDepartures). On the replay and the demos v1's start check drops
+// (paddock#74, discards) there is no session, and no kind.
 func TestSessionKindIsV1sOnEveryRecording(t *testing.T) {
 	for _, name := range v1Recordings {
 		t.Run(name, func(t *testing.T) {
-			got, want := showKinds(kindLines(replay(t, name))), showKinds(readKindGolden(t, name))
+			got, want := showKinds(kindLines(replay(t, name))), asEcu(name, showKinds(readKindGolden(t, name)))
 			if _, ok := discards[name]; len(want) == 0 && !ok {
 				t.Fatal("an empty golden")
 			}
@@ -381,7 +417,8 @@ func TestSessionKindIsV1sOnEveryRecording(t *testing.T) {
 // was not seen, so it is unknown (R4), as v1's engine stores it, where
 // FIXTURES.yaml names the start v1's detector reads fed from the recording's
 // first frame for three of them (2laps' first session, the Willow Springs and
-// Gilles Villeneuve pit stops).
+// Gilles Villeneuve pit stops), and for SUGO's two stops, a grid behind the line
+// v1 read as rolling (kindDepartures, paddock#148).
 func TestTheLastKindOfEachSessionIsFixturesYAMLs(t *testing.T) {
 	for name, want := range map[string][]string{
 		"real-race-2laps-2026-10-14":                     {"solo_timed (start not seen)", "lap_race (rolling)"},
@@ -401,7 +438,7 @@ func TestTheLastKindOfEachSessionIsFixturesYAMLs(t *testing.T) {
 		"real-nuc-willow-springs-pit-stop-2026-10-17":    {"lap_race (start not seen)"},
 		"real-nuc-gilles-villeneuve-race-2026-10-17":     {"lap_race (rolling)"},
 		"real-nuc-gilles-villeneuve-pit-stop-2026-10-17": {"lap_race (start not seen)"},
-		"real-nuc-sugo-two-stops-2026-10-18":             {"lap_race (rolling)"},
+		"real-nuc-sugo-two-stops-2026-10-18":             {"lap_race (grid)"}, // FIXTURES.yaml: rolling
 		"real-nuc-sugo-restarts-2026-10-18":              {"lap_race (rolling)", "lap_race (rolling)", "lap_race (rolling)"},
 		"real-nuc-suzuka-joined-mid-race-2026-10-18":     {"timed_field (start not seen)"},
 		"real-nuc-suzuka-before-restart-2026-10-18":      {"timed_field (flying)"},
@@ -455,9 +492,9 @@ func TestFujiIsSoloTimedDespiteTheGhost(t *testing.T) {
 	}
 }
 
-// R1: no grid start has been recorded yet, so this one is made up: the car under
-// 30 km/h through the first 18 packets is a grid start; over it, rolling in a lap
-// race. A change of the evidence alone (the cars and the speed it names) is not a
+// R1: v1's rule, made up, as no grid ahead of the line has been recorded: the car
+// under 30 km/h through the first 18 packets is a grid start; over it, rolling in
+// a lap race. A change of the evidence alone (the cars and the speed it names) is not a
 // change of the decision. With no tank, fuel use is off at once.
 func TestTheStartAndWhatCountsAsAChange(t *testing.T) {
 	for _, c := range []struct {
@@ -613,5 +650,118 @@ func TestAPracticeWithTheFieldOutReadsAsATimedFieldAsV1s(t *testing.T) {
 	if len(want) == 0 || !strings.HasPrefix(want[len(want)-1], "session.ended 1 timed_field laps 0 field true fuel false") ||
 		!strings.Contains(want[len(want)-1], "start flying") {
 		t.Errorf("the golden's verdict %q, want a timed field, fuel off, flying", want)
+	}
+}
+
+// paddock#148: GT7's "Grid Start" at Suzuka East on 2026-10-31
+// (testdata/sessions), 5 laps against 19 AI cars. The car stands in slot 10 on
+// the track screen for 6 s, launches, and starts lap 1 at 97 km/h 4.7 s later:
+// the grid is behind the line. v1.0.0 reads it as a rolling start at 101 km/h
+// (its golden), and so did ecu 0.1.13 live; ecu now reads a grid start, on the
+// same frame, with nothing else changed (kindDepartures).
+func TestAGridBehindTheLineIsAGridStart(t *testing.T) {
+	const name = "real-nuc-suzuka-east-grid-start-2026-10-31"
+	v1 := showKinds(readKindGolden(t, name))
+	if len(v1) == 0 || !strings.Contains(v1[len(v1)-1], "start rolling") {
+		t.Fatalf("v1's golden %q, want v1's rolling start", v1)
+	}
+	got, want := showKinds(kindLines(replay(t, name))), asEcu(name, v1)
+	if !slices.Equal(got, want) {
+		t.Errorf("got\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+	if !strings.Contains(want[len(want)-1], "start grid") {
+		t.Errorf("the verdict %q, want a grid start", want[len(want)-1])
+	}
+}
+
+// at is a frame at GT7's packet p (60 a second) going kph: on the track screen,
+// or racing on lap 1.
+func at(phase telemetryv1.Phase, p int32, kph float64) *state {
+	s := &state{phase: phase, packetID: p, speedKph: kph}
+	if phase == phaseInRace {
+		s.lap = 1
+	}
+	return s
+}
+
+// paddock#148: the grid is read from the track screen before the start, by
+// GT7's packets: a stand of 4 s or more, then lap 1 within 10 s of moving off.
+func TestTheGridIsALongStandThenAQuickLaunch(t *testing.T) {
+	// screen is a track screen, thinned to a frame every 0.5 s: standing for
+	// stand seconds, then moving for launch seconds; what lap 1 reads.
+	screen := func(stand, launch float64) float64 {
+		var g grid
+		p := int32(1000)
+		for i := range int(stand*2) + 1 {
+			p = 1000 + int32(i*30)
+			g.observe(at(phaseAtTrack, p, 0))
+		}
+		end := p + int32(launch*60)
+		for q := p + 30; q < end; q += 30 {
+			g.observe(at(phaseAtTrack, q, 50))
+		}
+		return g.observe(at(phaseInRace, end, 97))
+	}
+	for _, c := range []struct {
+		name          string
+		stand, launch float64
+		want          float64
+	}{
+		{"the grid of 2026-10-31", 6, 4.5, 6},
+		{"the grid at its limits", 4, 10, 4},
+		{"too short a stand: the pit box", 3, 4.5, 0},
+		{"too long a launch: the pit lane", 6, 15, 0},
+	} {
+		if got := screen(c.stand, c.launch); got != c.want {
+			t.Errorf("%s: %v, want %v", c.name, got, c.want)
+		}
+	}
+
+	var g grid
+	for p := range int32(10) { // a rolling start never stands
+		g.observe(at(phaseAtTrack, p*30, 80))
+	}
+	if got := g.observe(at(phaseInRace, 300, 120)); got != 0 {
+		t.Errorf("rolling: %v, want none", got)
+	}
+
+	// A loading screen between the stand and the start forgets it, and a restart,
+	// racing to racing, has no track screen.
+	g = grid{}
+	for p := range int32(13) {
+		g.observe(at(phaseAtTrack, p*30, 0))
+	}
+	g.observe(at(phaseLoading, 400, 0))
+	if got := g.observe(at(phaseInRace, 430, 90)); got != 0 {
+		t.Errorf("after a loading screen: %v, want none", got)
+	}
+	if got := g.observe(at(phaseInRace, 460, 0)); got != 0 {
+		t.Errorf("racing to racing: %v, want none", got)
+	}
+
+	// The last standstill decides: a long stand, a roll, then a short stop is
+	// not a grid.
+	g = grid{}
+	for p := range int32(13) {
+		g.observe(at(phaseAtTrack, p*30, 0))
+	}
+	g.observe(at(phaseAtTrack, 500, 40))
+	g.observe(at(phaseAtTrack, 530, 0))
+	g.observe(at(phaseAtTrack, 560, 0))
+	if got := g.observe(at(phaseInRace, 700, 90)); got != 0 {
+		t.Errorf("the last standstill short: %v, want none", got)
+	}
+
+	// The kind names it: a grid start at the window's speed, and how long the car
+	// stood.
+	k := kinds{stood: 6.2}
+	for p := range int32(startWindow + 1) {
+		s := racing(5, 20, 10)
+		s.packetID, s.speedKph = p, 97+float64(p)/6
+		k.observe(s)
+	}
+	if v := k.verdict(); v.start != eventsv1.StartType_START_TYPE_GRID ||
+		!strings.HasSuffix(v.evidence, "; grid start at 100 km/h, after standing 6 s") {
+		t.Errorf("stood 6.2 s: %v %q, want a grid start", v.start, v.evidence)
 	}
 }

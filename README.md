@@ -225,6 +225,19 @@ GT7 sends no mode. [`internal/race/kind.go`](internal/race/kind.go) is v1's
 - **The start.** The fastest the car goes in the first 18 packets of racing:
   under 30 km/h is a grid start, else rolling in a lap race and flying
   otherwise. A session joined part way leaves it unknown.
+- **A grid behind the line** (paddock#148, a departure from v1). GT7 stands
+  the car on the grid on the track screen (lap 0) through the countdown; where
+  the grid is behind the line, lap 1 begins at speed, so the 18 packets alone
+  read it as rolling, as v1 did. A start is a grid start too when, on the
+  track screen before it, the car's last standstill (under 1 km/h) lasted 4 s
+  or more and lap 1 began within 10 s of moving off, by GT7's packets. The
+  grids recorded stood 6 to 7 s and reached the line 2.5 to 5.7 s later; the
+  pit box before a timed session stood at most 3 s and took 15 s or more; a
+  rolling start never stands. The evidence says how long it stood ("grid start
+  at 101 km/h, after standing 6 s"). Pinned by
+  `real-nuc-suzuka-east-grid-start-2026-10-31` in
+  [`internal/race/testdata/sessions/`](internal/race/testdata/sessions), and
+  SUGO's 12-lap race of 2026-10-18 is one too, where v1 said rolling.
 - **What counts as a change.** The kind, fuel use, GT7's cars-on-track flag or
   the start. The evidence sentence rides along, but a change of its wording
   alone publishes nothing. Each start resets the detector, so the session's
@@ -237,7 +250,8 @@ GT7 sends no mode. [`internal/race/kind.go`](internal/race/kind.go) is v1's
 - **Tests.** On every one of v1's 25 recordings, the `session.kind` events
   and each summary's kind are v1's, evidence word for word, as `make_golden.py`
   in [`internal/race/testdata/kind/`](internal/race/testdata/kind) wrote them
-  from v1.0.0. The six v1 drops as a replay or a GT7 demo have none.
+  from v1.0.0, but for SUGO's two stops (a grid behind the line, above). The
+  six v1 drops as a replay or a GT7 demo have none.
 - **The type, not the flag.** `session.started`'s and the summary's
   `session_type` are the kind's, and every gate that means a field (the
   position, the timed finish, the start brief's and the summary's place) reads

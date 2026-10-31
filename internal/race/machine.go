@@ -294,6 +294,7 @@ type Machine struct {
 	places      places // the settled position (v1's PositionRule)
 	published   int32  // the place the session's last race.position gave, 0 for none
 	kinds       kinds  // the session's kind (v1's Engine.kinds)
+	grid        grid   // the car standing on the grid before a start (kind.go, paddock#148)
 	tracks      *track.Detector
 	pits        *pit.Detector
 	session     *session
@@ -419,6 +420,9 @@ func (m *Machine) Step(r Received) []Output {
 	// A held start's frames are stepped later (start.go): what the clock read on
 	// each goes with it.
 	s.pause = m.pauses.observe(&s, &r.Packet, r.Time)
+	// The grid is watched on every frame, the start check's included, as the
+	// pause clock is: a start held or after a replay is stepped later.
+	s.stood = m.grid.observe(&s)
 	s.frame, s.received = frame(m.seq, r.T, s.phase, &r.Packet), r.Time
 	m.ctx = Context{}
 	// The session an earlier run left open ends first once the continue window
@@ -474,7 +478,7 @@ func (m *Machine) step(s *state) {
 		m.lastDriving = nil
 		m.finish = finish{}
 		m.finalLap, m.places, m.published = false, places{}, 0
-		m.kinds = kinds{}
+		m.kinds = kinds{stood: s.stood}
 		m.pits.Reset()
 		m.joined, m.trackChanges = joinedPartWay(prev, s), nil
 		// The track detector starts over by itself after a menu or a loading screen

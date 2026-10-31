@@ -44,6 +44,7 @@ type state struct {
 	frame    *telemetryv1.Frame // the contracts frame, for the rules' View (context.go)
 	received time.Time          // when ecu received it
 	pause    pauseMark          // what the pause clock read on it (pause.go)
+	stood    float64            // on a start, the seconds the car stood on the grid before it (kind.go)
 }
 
 func (s *state) inRace() bool { return s.phase == phaseInRace }
