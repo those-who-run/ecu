@@ -955,11 +955,15 @@ rule.
   in place of v1's "Timed race. P one of twenty.": no grid slot, since the
   place before anyone has a time is no rank. `position` tells the driver
   where their own lap put them, as a qualifying engineer would: the rank is
-  read 3 s after each of the driver's line crossings and called, as
-  `template_rank_gained` or `template_rank_lost`, when it differs from the last
-  rank called; the AI posting times in between is not called (v1 called every
-  move: eleven "Down to …" in two minutes at Spa). `race_summary`'s finish is `template_ranked` (the
-  place, the best lap), and leaving one without a finish is `template_quit`,
+  read 3 s after each crossing that closes a lap counting for best with a time
+  (an out lap or a cut lap ranks nothing), out of the pit lane (a read due in
+  the lane waits for the exit). The first is `template_rank` ("That puts you P
+  four on the timesheet."), then `template_rank_gained` or `template_rank_lost`
+  when it differs from the last rank called; the AI posting times in between
+  is not called (v1 called every move: eleven "Down to …" in two minutes at
+  Spa). `race_summary`'s finish is `template_ranked` (the rank on the frame the
+  finish is found on, not the crossing's, which GT7 hasn't re-ranked yet; the
+  best lap), and leaving one without a finish is `template_quit`,
   as a solo session's (`ranked` is in `quit_kinds` by default). Lap times and
   fuel are as in any session. The callout goldens' tests take v1's lines for
   the three ranked recordings through `rulestest.RankedKind`, with ecu's rank

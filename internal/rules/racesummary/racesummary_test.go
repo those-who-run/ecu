@@ -248,3 +248,23 @@ func TestARankedSessionIsNoRaceToWin(t *testing.T) {
 		t.Error("a quit summary for a timed race")
 	}
 }
+
+// A ranked finish reads the rank off the frame the finish is found on, not the
+// crossing's: GT7 ranks the lap a moment after the line (P15 on the crossing,
+// P4 3 s later at Spa's pace), so the crossing's place is stale. A race's place
+// is still the crossing's, as v1's.
+func TestARankedFinishReadsTheRankAfterTheLine(t *testing.T) {
+	crossing := race.View{Seq: 745, Position: 15, BestLapMs: 129918}
+	later := race.View{Seq: 925, Position: 4, BestLapMs: 129918}
+	ctx := func(kind race.Kind) *race.Context {
+		return &race.Context{Racing: true, Kind: kind, Cur: later, Finish: &crossing, Finished: true}
+	}
+	r := New(Default())
+	c := one(t, r.Evaluate(ctx(race.Kind{Type: eventsv1.SessionType_SESSION_TYPE_RANKED, Field: true})),
+		KindTemplateRanked, i32(4), i32(129918), nil)
+	if c.AsOf == nil || c.AsOf.Seq != 745 {
+		t.Errorf("created as of %v, want the crossing, frame 745", c.AsOf)
+	}
+	r = New(Default())
+	one(t, r.Evaluate(ctx(field)), KindTemplatePosition, i32(15), i32(129918), nil)
+}

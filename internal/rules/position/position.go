@@ -28,10 +28,13 @@
 // posts a time and each time an AI car posts one. The engineer tells the driver
 // where their lap put them, as a qualifying engineer would, not every time the
 // field moves: the rank is read settle_secs after each of the driver's own line
-// crossings (GT7 moves it within half a second of the crossing), and called if it
-// differs from the last rank called, as template_rank_gained or
-// template_rank_lost (the maintainer's decisions, 2026-10-31; v1 called every
-// change, as a race's).
+// crossings that closes a lap counting for best with a time (GT7 moves it within
+// half a second of the crossing; an out lap or a cut lap ranks nothing). The
+// first is called as it is, template_rank ("That puts you P four on the
+// timesheet."); after it, a rank that differs from the last one called is
+// template_rank_gained or template_rank_lost. A read due in the pit lane waits
+// for the exit, as a race's call does (the maintainer's decisions, 2026-10-31;
+// v1 called every change, as a race's).
 package position
 
 import (
@@ -52,7 +55,9 @@ const (
 	KindGainedPodium = "template_gained_podium" // into second or third
 	KindLost         = "template_lost"
 	KindLostLead     = "template_lost_lead" // out of first
-	// A ranked session's: up or down the order by lap time.
+	// A ranked session's: the first rank the driver's laps gave, then up or down
+	// the order by lap time.
+	KindRank       = "template_rank"
 	KindRankGained = "template_rank_gained"
 	KindRankLost   = "template_rank_lost"
 )
@@ -99,8 +104,9 @@ type rule struct {
 	pendingSince float64
 	spoken       bool
 	lastSpokenAt float64
-	crossing     bool    // ranked: a line crossing waits to be read since crossedAt
-	crossedAt    float64 // ranked: the driver's last line crossing
+	crossing     bool    // ranked: a counted lap's crossing waits to be read since crossedAt
+	crossedAt    float64 // ranked: the driver's last counted lap's crossing
+	rank         int32   // ranked: the last rank called, 0 before the first
 }
 
 // Reset forgets the race, as a start does.
@@ -120,7 +126,8 @@ func (r *rule) Evaluate(ctx *race.Context) []rules.Callout {
 	}
 	observe := r.observe
 	if ctx.Ranked() {
-		observe = func(f frame) (call, bool) { return r.observeRank(f, ctx.Lap != nil) }
+		counted := ctx.Lap != nil && ctx.Lap.Counts && ctx.Lap.TimeMs > 0
+		observe = func(f frame) (call, bool) { return r.observeRank(f, counted) }
 	}
 	c, ok := observe(f)
 	if !ok {
@@ -128,7 +135,7 @@ func (r *rule) Evaluate(ctx *race.Context) []rules.Callout {
 	}
 	return []rules.Callout{{
 		Kind:  c.kind,
-		Slots: &eventsv1.CalloutSlots{Position: &c.position, PreviousPosition: &c.previous},
+		Slots: slots(c),
 	}}
 }
 
@@ -173,37 +180,42 @@ func (r *rule) observe(f frame) (call, bool) {
 	return c, true
 }
 
-// observeRank is the rule in a ranked session: the grid slot settles as in a
-// race (the leap to the rank), then the rank is read settleSecs after each of the
-// driver's line crossings (crossed) and called when it differs from the last
-// rank called.
-func (r *rule) observeRank(f frame, crossed bool) (call, bool) {
-	if !f.inRace || !f.hasField || f.position <= 0 {
-		return call{}, false
+// slots are a call's: the place, and the place before it when there is one (a
+// ranked session's first call has none).
+func slots(c call) *eventsv1.CalloutSlots {
+	s := &eventsv1.CalloutSlots{Position: &c.position}
+	if c.previous > 0 {
+		s.PreviousPosition = &c.previous
 	}
-	pos := f.position
-	if !r.started {
-		r.startedAt, r.started = f.t, true
-	}
-	if r.announced == 0 || f.t-r.startedAt < r.cfg.SettleSecs {
-		r.announced = pos
-		return call{}, false
-	}
-	if crossed {
+	return s
+}
+
+// observeRank is the rule in a ranked session: settleSecs after each crossing
+// that closes a counted lap with a time (counted), the rank is read, out of the
+// pit lane, and called: as it is the first time, then when it differs from the
+// last rank called.
+func (r *rule) observeRank(f frame, counted bool) (call, bool) {
+	if counted {
 		r.crossedAt, r.crossing = f.t, true
 	}
-	if !r.crossing || f.t-r.crossedAt < r.cfg.SettleSecs {
+	if !r.crossing || f.t-r.crossedAt < r.cfg.SettleSecs ||
+		!f.inRace || !f.hasField || f.position <= 0 || f.inPitLane {
 		return call{}, false
 	}
 	r.crossing = false
-	if pos == r.announced {
+	pos := f.position
+	if pos == r.rank {
 		return call{}, false
 	}
-	c := call{kind: KindRankLost, position: pos, previous: r.announced}
-	if pos < r.announced {
+	c := call{kind: KindRank, position: pos, previous: r.rank}
+	switch {
+	case r.rank == 0:
+	case pos < r.rank:
 		c.kind = KindRankGained
+	default:
+		c.kind = KindRankLost
 	}
-	r.announced = pos
+	r.rank = pos
 	r.spoken, r.lastSpokenAt = true, f.t
 	return c, true
 }

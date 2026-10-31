@@ -163,14 +163,20 @@ func TestSettings(t *testing.T) {
 
 // The ranked kind (the maintainer's decisions, 2026-10-31): in a ranked session the
 // place is a rank by lap time, called only where the driver's own lap put them:
-// read 3 s after each line crossing, and called as template_rank_gained or
-// template_rank_lost when it differs from the last rank called. The AI posting
-// times between crossings is not called. A timed race is v1's.
+// read 3 s after each crossing that closes a lap counting for best with a time,
+// out of the pit lane. The first is template_rank, with no place before it; then
+// template_rank_gained or template_rank_lost when it differs from the last rank
+// called. The AI posting times between crossings is not called, nor is a lap that
+// doesn't count. A timed race is v1's.
 func TestARankedSessionCallsRanksAtTheLine(t *testing.T) {
 	ranked := race.Kind{Type: eventsv1.SessionType_SESSION_TYPE_RANKED, Field: true}
-	// run drives a frame every 0.5 s for 120 s: the place is places(t), and the
-	// driver crosses the line at each of crossings.
-	run := func(kind race.Kind, places func(t float64) int32, crossings ...float64) []rules.Callout {
+	type lap struct {
+		at     float64
+		counts bool
+	}
+	// run drives a frame every 0.5 s for 120 s: the place is places(t), the car is
+	// in the pit lane through pit(t), and the driver closes each of laps.
+	run := func(kind race.Kind, places func(t float64) int32, pit func(t float64) bool, laps ...lap) []rules.Callout {
 		r := &rule{cfg: DefaultConfig}
 		var got []rules.Callout
 		for i := range 240 {
@@ -179,9 +185,10 @@ func TestARankedSessionCallsRanksAtTheLine(t *testing.T) {
 				Racing: true, Kind: kind,
 				Cur: race.View{T: now, Phase: telemetryv1.Phase_PHASE_IN_RACE, Lap: 1, Position: places(now), TotalCars: 16},
 			}
-			for _, c := range crossings {
-				if c == now {
-					ctx.Lap = &race.ClosedLap{Lap: 1}
+			ctx.Pits.InPitLane = pit != nil && pit(now)
+			for _, l := range laps {
+				if l.at == now {
+					ctx.Lap = &race.ClosedLap{Lap: 1, Counts: l.counts, TimeMs: 143943}
 				}
 			}
 			for _, c := range r.Evaluate(ctx) {
@@ -206,10 +213,14 @@ func TestARankedSessionCallsRanksAtTheLine(t *testing.T) {
 			if got[i].Kind != w.kind || s.GetPreviousPosition() != w.from || s.GetPosition() != w.to || s.GetLap() != int32(w.at*10) {
 				t.Errorf("%s: call %d %s %v, want %v", name, i, got[i].Kind, s, w)
 			}
+			if w.from == 0 && s.PreviousPosition != nil {
+				t.Errorf("%s: call %d has a place before it: %v", name, i, s)
+			}
 		}
 	}
-	// The evening practice: P2 after the leap, the AI's times push the driver to
-	// P11 through lap 2, and the lap at 60 s puts them P4, a frame later.
+	// The evening practice: P2 after the leap, the out lap (not counted) at 20 s,
+	// the AI's times push the driver to P11, and lap 2 at 60 s puts them P4, a
+	// frame later; lap 3 at 100 s leaves them P4.
 	practice := func(now float64) int32 {
 		switch {
 		case now < 30:
@@ -219,20 +230,35 @@ func TestARankedSessionCallsRanksAtTheLine(t *testing.T) {
 		}
 		return 4
 	}
-	check("practice", run(ranked, practice, 20, 60), want{63, KindRankLost, 2, 4})
-	// No crossing, no call, however the field moves.
-	check("no crossing", run(ranked, practice))
-	// A crossing that leaves the rank where it was called says nothing.
-	check("unchanged", run(ranked, practice, 20))
-	// Up the order: the qualifying's lap to P1, after P3.
-	check("gained", run(ranked, func(now float64) int32 {
-		if now < 40.5 {
+	laps := []lap{{20, false}, {60, true}, {100, true}}
+	check("practice", run(ranked, practice, nil, laps...), want{63, KindRank, 0, 4})
+	// No counted lap, no call, however the field moves.
+	check("no counted lap", run(ranked, practice, nil, lap{20, false}, lap{60, false}))
+	// Up the order: after P3, the next lap to P1.
+	up := func(now float64) int32 {
+		if now < 80.5 {
 			return 3
 		}
 		return 1
-	}, 40), want{43, KindRankGained, 3, 1})
+	}
+	check("gained", run(ranked, up, nil, lap{40, true}, lap{80, true}),
+		want{43, KindRank, 0, 3}, want{83, KindRankGained, 3, 1})
+	// Down: the AI beat the last lap's time.
+	down := func(now float64) int32 {
+		if now < 70 {
+			return 3
+		}
+		return 6
+	}
+	check("lost", run(ranked, down, nil, lap{40, true}, lap{80, true}),
+		want{43, KindRank, 0, 3}, want{83, KindRankLost, 3, 6})
+	// A lap closed into the pit lane: the read waits for the exit at 70 s, and the
+	// rank called before stays the one compared with.
+	pit := func(now float64) bool { return now >= 60 && now < 70 }
+	check("pit lane", run(ranked, down, pit, lap{40, true}, lap{60, true}),
+		want{43, KindRank, 0, 3}, want{70, KindRankLost, 3, 6})
 	// A timed race is v1's: every settled move, crossing or not.
-	got := run(race.Kind{Type: eventsv1.SessionType_SESSION_TYPE_TIMED_FIELD, Field: true}, practice)
+	got := run(race.Kind{Type: eventsv1.SessionType_SESSION_TYPE_TIMED_FIELD, Field: true}, practice, nil)
 	if len(got) != 2 || got[0].Kind != KindLostLead && got[0].Kind != KindLost {
 		t.Errorf("timed race: %v, want v1's calls", got)
 	}
