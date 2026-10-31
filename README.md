@@ -238,6 +238,20 @@ GT7 sends no mode. [`internal/race/kind.go`](internal/race/kind.go) is v1's
   and each summary's kind are v1's, evidence word for word, as `make_golden.py`
   in [`internal/race/testdata/kind/`](internal/race/testdata/kind) wrote them
   from v1.0.0. The six v1 drops as a replay or a GT7 demo have none.
+- **The type, not the flag.** `session.started`'s and the summary's
+  `session_type` are the kind's, and every gate that means a field (the
+  position, the timed finish, the start brief's and the summary's place) reads
+  the kind's `field`, never GT7's cars-on-track flag (paddock#146). The
+  status's position still asks for both, as contracts' `LiveSession` says. The flag means "on track with data": it is
+  set in every time trial recorded, so it can't tell a race. It still tells a
+  drive from a replay or a demo ([The start check](#the-start-check)), and
+  rides along in `SessionKind.cars_on_track`.
+- **Practice with the field out.** A custom race's practice puts the AI field
+  on track: GT7 reports the cars, no lap total and a place ranked by lap time,
+  exactly as in qualifying, so it reads as a timed field, as v1 read it
+  (`real-nuc-suzuka-practice-2026-10-31`, in
+  [`internal/race/testdata/sessions/`](internal/race/testdata/sessions)).
+  Solo timed's "practice" is practice driven alone.
 
 ## Listening to the PS5
 
@@ -574,7 +588,8 @@ frame and publishes the session's entries, exits and withdrawn entries, as v1's
   (lap total + 1): the first finished frame is the finish (`FINISH_KIND_FLAG`),
   solo laps included, as v1 counted them finished.
 - **Timed.** A timed race has no flag. v1's `Engine._timed_finish`, ported as it
-  is: in a timed session with a field and GT7's cars-on-track flag, after a
+  is: in a timed session with a field (the kind's, not GT7's cars-on-track
+  flag, paddock#146), after a
   lap time is posted, throttle and brake both 0 at over 20 km/h for 3 s is GT7
   driving the car after the line (`FINISH_KIND_TIMED`), as of that line
   crossing. Inputs within 0.5 s of the line are still the driver's; after that
@@ -718,9 +733,12 @@ is the callouts' (paddock#93, #94).
   15 s start grace and the 10 s between calls are the callout's. The race's
   first 3 s follow the grid slot quietly (GT7 reports the slot a frame or two
   late), a frame with no position (-1 or 0) is passed over, and there is none
-  without a field: once the kind is known, a field GT7 flags with cars on
-  track (a time trial's ghost is flagged but no field); on a start's first
-  frame, before it, the flag and more than one car (v1's `has_field`).
+  without a field (v1's `has_field`): once the kind is known, the kind's
+  field; on a start's first frame, before it, the field the kind reads from
+  that frame alone. GT7's cars-on-track flag is never read for it
+  (paddock#146): it is set in a time trial too, ghost or none. v1 read the
+  flag and more than one car on that first frame, so a ghost was a field
+  there, a departure on one frame that no recording shows.
 - **In the pit lane.** The position is followed but not published, and settles
   again from the exit, so the first change after it is the net change against
   the last place published.

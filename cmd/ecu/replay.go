@@ -45,7 +45,8 @@ const (
 )
 
 // connectTimeout is how long a replay waits for the NATS server before it gives up
-// with exit 2: a var, so the tests can shorten it.
+// with exit 2, and how long live's status writer waits for it before its first
+// write: a var, so the tests can shorten it.
 var connectTimeout = 10 * time.Second
 
 // replayGrace is how long a replay waits at the end for the server to take and
@@ -206,7 +207,7 @@ func replay(ctx context.Context, args []string, getenv func(string) string, stdi
 		_, _ = fmt.Fprintln(stderr, "ecu replay:", err)
 		return exitNATS
 	}
-	open, rev, read := loadKept(ctx, ecuKV, busCfg.Src, logger)
+	open, rev, read := loadKept(ctx, ecuKV, nil, busCfg.Src, logger) // connected already
 	keeper := sessions.New(ecuKV, busCfg.Src, rev, waiting{ctx, pub}, logger)
 	keeper.Replay()
 	if read {

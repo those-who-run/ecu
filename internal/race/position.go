@@ -67,15 +67,15 @@ func (p *places) observe(s *state, field, inPitLane bool) (previous int32, settl
 	return previous, true
 }
 
-// hasField is v1's Rule.has_field: other cars are racing for position. Once the
-// kind is known, a field GT7 flags with cars on track (a time trial's ghost is
-// flagged but no field); before it, on a start's first frame, GT7's flag and more
-// than one car. kind is the kind before s, as v1's rules read it.
+// hasField is v1's Rule.has_field: other cars are racing for position, by the
+// session kind, never GT7's cars-on-track flag (paddock#146): the kind's field
+// once it is known, and before it, on a start's first frame, the field the kind
+// reads from that frame alone. kind is the kind before s, as v1's rules read it.
 func hasField(kind kindVerdict, s *state) bool {
 	if kind.kind != eventsv1.SessionType_SESSION_TYPE_UNKNOWN {
-		return kind.field && kind.carsOnTrack
+		return kind.field
 	}
-	return s.carsOnTrack && s.totalCars > 1
+	return frameField(s.totalLaps, s.totalCars, s.racePosition())
 }
 
 // observeRace is where v1's Engine._step runs its rules: after the pits, before

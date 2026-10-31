@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"math"
 	"math/rand/v2"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -316,5 +318,46 @@ func TestARecordNeverReadIsEndedAtTheFirstWrite(t *testing.T) {
 	}
 	if oldEnded != 1 || started != 1 {
 		t.Errorf("the old session ended %d times and %d started; want 1 and 1", oldEnded, started)
+	}
+}
+
+// errNotYet is the client's error for a read before its first connection.
+var errNotYet = errors.New("bucket ecu: nats: outbound buffer limit exceeded")
+
+// notYet is a sessions.KV on a connection not yet made: each read fails at
+// once, as the client's does before its first connection (bus.Connect).
+type notYet struct {
+	*revKV
+	up    atomic.Bool
+	reads atomic.Int32
+}
+
+func (k *notYet) Entry(ctx context.Context, key string) ([]byte, uint64, error) {
+	k.reads.Add(1)
+	if !k.up.Load() {
+		return nil, 0, errNotYet
+	}
+	return k.revKV.Entry(ctx, key)
+}
+
+// The record is read once NATS is first reached, not tried before and again a
+// second later (2026-10-31's start, the status's twin).
+func TestTheRecordIsReadOnceNATSIsReached(t *testing.T) {
+	kv := &notYet{revKV: newRevKV()}
+	connected := func(context.Context) error {
+		time.Sleep(50 * time.Millisecond)
+		kv.up.Store(true)
+		return nil
+	}
+	start := time.Now()
+	open, _, ok := loadKept(t.Context(), kv, connected, "live", slog.New(slog.DiscardHandler))
+	if !ok || open != nil {
+		t.Fatalf("ok %v, open %v; want ok and no record", ok, open)
+	}
+	if n := kv.reads.Load(); n != 1 {
+		t.Errorf("%d reads, want 1: none before the connection", n)
+	}
+	if took := time.Since(start); took >= time.Second {
+		t.Errorf("read after %v, want no retry's second", took)
 	}
 }

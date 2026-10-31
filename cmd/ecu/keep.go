@@ -49,10 +49,16 @@ var loadTimeout = 10 * time.Second
 
 // loadKept reads the record an earlier run left under src, tried each second
 // for loadTimeout. ok is false when it could not be read (no bucket, or NATS out
-// of reach), which is logged; with none there, open is nil and ok true.
-func loadKept(ctx context.Context, kv sessions.KV, src string, logger *slog.Logger) (open *statev1.OpenSession, rev uint64, ok bool) {
+// of reach), which is logged; with none there, open is nil and ok true. A
+// non-nil connected waits, within the same loadTimeout, for NATS's first
+// connection before the first read: until then a read fails at once
+// (bus.Connect), and the next try would be a second later.
+func loadKept(ctx context.Context, kv sessions.KV, connected func(context.Context) error, src string, logger *slog.Logger) (open *statev1.OpenSession, rev uint64, ok bool) {
 	wait, cancel := context.WithTimeout(ctx, loadTimeout)
 	defer cancel()
+	if connected != nil {
+		_ = connected(wait) // not reached in time: the reads below fail and say so
+	}
 	for {
 		open, rev, err := sessions.Load(wait, kv, src)
 		if err == nil {
