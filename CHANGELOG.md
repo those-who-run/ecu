@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.13](https://github.com/those-who-run/ecu/compare/v0.1.12...v0.1.13) (2026-10-31)
+
+
+### Bug Fixes
+
+* **race:** the field gates read the session kind, not the cars-on-track flag ([#63](https://github.com/those-who-run/ecu/issues/63)) ([8b11ead](https://github.com/those-who-run/ecu/commit/8b11eadf9c331aff33fd7d5072a00f8757162117))
+* **status:** live's status writer waits for NATS's first connection ([#62](https://github.com/those-who-run/ecu/issues/62)) ([3605ec0](https://github.com/those-who-run/ecu/commit/3605ec056e6a6142f826aeb73349c220e2dd844a))
+
 ## [0.1.12](https://github.com/those-who-run/ecu/compare/v0.1.11...v0.1.12) (2026-10-31)
 
 
