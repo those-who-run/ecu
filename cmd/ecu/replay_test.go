@@ -307,11 +307,11 @@ func TestTheExitCodes(t *testing.T) {
 // R3 of paddock#35 (AC4): the default src is replay-<stem>-<suffix>, the stem made
 // into a subject token; --run sets the stem with no suffix; parity is accepted.
 func TestTheSrc(t *testing.T) {
-	src, err := replaySrc("", "", "/recordings/Real Race 2laps.jsonl.gz")
+	src, err := replaySrc("", "", "/recordings/Real Race 2laps.jsonl.gz", "")
 	if err != nil || !regexp.MustCompile(`^replay-real-race-2laps-[a-z0-9]+$`).MatchString(src) {
 		t.Errorf("default src %q, %v", src, err)
 	}
-	again, _ := replaySrc("", "", "/recordings/Real Race 2laps.jsonl.gz")
+	again, _ := replaySrc("", "", "/recordings/Real Race 2laps.jsonl.gz", "")
 	if again == src {
 		t.Errorf("two replays of one file share the src %q", src)
 	}
@@ -320,7 +320,7 @@ func TestTheSrc(t *testing.T) {
 		{"parity", "", "x.jsonl", "parity"},
 		{"replay-mine", "", "x.jsonl", "replay-mine"},
 	} {
-		if got, err := replaySrc(c.src, c.run, c.path); err != nil || got != c.want {
+		if got, err := replaySrc(c.src, c.run, c.path, ""); err != nil || got != c.want {
 			t.Errorf("%+v: %q, %v", c, got, err)
 		}
 	}
@@ -338,7 +338,7 @@ func TestTheSrc(t *testing.T) {
 			t.Errorf("stemOf(%q) = %q, want %q", path, got, stem)
 		}
 	}
-	long, err := replaySrc("", "", strings.Repeat("a", 90)+".jsonl")
+	long, err := replaySrc("", "", strings.Repeat("a", 90)+".jsonl", "")
 	if err == nil {
 		err = bus.Config{URL: "x", Src: long}.Validate()
 	}
@@ -371,8 +371,13 @@ func TestTheOpenSessionEndsWithTheRecording(t *testing.T) {
 	srv := bustest.WithStreams(t)
 	in := readAll(t, openRecording(t, recordingPath(t, suzuka)))
 	path := synthetic(t, len(in)/2, nil) // mid-race
-	if got := runReplay(t, nil, "--nats", srv.URL(), "--speed", "max", "--run", "half", path); got.code != 0 {
+	got := runReplay(t, nil, "--nats", srv.URL(), "--speed", "max", "--run", "half", path)
+	if got.code != 0 {
 		t.Fatalf("exit %d, stderr %q", got.code, got.stderr)
+	}
+	// R5: the summary's one line says so too.
+	if lines := summaryLines(t, got.stdout); len(lines) != 1 || !strings.HasSuffix(lines[0], " INPUT_ENDED") {
+		t.Errorf("the summary is %q, want one session ended as the input ended", lines)
 	}
 	stored := srv.Read("EVENTS", 0)
 	last := stored[len(stored)-1]

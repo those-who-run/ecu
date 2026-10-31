@@ -1,13 +1,18 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base32"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"log/slog"
 	"math"
+	mrand "math/rand/v2"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -18,6 +23,8 @@ import (
 
 	"github.com/oklog/ulid/v2"
 
+	eventsv1 "github.com/those-who-run/contracts/gen/go/twr/events/v1"
+	statev1 "github.com/those-who-run/contracts/gen/go/twr/state/v1"
 	"github.com/those-who-run/ecu/internal/bus"
 	"github.com/those-who-run/ecu/internal/live"
 	"github.com/those-who-run/ecu/internal/race"
@@ -86,6 +93,8 @@ func replay(ctx context.Context, args []string, getenv func(string) string, stdi
 	speed := flags.String("speed", "1", "1 for the recorded pacing, any factor above 0, or max for no waiting")
 	clock := flags.String("clock", "", "the first frame's wall-clock time: ISO 8601 (UTC unless it says) or epoch seconds "+
 		"(default 2026-01-01T00:00:00Z)")
+	seed := flags.String("seed", "", "derive the run, session and event ids, and the default --src's suffix, from this seed "+
+		"and the recording, so a second replay gives the same ids (default: random ids)")
 	keepOpen := flags.Bool("keep-open", false, "at the end, keep the open session in the ecu bucket for the next replay "+
 		"under the same --src, as a stopped ecu does, instead of ending it")
 	path, err := parseInterspersed(flags, args)
@@ -113,10 +122,25 @@ func replay(ctx context.Context, args []string, getenv func(string) string, stdi
 	if err == nil {
 		window, err = continueWindow(getenv)
 	}
-	busCfg := bus.Config{URL: *url}
-	if err == nil {
-		busCfg.Src, err = replaySrc(*src, *run, path)
+	if err != nil {
+		_, _ = fmt.Fprintln(stderr, "ecu replay:", err)
+		return exitNATS
 	}
+	// --seed's key needs the recording's sha256 (paddock#309), and so a read of it
+	// before the replay's own: a recording that cannot be read is exit 1.
+	var key *[32]byte
+	if *seed != "" {
+		digest, in, err := digestOf(path, stdin)
+		if err != nil {
+			_, _ = fmt.Fprintln(stderr, "ecu replay:", err)
+			return exitRecording
+		}
+		stdin = in
+		k := seedKey(*seed, digest)
+		key = &k
+	}
+	busCfg := bus.Config{URL: *url}
+	busCfg.Src, err = replaySrc(*src, *run, path, seededSuffix(key))
 	if err == nil {
 		err = busCfg.Validate()
 	}
@@ -153,7 +177,8 @@ func replay(ctx context.Context, args []string, getenv func(string) string, stdi
 		_, _ = fmt.Fprintln(stderr, "ecu replay:", err)
 		return exitNATS
 	}
-	logger.InfoContext(ctx, "replaying", "recording", path, "src", busCfg.Src, "speed", *speed, "clock", start.Format(time.RFC3339Nano))
+	logger.InfoContext(ctx, "replaying", "recording", path, "src", busCfg.Src, "speed", *speed, "clock", start.Format(time.RFC3339Nano),
+		"seeded", key != nil)
 
 	// The replay's status goes under its own source, never live's (paddock#88,
 	// R6), from a goroutine of its own, as live's does.
@@ -195,12 +220,15 @@ func replay(ctx context.Context, args []string, getenv func(string) string, stdi
 		keeper.Run(keepCtx, statusGrace)
 	}()
 
-	paced := &pacer{src: rec, speed: factor, clock: start}
-	m := race.New(ulid.Make)
+	paced := &pacer{src: rec, speed: factor, clock: start, last: start}
+	m := race.New(replayIDs(key, busCfg.Src, paced.now))
 	m.Restore(open, window)
 	// A replay's frames carry their own clock, so the window is checked on each
 	// step, not by a timer.
-	failed := drive(ctx, paced, paced.at, m, eng, waiting{ctx, pub}, nil, tracker, &keeping{k: keeper, keepOpen: *keepOpen})
+	sums := &sessionSums{}
+	failed := drive(ctx, paced, paced.at, m, eng, summing{waiting{ctx, pub}, sums}, nil, tracker,
+		&keeping{k: keeper, keepOpen: *keepOpen})
+	sums.keptOpen(m.Open())
 	// The status's last values, the session ended and the replay idle, and the
 	// open session's record go before the publisher closes.
 	tracker.Stop()
@@ -229,6 +257,7 @@ func replay(ctx context.Context, args []string, getenv func(string) string, stdi
 	}
 	s := pub.Stats()
 	waitGone(pub)
+	sums.log(ctx, logger)
 	var re *salsa.RecordingError
 	switch {
 	case errors.As(failed, &re):
@@ -347,9 +376,10 @@ func parseClock(s string) (time.Time, error) {
 
 // replaySrc is the <src> a replay publishes under (paddock#35, R3): --src as
 // given, but never live, which is the PS5's alone; replay-<run> for --run; or
-// replay-<stem>-<suffix>, the recording's file stem made into a subject token and a
-// random suffix, so two replays of one file do not share a source.
-func replaySrc(src, run, path string) (string, error) {
+// replay-<stem>-<suffix>, the recording's file stem made into a subject token and
+// suffix, or a random one when suffix is "", so two replays of one file do not
+// share a source unless they share a --seed.
+func replaySrc(src, run, path, suffix string) (string, error) {
 	switch {
 	case src != "" && run != "":
 		return "", errors.New("--src and --run: give one or the other")
@@ -360,7 +390,9 @@ func replaySrc(src, run, path string) (string, error) {
 	case run != "":
 		return "replay-" + run, nil
 	}
-	suffix := strings.ToLower(rand.Text()[:6]) // 30 random bits, [a-z2-7]
+	if suffix == "" {
+		suffix = strings.ToLower(rand.Text()[:6]) // 30 random bits, [a-z2-7]
+	}
 	stem := stemOf(path)
 	// replay-<run>: a run of 64 at most.
 	if room := 64 - len(suffix) - 1; len(stem) > room {
@@ -411,6 +443,7 @@ type pacer struct {
 	started bool
 	t0      float64   // the first packet's t
 	wall    time.Time // when the first packet was given, for the pacing
+	last    time.Time // the last packet's time (at), clock before the first
 }
 
 func (p *pacer) Next(ctx context.Context) (salsa.Received, error) {
@@ -421,8 +454,10 @@ func (p *pacer) Next(ctx context.Context) (salsa.Received, error) {
 	p.n++
 	if !p.started {
 		p.started, p.t0, p.wall = true, r.T, time.Now()
+		p.last = p.at(r)
 		return r, nil
 	}
+	p.last = p.at(r)
 	if p.speed == 0 {
 		return r, nil
 	}
@@ -446,4 +481,157 @@ func (p *pacer) Close() error { return p.src.Close() }
 // at is a packet's wall-clock time: clock plus its time since the first packet.
 func (p *pacer) at(r salsa.Received) time.Time { return p.clock.Add(seconds(r.T - p.t0)) }
 
+// now is the replay's clock: the time of the packet last read, or clock before
+// the first. A seeded replay's ULIDs take their time from it.
+func (p *pacer) now() time.Time { return p.last }
+
 func seconds(s float64) time.Duration { return time.Duration(math.Round(s * float64(time.Second))) }
+
+// digestOf is the recording's sha256, over its bytes as stored (still gzipped
+// for a .gz), and the standard input to replay from: standard input is read
+// whole for the digest and replayed from memory.
+func digestOf(path string, stdin io.Reader) ([]byte, io.Reader, error) {
+	h := sha256.New()
+	if path == "-" {
+		data, err := io.ReadAll(stdin)
+		if err != nil {
+			return nil, nil, fmt.Errorf("stdin: %w", err)
+		}
+		h.Write(data)
+		return h.Sum(nil), bytes.NewReader(data), nil
+	}
+	f, err := os.Open(path) //nolint:gosec // the recording the caller named
+	if err != nil {
+		return nil, nil, err
+	}
+	defer func() { _ = f.Close() }()
+	if _, err := io.Copy(h, f); err != nil {
+		return nil, nil, fmt.Errorf("%s: %w", path, err)
+	}
+	return h.Sum(nil), stdin, nil
+}
+
+// seedKey is what a seeded replay's ids come from (paddock#35, paddock#309): the
+// seed and the recording's sha256, so one seed replays two recordings to
+// different ids, and the same recording and seed to the same ones.
+func seedKey(seed string, digest []byte) [32]byte {
+	h := sha256.New()
+	h.Write([]byte("ecu replay --seed\x00"))
+	h.Write([]byte(seed))
+	h.Write([]byte{0})
+	h.Write(digest)
+	return [32]byte(h.Sum(nil))
+}
+
+// seededSuffix is the default --src's suffix under --seed, from the key, so a
+// seeded replay with the default source is reproducible too; "" (random) with no
+// seed.
+func seededSuffix(key *[32]byte) string {
+	if key == nil {
+		return ""
+	}
+	return strings.ToLower(base32.StdEncoding.EncodeToString(key[:]))[:6]
+}
+
+// replayIDs is the replay's ULID generator. Without a seed it is live's,
+// ulid.Make: random ids on each run. With one (paddock#309), the ULIDs' time is
+// the replay's own clock and their entropy a ChaCha8 stream keyed by the seed's
+// key and the source, so the same recording, seed, --src and --clock give the
+// same run id and session ids, and so the same frame, event and callout ids. The
+// source is in the key because a frame's id, <run>:frame:<seq>, has no <src>:
+// two seeded replays of one recording under two sources must not share a run id,
+// or TELEMETRY would drop the second's frames as duplicates.
+func replayIDs(key *[32]byte, src string, now func() time.Time) race.IDs {
+	if key == nil {
+		return ulid.Make
+	}
+	stream := sha256.Sum256(append(append(key[:], 0), src...))
+	return race.NewIDs(now, mrand.NewChaCha8(stream))
+}
+
+// sessionSum is one session of a replay, as its summary line says it
+// (paddock#35, R5): its kind, laps completed and why it ended.
+type sessionSum struct {
+	id    string
+	kind  eventsv1.SessionType
+	laps  int32
+	ended string
+}
+
+// sessionSums are the replay's sessions, in the order they first appear: one
+// started, continued or ended in the replay.
+type sessionSums struct {
+	all []*sessionSum
+}
+
+func (s *sessionSums) get(id string) *sessionSum {
+	for _, sum := range s.all {
+		if sum.id == id {
+			return sum
+		}
+	}
+	sum := &sessionSum{id: id}
+	s.all = append(s.all, sum)
+	return sum
+}
+
+// see reads the sessions' facts from the events, as a subscriber would.
+func (s *sessionSums) see(outs []race.Output) {
+	for _, o := range outs {
+		switch {
+		case o.Started != nil:
+			s.get(o.Started.GetSessionId()).kind = o.Started.GetSessionType()
+		case o.Continued != nil:
+			s.get(o.Continued.GetSessionId())
+		case o.Kind != nil:
+			if t := o.Kind.GetKind().GetSessionType(); t != eventsv1.SessionType_SESSION_TYPE_UNSPECIFIED {
+				s.get(o.Kind.GetSessionId()).kind = t
+			}
+		case o.Ended != nil:
+			sum := s.get(o.Ended.GetSessionId())
+			s.summed(sum, o.Ended.GetSummary())
+			sum.ended = strings.TrimPrefix(o.Ended.GetReason().String(), "END_REASON_")
+		}
+	}
+}
+
+func (s *sessionSums) summed(sum *sessionSum, summary *eventsv1.SessionSummary) {
+	sum.laps = summary.GetLapsCompleted()
+	if t := summary.GetKind().GetSessionType(); t != eventsv1.SessionType_SESSION_TYPE_UNSPECIFIED {
+		sum.kind = t
+	} else if t := summary.GetSessionType(); t != eventsv1.SessionType_SESSION_TYPE_UNSPECIFIED {
+		sum.kind = t
+	}
+}
+
+// keptOpen is the session --keep-open left open at the end, if any: not ended.
+func (s *sessionSums) keptOpen(open *statev1.OpenSession) {
+	if open.GetSessionId() == "" {
+		return
+	}
+	sum := s.get(open.GetSessionId())
+	if sum.ended == "" {
+		s.summed(sum, open.GetSummary())
+		sum.ended = "KEPT_OPEN"
+	}
+}
+
+// log logs one line per session, the replay's summary at its end (R5).
+func (s *sessionSums) log(ctx context.Context, logger *slog.Logger) {
+	for _, sum := range s.all {
+		logger.InfoContext(ctx, "replayed session", "session", sum.id,
+			"kind", strings.TrimPrefix(sum.kind.String(), "SESSION_TYPE_"), "laps", sum.laps, "ended", sum.ended)
+	}
+}
+
+// summing is a publisher that notes each session's facts for the summary before
+// it publishes.
+type summing struct {
+	publisher
+	sums *sessionSums
+}
+
+func (s summing) Publish(outs []race.Output) {
+	s.sums.see(outs)
+	s.publisher.Publish(outs)
+}

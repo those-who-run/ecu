@@ -48,8 +48,9 @@ and ends a session exactly where v1 did, with v1's rules ported from its
 - **No clock, no NATS, no files.** Each packet comes with the time ecu received
   it, which becomes its frame's `ce-time`; a session's `started_at` is its
   first frame's. The caller gives the ULID generator: `race.New(ulid.Make)`
-  in production, a fixed clock and seeded entropy in tests and replays, so the
-  same packets give the same outputs, ids included. depguard in
+  in production, a fixed clock and seeded entropy in tests and seeded
+  replays ([`--seed`](#ids-and---seed)), so the same packets give the same
+  outputs, ids included. depguard in
   [`.golangci.yml`](.golangci.yml) fails the lint on an import of NATS, the
   network or the file system in the package.
 - **Ids.** The machine mints a run id when it is made; frames are
@@ -369,6 +370,7 @@ docker run --rm -v "$PWD:/recordings" ghcr.io/those-who-run/twr-ecu \
 | `--src` | `replay-<stem>-<suffix>` | The source token: `parity`, or `replay-<run>`. `live` is refused. |
 | `--run` | none | Publish under `replay-<run>`, with no suffix. Not with `--src`. |
 | `--clock` | `2026-01-01T00:00:00Z` | The first frame's wall-clock time: ISO 8601, UTC unless it says (`2026-10-31T20:05:09+01:00`), or epoch seconds. |
+| `--seed` | none: random ids | Derive the ids from this seed (a number or any word) and the recording: the same recording, seed, source and clock replay to the same ids ([Ids](#ids-and---seed)). |
 | `--keep-open` | off | At the end, keep the open session in the `ecu` bucket, as a stopped ecu does, instead of ending it: the first half of a restart pair ([After a restart](#after-a-restart)). |
 | `--nats` | `TWR_NATS_URL`, then `nats://127.0.0.1:4222` | The NATS server. |
 
@@ -409,9 +411,52 @@ docker run --rm -v "$PWD:/recordings" ghcr.io/those-who-run/twr-ecu \
   the first's last frame, are an ecu restart in the middle of a race
   ([After a restart](#after-a-restart)).
 
-Not here yet, and still paddock#35's: `--seed` for the ULIDs (session and
-event ids are random on each run until then), `--from` and `--to`, and the
-one line per session printed at the end.
+- **The summary.** At the end a replay logs one `replayed session` line per
+  session it started, continued or ended, in that order: its id, kind (the
+  `SessionType` without its prefix, `LAP_RACE`), laps completed and why it
+  ended (the `EndReason` without its prefix, `INPUT_ENDED`), the same facts
+  as its `session.ended`. A session `--keep-open` or a stop left open ends
+  `KEPT_OPEN`, with the laps it had.
+
+  ```json
+  {"level":"INFO","msg":"replayed session","session":"01KDVDNA000ZB038PDRP33129E","kind":"TIMED_FIELD","laps":2,"ended":"QUIT"}
+  ```
+
+### Ids and `--seed`
+
+Without `--seed` a replay mints its ids as live does (`ulid.Make`): the run id,
+and so every frame's `<run>:frame:<seq>`, and each session's id, and so its
+events' and callouts' ids, are new on each run (paddock#35's decision of
+2026-10-24).
+
+With `--seed` (paddock#309) they are reproducible. The ULIDs' time is the
+replay's own clock (`--clock`, then each frame's time), and their entropy is a
+ChaCha8 stream keyed by the sha256 of the seed, the recording's sha256 (its
+bytes as stored; standard input is read whole first) and the source. So the
+same recording, seed, `--src` and `--clock` give the same run, session, frame,
+event and callout ids, and so the same `Nats-Msg-Id`s; and the default
+source's 6 characters come from the seed and the recording too, so a seeded
+replay under the default `--src` is the same twice. The ids are not promised
+to stay the same across ecu versions.
+
+- **Not live's.** A seeded ULID is dated by the replay's clock (2026-01-01
+  unless `--clock` says otherwise) and its 80 random bits are the seed's, and
+  a replay never publishes under `live`, which every event's and callout's id
+  starts with. A seeded replay cannot take a live session's id or `Nats-Msg-Id`
+  in practice.
+- **Recordings and sources apart.** The recording and the source are in the
+  key because a frame's id has no `<src>`: two seeded replays of one
+  recording under two sources, or of two recordings under one, get different
+  run ids, so TELEMETRY never drops one's frames as the other's duplicates.
+- **A second run is deduplicated.** The same seeded replay run again onto the
+  same streams within their duplicate window (2 min) publishes the same
+  `Nats-Msg-Id`s, so the streams keep the first run's messages and take none
+  of the second's; the replay still exits 0. That is intended: a seeded
+  replay is idempotent, and logbook upserts by id after the window too. A
+  rerun that must be stored again takes another `--seed` or `--src`.
+
+Not here yet: `--from` and `--to`, moved out of paddock#35 to a feature issue of
+their own (the decision of 2026-10-31).
 
 ## Track tools
 
