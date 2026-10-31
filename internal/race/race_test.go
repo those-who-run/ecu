@@ -113,8 +113,10 @@ func nonZero(v int32) *int32 {
 }
 
 // v1Kinds is v1's name for each session kind (sessionkind.Kind), one to one with
-// the SessionType values ecu sends.
+// the SessionType values ecu sends, and ecu's name for its own ranked kind, which
+// v1 read as timed_field (rankedDepartures).
 var v1Kinds = map[eventsv1.SessionType]string{
+	eventsv1.SessionType_SESSION_TYPE_RANKED:      "ranked",
 	eventsv1.SessionType_SESSION_TYPE_UNKNOWN:     "unknown",
 	eventsv1.SessionType_SESSION_TYPE_LAP_RACE:    "lap_race",
 	eventsv1.SessionType_SESSION_TYPE_SOLO_LAPS:   "solo_laps",
@@ -201,7 +203,8 @@ func strs(lines []stored, float32s bool) []string {
 // One field of v1's is not compared, on purpose: the start's type, v1's
 // store.session_type (race, time trial or practice from GT7's cars-on-track flag).
 // contracts v0.1.4 replaced it with the kind (paddock#276), which the end's kind
-// holds to v1. The positions are compared as they are: v1 stored none in the
+// holds to v1, but for the sessions ecu reads as ranked (rankedDepartures). The
+// positions are compared as they are: v1 stored none in the
 // recordings' one solo session, so leaving them out outside a field (also
 // paddock#276) changes nothing here; TestNoPositionOutsideAField pins that
 // difference.
@@ -210,8 +213,13 @@ func TestSessionsAndLapsEqualV1s(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			all := packets(t, name)
 			golden := readGolden(t, name)
-			for i := range golden {
+			for i, l := range golden {
 				golden[i].Type = ""
+				for _, r := range rankedDepartures[name] {
+					if l.Event == "session.ended" && l.Session == r.session {
+						golden[i].Kind = "ranked" // v1: timed_field
+					}
+				}
 			}
 			want := strs(golden, roundedFixtures[name])
 			got := strs(asStored(run(all)), roundedFixtures[name])

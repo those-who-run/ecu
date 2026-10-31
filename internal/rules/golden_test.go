@@ -67,6 +67,23 @@ var accepted = map[string]map[string]string{
 // before the detector could be sure.
 const noTrackAtStart = "the maintainer's decision of 2026-10-31: no track named at the start"
 
+// asRanked is v1's callout l as ecu raises it in a ranked session
+// (rulestest.RankedSessions, rulestest.RankedKind).
+func asRanked(name string, l goldenLine) goldenLine {
+	if rulestest.Ranked(name, l.Session) {
+		l.Kind = rulestest.RankedKind(l.Rule, l.Kind)
+	}
+	return l
+}
+
+// rankedQuits are the summaries ecu raises on leaving a ranked session, which v1,
+// reading a timed field, never raised (rulestest.RankedDecision: ranked is in
+// race_summary's quit_kinds).
+var rankedQuits = map[string][]string{
+	"real-quali-restart-quit-2026-10-14":   {"session 2 frame 774 race_summary template_quit p25 speak"},
+	"real-nuc-spa-pit-cut-quit-2026-10-18": {"session 1 frame 1192 race_summary template_quit p25 speak"},
+}
+
 // pending are callouts ecu raises that v1 did not, by recording and the line's
 // show(), each with the open paddock issue that removes it. Each must still be
 // raised: the issue's PR deletes its line when its fix lands.
@@ -148,7 +165,18 @@ func TestEveryCalloutIsV1sOnEveryRecording(t *testing.T) {
 					t.Logf("accepted: %s (%s)", l.show(), why)
 					continue
 				}
+				if r := asRanked(name, l); r != l {
+					t.Logf("ranked: %s as %q (%s)", l.show(), r.Kind, rulestest.RankedDecision)
+					if r.Kind == "" {
+						continue // a v1 position call, in place of which ecu raises RankCalls
+					}
+					l = r
+				}
 				want = append(want, l.show())
+			}
+			want = append(want, rankedQuits[name]...)
+			for _, c := range rulestest.RankCalls[name] {
+				want = append(want, goldenLine{Session: c.Session, Frame: c.Frame, Rule: "position", Kind: c.Kind, Priority: 12, PitLane: "drop"}.show())
 			}
 			var got []string
 			extra := maps.Clone(pending[name])

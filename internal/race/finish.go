@@ -51,7 +51,7 @@ func (m *Machine) observeFinish(prev, s *state, t time.Time, kind kindVerdict) {
 }
 
 // timedFinish is v1's Engine._timed_finish: it says the timed race with a field
-// finished on s, with the crossing it finished at in m.finish.crossing. After a
+// (or the ranked session, which v1 read as one) finished on s, with the crossing it finished at in m.finish.crossing. After a
 // lap time is posted, throttle and brake both 0 at over 20 km/h for 3 s is GT7
 // driving the car after the line; inputs within 0.5 s of the line are still the
 // driver's, and after that the driver is driving another lap. A paused car is not
@@ -64,7 +64,7 @@ func (m *Machine) timedFinish(prev, s *state, kind kindVerdict) bool {
 	if f.kind != eventsv1.FinishKind_FINISH_KIND_UNSPECIFIED ||
 		prev == nil ||
 		s.phase != phaseInRace ||
-		kind.kind != eventsv1.SessionType_SESSION_TYPE_TIMED_FIELD {
+		(kind.kind != eventsv1.SessionType_SESSION_TYPE_TIMED_FIELD && kind.kind != eventsv1.SessionType_SESSION_TYPE_RANKED) {
 		return false
 	}
 	if lapTimePosted(prev, s) {

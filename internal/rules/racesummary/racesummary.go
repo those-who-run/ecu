@@ -18,6 +18,13 @@
 // probable verdict, or a circuit whose layout can't be picked (Fuji), names
 // none: in VR a wrong name is worse than none.
 //
+// Another (the maintainer's decision, 2026-10-31): a ranked session, qualifying or
+// practice with the field out (race.Context.Ranked), is no race to win. Its finish
+// is template_ranked, the place as a rank by lap time with the best lap, not
+// "Chequered flag. Finished first. Brilliant drive.", and leaving one without a
+// finish gets template_quit as a solo session does (ranked is in quit_kinds by
+// default; v1 read these sessions as timed fields, which say nothing on leaving).
+//
 // v1's defaults that the engine applies (internal/rules/config.go): priority
 // 25, after the final lap time posted on the same frame; max_age_seconds 30, so
 // it waits behind that lap time; pit_lane speak, since the flag can fall in a
@@ -46,6 +53,8 @@ const (
 	KindTemplatePositionWin    = "template_position_win"
 	KindTemplatePositionPodium = "template_position_podium"
 	KindTemplateQuit           = "template_quit"
+	// KindTemplateRanked is a ranked session's finish, a template of its own.
+	KindTemplateRanked = "template_ranked"
 )
 
 // Config is the rule's own settings, v1's keys and defaults.
@@ -58,9 +67,9 @@ type Config struct {
 	QuitMinLaps int32 `yaml:"quit_min_laps"`
 }
 
-// Default is v1's: solo_timed and solo_laps, after a lap.
+// Default is v1's, solo_timed and solo_laps after a lap, and ecu's ranked kind.
 func Default() Config {
-	return Config{QuitKinds: []string{"solo_timed", "solo_laps"}, QuitMinLaps: 1}
+	return Config{QuitKinds: []string{"solo_timed", "solo_laps", "ranked"}, QuitMinLaps: 1}
 }
 
 var _ = rules.Register(Name, func(s *rules.Settings) rules.Rule {
@@ -158,6 +167,9 @@ func (r *Rule) finished(ctx *race.Context, at *race.View) (rules.Callout, bool) 
 		default:
 			kind = KindTemplatePosition
 		}
+	}
+	if ctx.Ranked() {
+		kind = KindTemplateRanked // the place, when there is one, as a rank
 	}
 	r.best(slots, at.BestLapMs)
 	slots.Track = sureTrack(ctx.Track)

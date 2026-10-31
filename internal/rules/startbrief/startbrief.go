@@ -16,6 +16,12 @@
 // 2026-10-31) was named before the detector could be sure, and in VR a wrong
 // name is worse than none. race_summary names the track at the end, when the
 // detector is sure by then.
+//
+// Another (the maintainer's decision, 2026-10-31): a ranked session, qualifying or
+// practice with the field out (race.Context.Ranked), gets a brief of its own,
+// template_ranked with the field's size, in place of v1's "Timed race. P one of
+// sixteen.": it is not a race, and its place before anyone has a lap time is no
+// rank (P1 from slot 11 in the practice of 2026-10-31).
 package startbrief
 
 import (
@@ -36,6 +42,8 @@ const (
 	KindBrief = "template"
 	// KindJoined is the brief of a session joined part way.
 	KindJoined = "template_joined"
+	// KindRanked is a ranked session's brief: the cars it is ranked against.
+	KindRanked = "template_ranked"
 )
 
 var _ = rules.Register(Name, build)
@@ -90,6 +98,13 @@ func (r *rule) Evaluate(ctx *race.Context) []rules.Callout {
 	if ctx.Joined {
 		return []rules.Callout{{Kind: KindJoined, Slots: joined(ctx)}}
 	}
+	if ctx.Ranked() {
+		slots := &eventsv1.CalloutSlots{}
+		if cars := ctx.Cur.TotalCars; cars > 0 {
+			slots.TotalCars = proto.Int32(cars)
+		}
+		return []rules.Callout{{Kind: KindRanked, Slots: slots}}
+	}
 	if slots, said := r.brief(ctx); said {
 		return []rules.Callout{{Kind: KindBrief, Slots: slots}}
 	}
@@ -112,8 +127,9 @@ func (r *rule) brief(ctx *race.Context) (slots *eventsv1.CalloutSlots, said bool
 			slots.LapsLeft, said = proto.Int32(left), true
 		}
 	case field:
-		// No lap total and other cars: a timed race (or qualifying, which GT7
-		// reports the same way). A lone car with no lap total is practice.
+		// No lap total and other cars: a timed race (a ranked session has its
+		// own brief, above). A lone car with no lap total is a time trial or
+		// practice alone.
 		slots.Timed, said = true, true
 	}
 	if p := cur.RacePosition(); field && p > 0 {

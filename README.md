@@ -23,7 +23,8 @@ and ends a session exactly where v1 did, with v1's rules ported from its
 `state.py`, `engine.py` and `store.py` at v1.0.0 (paddock#33).
 
 - **Session type.** The session's kind ([The session's kind](#the-sessions-kind)):
-  a lap race, solo laps, a timed session with a field, or solo timed.
+  a lap race, solo laps, a timed session with a field, solo timed, or ranked
+  (qualifying or practice with the field out, ecu's own).
   `session.started` carries the verdict on the session's first frame, and
   `session.ended`'s summary the final one, which can differ (paddock#34). Outside a field, `position` and
   `final_position` are left out, where v1 stored GT7's 1; `finishing_position`
@@ -214,11 +215,38 @@ GT7 sends no mode. [`internal/race/kind.go`](internal/race/kind.go) is v1's
 
 - **The kind.** A lap total and two or more cars is a lap race, a lap total
   and one car solo laps; no lap total and three or more cars a timed field
-  (qualifying or a timed race), one car solo timed (a time trial or
-  practice). Two cars make a timed field only once the driver has been
+  (a timed race, or ranked, below), one car solo timed (a time trial or
+  practice alone). Two cars make a timed field only once the driver has been
   anything but first, so a ghost doesn't. `total_cars` of -1 (around the
   results, and a whole time trial) says nothing. `field` is true for a lap
-  race and a timed field.
+  race, a timed field and ranked.
+- **Ranked** (the maintainer's decision of 2026-10-31, a departure from v1).
+  Qualifying, or practice with the AI field out: GT7's place is the rank by
+  best lap, which v1 read as a timed field. On the first racing frame the
+  place is still the grid slot; in a ranked session it leaps up the order on
+  the next packet or so, while a timed race keeps its slot. A timed field
+  whose place rises 2 or more above the first racing frame's within the start
+  window (18 packets) is ranked (`SESSION_TYPE_RANKED`), published as a
+  `session.kind` of its own on the frame of the leap, with "ranked by lap time
+  (P20 to P1 at the start)" in the evidence. GT7 sends no mode, so
+  qualifying and practice can't be told apart. A restart of a ranked session
+  (racing straight back to lap 1, already ranked) and one ecu continues after
+  its own restart stay ranked; one joined part way stays a timed field, its
+  start never seen. The timed finish applies to it as to a timed field.
+
+  | recording | slot | best place in the window | kind |
+  | --- | --- | --- | --- |
+  | `real-quali-restart-quit-2026-10-14` (qualifying) | 20 | 1 | ranked, and its restart |
+  | `real-nuc-spa-pit-cut-quit-2026-10-18` | 18 | 1 | ranked |
+  | `real-nuc-suzuka-before-restart-2026-10-18` | 16 | 3 | ranked |
+  | `real-nuc-suzuka-practice-2026-10-31` (practice) | 11 | 1 | ranked |
+  | `real-nuc-suzuka-practice-evening-2026-10-31` (practice) | 16 | 2 | ranked |
+  | `real-nuc-suzuka-qualifying-2026-10-31` (qualifying) | 5 | 1 | ranked |
+  | `real-nuc-suzuka-timed-race-2026-10-16` (a timed race) | 10 | 10 | timed field |
+  | every lap race, time trial and solo session recorded | | no rise | unchanged |
+
+  The fixtures are in
+  [`internal/race/testdata/sessions/`](internal/race/testdata/sessions).
 - **Fuel use.** On once the level drops 0.05 below the highest seen while
   racing; off after 20 s of driving at 20 km/h or more without a drop, or at
   once with no tank.
@@ -250,7 +278,8 @@ GT7 sends no mode. [`internal/race/kind.go`](internal/race/kind.go) is v1's
 - **Tests.** On every one of v1's 25 recordings, the `session.kind` events
   and each summary's kind are v1's, evidence word for word, as `make_golden.py`
   in [`internal/race/testdata/kind/`](internal/race/testdata/kind) wrote them
-  from v1.0.0, but for SUGO's two stops (a grid behind the line, above). The
+  from v1.0.0, but for SUGO's two stops (a grid behind the line, above) and
+  the three ranked recordings (`rankedDepartures` in `kind_test.go`). The
   six v1 drops as a replay or a GT7 demo have none.
 - **The type, not the flag.** `session.started`'s and the summary's
   `session_type` are the kind's, and every gate that means a field (the
@@ -262,7 +291,7 @@ GT7 sends no mode. [`internal/race/kind.go`](internal/race/kind.go) is v1's
   rides along in `SessionKind.cars_on_track`.
 - **Practice with the field out.** A custom race's practice puts the AI field
   on track: GT7 reports the cars, no lap total and a place ranked by lap time,
-  exactly as in qualifying, so it reads as a timed field, as v1 read it
+  exactly as in qualifying, so it reads as ranked, where v1 read a timed field
   (`real-nuc-suzuka-practice-2026-10-31`, in
   [`internal/race/testdata/sessions/`](internal/race/testdata/sessions)).
   Solo timed's "practice" is practice driven alone.
@@ -920,6 +949,21 @@ rule.
   wrong track spoken so far was named before the detector could be sure, and
   in VR a wrong name is worse than none. v1's `announce_track`,
   `late_track_first_lap_only` and `min_confidence` still load and do nothing.
+- **Ranked sessions, a departure from v1** (the maintainer's decision,
+  2026-10-31). In a ranked session ([The session's kind](#the-sessions-kind))
+  `start_brief` raises `template_ranked` with the field's size (`total_cars`)
+  in place of v1's "Timed race. P one of twenty.": no grid slot, since the
+  place before anyone has a time is no rank. `position` tells the driver
+  where their own lap put them, as a qualifying engineer would: the rank is
+  read 3 s after each of the driver's line crossings and called, as
+  `template_rank_gained` or `template_rank_lost`, when it differs from the last
+  rank called; the AI posting times in between is not called (v1 called every
+  move: eleven "Down to …" in two minutes at Spa). `race_summary`'s finish is `template_ranked` (the
+  place, the best lap), and leaving one without a finish is `template_quit`,
+  as a solo session's (`ranked` is in `quit_kinds` by default). Lap times and
+  fuel are as in any session. The callout goldens' tests take v1's lines for
+  the three ranked recordings through `rulestest.RankedKind`, with ecu's rank
+  calls in `rulestest.RankCalls`.
 - **Car alarms.** Each firing of `temps` (a tyre, the water or the oil hot, or
   cold tyres at the start) is also published as `car.alarm` (contracts'
   `CarAlarmRaised`) on `twr.v1.<src>.evt.<sid>.car.alarm`, from the same

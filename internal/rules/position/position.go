@@ -22,6 +22,16 @@
 // hold_secs 1 and pit_lane drop, the engine's defaults for the rule), and radio
 // drops it if the entry follows in that second (SUGO, 2026-10-18,
 // those-who-run#244).
+//
+// In a ranked session (race.Context.Ranked: qualifying, or practice with the
+// field out), the place is the rank by lap time, which moves when the driver
+// posts a time and each time an AI car posts one. The engineer tells the driver
+// where their lap put them, as a qualifying engineer would, not every time the
+// field moves: the rank is read settle_secs after each of the driver's own line
+// crossings (GT7 moves it within half a second of the crossing), and called if it
+// differs from the last rank called, as template_rank_gained or
+// template_rank_lost (the maintainer's decisions, 2026-10-31; v1 called every
+// change, as a race's).
 package position
 
 import (
@@ -42,6 +52,9 @@ const (
 	KindGainedPodium = "template_gained_podium" // into second or third
 	KindLost         = "template_lost"
 	KindLostLead     = "template_lost_lead" // out of first
+	// A ranked session's: up or down the order by lap time.
+	KindRankGained = "template_rank_gained"
+	KindRankLost   = "template_rank_lost"
 )
 
 // Config is the rule's own thresholds, in seconds, with v1's keys.
@@ -86,6 +99,8 @@ type rule struct {
 	pendingSince float64
 	spoken       bool
 	lastSpokenAt float64
+	crossing     bool    // ranked: a line crossing waits to be read since crossedAt
+	crossedAt    float64 // ranked: the driver's last line crossing
 }
 
 // Reset forgets the race, as a start does.
@@ -96,13 +111,18 @@ func (r *rule) Evaluate(ctx *race.Context) []rules.Callout {
 	if !ctx.Racing {
 		return nil
 	}
-	c, ok := r.observe(frame{
+	f := frame{
 		t:         ctx.Cur.T,
 		inRace:    ctx.Cur.InRace(),
 		position:  ctx.Cur.RacePosition(),
 		hasField:  ctx.HasField(),
 		inPitLane: ctx.Pits.InPitLane,
-	})
+	}
+	observe := r.observe
+	if ctx.Ranked() {
+		observe = func(f frame) (call, bool) { return r.observeRank(f, ctx.Lap != nil) }
+	}
+	c, ok := observe(f)
 	if !ok {
 		return nil
 	}
@@ -149,6 +169,41 @@ func (r *rule) observe(f frame) (call, bool) {
 	}
 	c := call{kind: kind(r.announced, pos), position: pos, previous: r.announced}
 	r.announced, r.pending = pos, false
+	r.spoken, r.lastSpokenAt = true, f.t
+	return c, true
+}
+
+// observeRank is the rule in a ranked session: the grid slot settles as in a
+// race (the leap to the rank), then the rank is read settleSecs after each of the
+// driver's line crossings (crossed) and called when it differs from the last
+// rank called.
+func (r *rule) observeRank(f frame, crossed bool) (call, bool) {
+	if !f.inRace || !f.hasField || f.position <= 0 {
+		return call{}, false
+	}
+	pos := f.position
+	if !r.started {
+		r.startedAt, r.started = f.t, true
+	}
+	if r.announced == 0 || f.t-r.startedAt < r.cfg.SettleSecs {
+		r.announced = pos
+		return call{}, false
+	}
+	if crossed {
+		r.crossedAt, r.crossing = f.t, true
+	}
+	if !r.crossing || f.t-r.crossedAt < r.cfg.SettleSecs {
+		return call{}, false
+	}
+	r.crossing = false
+	if pos == r.announced {
+		return call{}, false
+	}
+	c := call{kind: KindRankLost, position: pos, previous: r.announced}
+	if pos < r.announced {
+		c.kind = KindRankGained
+	}
+	r.announced = pos
 	r.spoken, r.lastSpokenAt = true, f.t
 	return c, true
 }

@@ -45,6 +45,25 @@ there at 0 km/h for 6.1 s, then launches from 0 km/h (frame 7632, 950 of the
 slice); the grid is behind the line, so lap 1 begins at speed, 97 km/h, 4.7 s
 after the launch (frame 7909, 1227 of the slice). The window, 15 s to 21 s in, is
 the launch, the start and the 18 packets after it.
+
+The evening practice and qualifying (the ranked kind, paddock#146) are cut from
+ecu 0.1.14's live recording of 2026-10-31, 20261031-173249.jsonl.gz (sha256
+e7fef25cae42afd3cd993dec90c3f8f9bff8871cb8eba268a7c032ef02af70c9; its gzip tail
+is cut short, leaving 177,822 frames), a custom race at Suzuka in the Alfa Romeo
+Giulia Sprint GT Veloce '67 against 15 AI cars, fuel use off:
+
+    zcat RECORDING 2>/dev/null | sed -n 104721,152195p > slice.jsonl
+    python3 make_fixture.py slice.jsonl real-nuc-suzuka-practice-evening-2026-10-31.jsonl.gz 33:37
+    zcat RECORDING 2>/dev/null | sed -n 152195,176470p > slice.jsonl
+    python3 make_fixture.py slice.jsonl real-nuc-suzuka-qualifying-2026-10-31.jsonl.gz 33:37
+
+The practice's slice runs from the loading screen before it to the one before the
+qualifying: the car leaves the pits and starts lap 1 on frame 106523 (1803 of
+the slice) in slot 16, P2 on the next packet, four laps, three pauses, a quit.
+The qualifying's runs from that loading screen to the track screen after it:
+lap 1 on frame 154270 (2076 of the slice) in slot 5, P1 on the next packet, two
+laps and back to the pits. Each window, 33 s to 37 s in, is the start and the 18
+packets after it.
 """
 
 import gzip
