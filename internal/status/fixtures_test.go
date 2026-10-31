@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/those-who-run/ecu/internal/race"
+	"github.com/those-who-run/ecu/race"
 	"github.com/those-who-run/salsa"
 )
 

@@ -4,9 +4,9 @@ import (
 	"testing"
 
 	eventsv1 "github.com/those-who-run/contracts/gen/go/twr/events/v1"
-	"github.com/those-who-run/ecu/internal/race"
 	"github.com/those-who-run/ecu/internal/rules"
 	"github.com/those-who-run/ecu/internal/track"
+	"github.com/those-who-run/ecu/race"
 )
 
 const (

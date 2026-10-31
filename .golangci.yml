@@ -21,10 +21,10 @@ linters:
       rules:
         # The race state is a pure library, tested with no NATS at all (paddock#33,
         # R11; ADR 0001, point 7): no NATS, no network, no file system. Its tests
-        # may read files; internal/race/imports_test.go checks the same list.
+        # may read files; race/imports_test.go checks the same list.
         race:
           files:
-            - "**/internal/race/*.go"
+            - "**/race/*.go"
             - "!$test"
           deny:
             - pkg: github.com/nats-io

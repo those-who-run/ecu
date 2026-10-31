@@ -54,11 +54,11 @@ func testIDs() IDs {
 
 // trackFixtures are the v1 recordings salsa doesn't carry, which internal/track
 // keeps (its testdata/v1/README.md says where each comes from).
-var trackFixtures = filepath.Join("..", "track", "testdata", "v1")
+var trackFixtures = filepath.Join("..", "internal", "track", "testdata", "v1")
 
 // liveTrackFixtures are internal/track's recordings cut from live outings (its
 // testdata/live/make_fixture.py says where each comes from, paddock#81).
-var liveTrackFixtures = filepath.Join("..", "track", "testdata", "live")
+var liveTrackFixtures = filepath.Join("..", "internal", "track", "testdata", "live")
 
 // pauseFixtures are the recordings cut for the pauses (paddock#77):
 // testdata/pause/make_fixture.py says how.

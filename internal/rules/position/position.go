@@ -39,8 +39,8 @@ package position
 
 import (
 	eventsv1 "github.com/those-who-run/contracts/gen/go/twr/events/v1"
-	"github.com/those-who-run/ecu/internal/race"
 	"github.com/those-who-run/ecu/internal/rules"
+	"github.com/those-who-run/ecu/race"
 )
 
 // Name is the rule's name, its key in the rules file.

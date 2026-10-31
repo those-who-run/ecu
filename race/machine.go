@@ -8,6 +8,9 @@
 // the same outputs. Publishing the outputs is the caller's (paddock#34). A lint rule
 // in .golangci.yml keeps NATS, the network and the file system out of this package.
 //
+// It is ecu's one public package, for logbook's import of v1's history
+// (those-who-run/paddock#264): another module builds against what it exports.
+//
 // The rules are v1's, from those-who-run/those-who-run at v1.0.0: the transition
 // helpers of state.py (state.go here), the session and lap steps of
 // Engine._step in engine.py, and the lap bookkeeping of SessionStore.observe,

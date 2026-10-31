@@ -11,8 +11,8 @@ import (
 
 	statev1 "github.com/those-who-run/contracts/gen/go/twr/state/v1"
 	"github.com/those-who-run/ecu/internal/bus"
-	"github.com/those-who-run/ecu/internal/race"
 	"github.com/those-who-run/ecu/internal/sessions"
+	"github.com/those-who-run/ecu/race"
 )
 
 // The open session across a restart (paddock#76): the drive keeps the race

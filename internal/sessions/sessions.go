@@ -26,7 +26,7 @@ import (
 	"github.com/those-who-run/contracts/ce"
 	statev1 "github.com/those-who-run/contracts/gen/go/twr/state/v1"
 	"github.com/those-who-run/ecu/internal/bus"
-	"github.com/those-who-run/ecu/internal/race"
+	"github.com/those-who-run/ecu/race"
 )
 
 // Bucket is the KV bucket the open session is kept in (contracts' subjects.yaml).

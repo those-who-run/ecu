@@ -18,8 +18,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/those-who-run/ecu/internal/race"
 	"github.com/those-who-run/ecu/internal/rules"
+	"github.com/those-who-run/ecu/race"
 	"github.com/those-who-run/salsa"
 )
 
@@ -40,13 +40,13 @@ var (
 )
 
 // Recording is the path of one of v1's recordings: salsa's testdata/v1, else
-// internal/track's; or of the start check's own, internal/race's testdata/start
+// internal/track's; or of the start check's own, race's testdata/start
 // (paddock#74).
 func Recording(tb testing.TB, name string) string {
 	tb.Helper()
 	_, here, _, _ := runtime.Caller(0)
 	internal := filepath.Join(filepath.Dir(here), "..", "..")
-	for _, dir := range []string{filepath.Join("track", "testdata", "v1"), filepath.Join("race", "testdata", "start")} {
+	for _, dir := range []string{filepath.Join("track", "testdata", "v1"), filepath.Join("..", "race", "testdata", "start")} {
 		path := filepath.Join(internal, dir, name+".jsonl.gz")
 		if _, err := os.Stat(path); err == nil {
 			return path
@@ -160,7 +160,7 @@ var Recordings = []string{
 const RankedDecision = "the maintainer's decision of 2026-10-31: a ranked session is not a timed race"
 
 // RankedSessions are the sessions of v1's recordings that v1 read as a timed field
-// and ecu reads as ranked (RankedDecision; internal/race's rankedDepartures has
+// and ecu reads as ranked (RankedDecision; race's rankedDepartures has
 // the evidence), by recording, numbered from 1 as they start.
 var RankedSessions = map[string][]int{
 	"real-quali-restart-quit-2026-10-14":        {1, 2},

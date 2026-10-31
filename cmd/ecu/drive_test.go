@@ -18,8 +18,8 @@ import (
 	"time"
 
 	"github.com/those-who-run/ecu/internal/live"
-	"github.com/those-who-run/ecu/internal/race"
 	"github.com/those-who-run/ecu/internal/record"
+	"github.com/those-who-run/ecu/race"
 	"github.com/those-who-run/salsa"
 	"github.com/those-who-run/salsa/salsatest"
 )

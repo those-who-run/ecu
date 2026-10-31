@@ -15,13 +15,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/those-who-run/ecu/internal/race"
+	"github.com/those-who-run/ecu/race"
 	"github.com/those-who-run/salsa"
 )
 
 // The recording the acceptance criteria name: a six-lap race at Suzuka East with a
 // stop, from salsa's testdata/v1/, read from the salsa module the build already
-// uses, as internal/race's tests read it.
+// uses, as race's tests read it.
 const suzuka = "real-nuc-suzuka-pit-stop-2026-10-15"
 
 var (

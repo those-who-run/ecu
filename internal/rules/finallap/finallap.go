@@ -6,8 +6,8 @@
 package finallap
 
 import (
-	"github.com/those-who-run/ecu/internal/race"
 	"github.com/those-who-run/ecu/internal/rules"
+	"github.com/those-who-run/ecu/race"
 )
 
 // Name is the rule's name, its key in the rules file.

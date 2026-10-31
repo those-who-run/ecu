@@ -13,8 +13,8 @@ import (
 	"github.com/oklog/ulid/v2"
 	telemetryv1 "github.com/those-who-run/contracts/gen/go/twr/telemetry/v1"
 
-	"github.com/those-who-run/ecu/internal/race"
 	"github.com/those-who-run/ecu/internal/track"
+	"github.com/those-who-run/ecu/race"
 	"github.com/those-who-run/salsa"
 )
 
@@ -95,7 +95,7 @@ type numbered struct {
 }
 
 // readTrackFrames reads the recording's frames from..to (0 for no bound) as ecu
-// makes them, the contracts frame internal/race gives for each packet, as the
+// makes them, the contracts frame race gives for each packet, as the
 // detector's goldens are read. A stream that ends damaged after a frame ends the
 // frames there, with a warning; one that cannot be read at all is an error.
 func readTrackFrames(ctx context.Context, path string, stdin io.Reader, from, to uint32, stderr io.Writer) ([]numbered, error) {

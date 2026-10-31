@@ -7,10 +7,10 @@ import (
 	"github.com/those-who-run/contracts/callout"
 	eventsv1 "github.com/those-who-run/contracts/gen/go/twr/events/v1"
 	telemetryv1 "github.com/those-who-run/contracts/gen/go/twr/telemetry/v1"
-	"github.com/those-who-run/ecu/internal/race"
 	"github.com/those-who-run/ecu/internal/rules"
 	"github.com/those-who-run/ecu/internal/rules/rulestest"
 	_ "github.com/those-who-run/ecu/internal/rules/telemetry"
+	"github.com/those-who-run/ecu/race"
 )
 
 // timeout is the watchdog's, ecu's default (TWR_ECU_TELEMETRY_TIMEOUT_SECS).

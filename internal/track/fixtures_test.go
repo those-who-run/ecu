@@ -26,7 +26,7 @@ import (
 // The v1 recordings the tests replay: the 18 in testdata/v1/, copied from v1 with
 // their provenance (testdata/v1/README.md), and the seven salsa carries in its
 // testdata/v1/, read from the salsa module the build already uses, as
-// internal/race reads them. Together, all 25 of v1's FIXTURES.yaml.
+// race reads them. Together, all 25 of v1's FIXTURES.yaml.
 var (
 	salsaOnce sync.Once
 	salsaDir  string
@@ -68,7 +68,7 @@ func recordingPath(tb testing.TB, name string) string {
 var framesCache sync.Map
 
 // frames is every frame of a recording as ecu makes it: the contracts frame
-// internal/race gives for each packet.
+// race gives for each packet.
 func frames(tb testing.TB, name string) []*telemetryv1.Frame {
 	tb.Helper()
 	if all, ok := framesCache.Load(name); ok {
@@ -100,7 +100,7 @@ func readFrames(tb testing.TB, name string) []*telemetryv1.Frame {
 	return FramesOf(all)
 }
 
-// FramesOf is the frame internal/race makes for each packet. internal/race imports
+// FramesOf is the frame race makes for each packet. race imports
 // this package, so a test of this package cannot import it: frames_test.go, in
 // the external test package, sets FramesOf.
 var FramesOf func([]salsa.Received) []*telemetryv1.Frame

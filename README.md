@@ -13,7 +13,7 @@ acceptance criterion, `Part of those-who-run/paddock#N` otherwise
 
 ## Race state
 
-[`internal/race`](internal/race) is the race state: a pure state machine
+[`race`](race) is the race state: a pure state machine
 that takes `salsa` packets one at a time and gives, for each, its frame and the
 events it gives rise to, `session.started`, `pit.entered`, `pit.exited`,
 `pit.teleport`, `race.final_lap`, `race.position`, `session.track`,
@@ -21,6 +21,12 @@ events it gives rise to, `session.started`, `pit.entered`, `pit.exited`,
 `session.ended`, `session.discarded` and `session.continued`, as the `contracts` messages. It opens a session, closes a lap
 and ends a session exactly where v1 did, with v1's rules ported from its
 `state.py`, `engine.py` and `store.py` at v1.0.0 (paddock#33).
+
+`race` is ecu's one public package (paddock#264, ADR 0009 in paddock): `logbook
+import-v1` runs v1's stored frames through it as a library, the same code as
+live. That makes it an API: a change to what it exports is a change for
+`logbook` too, released here and bumped there. Everything else, the track and
+pit detectors it uses among them, stays under `internal/`.
 
 - **Session type.** The session's kind ([The session's kind](#the-sessions-kind)):
   a lap race, solo laps, a timed session with a field, solo timed, or ranked
@@ -65,16 +71,16 @@ and ends a session exactly where v1 did, with v1's rules ported from its
 - **Tests.** The tests replay v1's recordings from `salsa`'s `testdata/v1/` and
   compare the sessions, laps and final session kind with what v1 1.0.0 stored
   for each, in
-  [`internal/race/testdata/golden/`](internal/race/testdata/golden), which
+  [`race/testdata/golden/`](race/testdata/golden), which
   `make_golden.py` there says how to make.
-- **Benchmark.** `go test -run '^$' -bench Replay ./internal/race` replays
+- **Benchmark.** `go test -run '^$' -bench Replay ./race` replays
   every recording and reports the p50, p99 and max time of a step, per frame
   and per session start, lap close and session end.
 
 ## The start check
 
 GT7 sends driving frames for its own race replays and for the demo race it
-plays when the PS5 sits idle on the menu. [`internal/race/start.go`](internal/race/start.go)
+plays when the PS5 sits idle on the menu. [`race/start.go`](race/start.go)
 is v1's `DriverCheck` (`sessionkind.py` at v1.0.0) and the hold around it in
 `Engine.process` (paddock#74), with v1's thresholds as named constants.
 
@@ -150,7 +156,7 @@ race state feeds every frame ([The session's track](#the-sessions-track)).
 The detector's answer moves frame by frame; the session keeps one, stable
 enough to speak and store, and publishes `session.track` each time it changes
 (paddock#81), with v1's rules from `Engine._apply_track` in `engine.py` at
-v1.0.0, in [`internal/race/track.go`](internal/race/track.go).
+v1.0.0, in [`race/track.go`](race/track.go).
 
 - **Fed by the race state.** Every frame goes to the detector, a session open
   or not: a held start's frames once the start check judges it, and the frames
@@ -201,14 +207,14 @@ v1.0.0, in [`internal/race/track.go`](internal/race/track.go).
   and each summary's track are v1's: where v1's engine applied a verdict, the
   same verdict (the last of a frame's), its first 8 candidates and its
   evidence, as
-  `make_golden.py` in [`internal/race/testdata/track/`](internal/race/testdata/track)
+  `make_golden.py` in [`race/testdata/track/`](race/testdata/track)
   wrote them from v1.0.0 with ecu's table; the Fuji race too. The six v1
   drops as a replay or a GT7 demo ([The start check](#the-start-check)) have
   none.
 
 ## The session's kind
 
-GT7 sends no mode. [`internal/race/kind.go`](internal/race/kind.go) is v1's
+GT7 sends no mode. [`race/kind.go`](race/kind.go) is v1's
 `SessionDetector` (`sessionkind.py` at v1.0.0), ported as it is, and publishes
 `session.kind` each time its decision changes (paddock#82), as v1's
 `Engine._apply_kind` applied it.
@@ -246,7 +252,7 @@ GT7 sends no mode. [`internal/race/kind.go`](internal/race/kind.go) is v1's
   | every lap race, time trial and solo session recorded | | no rise | unchanged |
 
   The fixtures are in
-  [`internal/race/testdata/sessions/`](internal/race/testdata/sessions).
+  [`race/testdata/sessions/`](race/testdata/sessions).
 - **Fuel use.** On once the level drops 0.05 below the highest seen while
   racing; off after 20 s of driving at 20 km/h or more without a drop, or at
   once with no tank.
@@ -264,7 +270,7 @@ GT7 sends no mode. [`internal/race/kind.go`](internal/race/kind.go) is v1's
   rolling start never stands. The evidence says how long it stood ("grid start
   at 101 km/h, after standing 6 s"). Pinned by
   `real-nuc-suzuka-east-grid-start-2026-10-31` in
-  [`internal/race/testdata/sessions/`](internal/race/testdata/sessions), and
+  [`race/testdata/sessions/`](race/testdata/sessions), and
   SUGO's 12-lap race of 2026-10-18 is one too, where v1 said rolling.
 - **What counts as a change.** The kind, fuel use, GT7's cars-on-track flag or
   the start. The evidence sentence rides along, but a change of its wording
@@ -277,7 +283,7 @@ GT7 sends no mode. [`internal/race/kind.go`](internal/race/kind.go) is v1's
   summary carries the last one as `kind`.
 - **Tests.** On every one of v1's 25 recordings, the `session.kind` events
   and each summary's kind are v1's, evidence word for word, as `make_golden.py`
-  in [`internal/race/testdata/kind/`](internal/race/testdata/kind) wrote them
+  in [`race/testdata/kind/`](race/testdata/kind) wrote them
   from v1.0.0, but for SUGO's two stops (a grid behind the line, above) and
   the three ranked recordings (`rankedDepartures` in `kind_test.go`). The
   six v1 drops as a replay or a GT7 demo have none.
@@ -293,7 +299,7 @@ GT7 sends no mode. [`internal/race/kind.go`](internal/race/kind.go) is v1's
   on track: GT7 reports the cars, no lap total and a place ranked by lap time,
   exactly as in qualifying, so it reads as ranked, where v1 read a timed field
   (`real-nuc-suzuka-practice-2026-10-31`, in
-  [`internal/race/testdata/sessions/`](internal/race/testdata/sessions)).
+  [`race/testdata/sessions/`](race/testdata/sessions)).
   Solo timed's "practice" is practice driven alone.
 
 ## Listening to the PS5
@@ -576,7 +582,7 @@ GT7 sends no pit flag. [`internal/pit`](internal/pit) finds pit stops from its
 camera cuts: v1's `PitDetector` (`pitstop.py` at v1.0.0), ported as it is, a
 pure library like the race state (paddock#78). The race state feeds it every
 frame and publishes the session's entries, exits and withdrawn entries, as v1's
-`Engine._apply_pits`, in [`internal/race/pit.go`](internal/race/pit.go).
+`Engine._apply_pits`, in [`race/pit.go`](race/pit.go).
 
 - **Entry.** A one-frame loading screen on lap 1 or later after a racing
   frame, or a teleport (over 10 m at over 600 km/h between two frames, timed
@@ -620,14 +626,14 @@ frame and publishes the session's entries, exits and withdrawn entries, as v1's
   v1's, field for field, and the `pit.entered`, `pit.exited` and
   `pit.teleport` events and each summary's stops are what v1's engine applied
   and stored, as `make_golden.py` in
-  [`internal/race/testdata/pit/`](internal/race/testdata/pit) wrote them from
+  [`race/testdata/pit/`](race/testdata/pit) wrote them from
   v1.0.0. None of the recordings has a teleport, in v1 or here; a synthetic
   jump on lap 3 checks one. The Gilles Villeneuve stop is also `contracts`'
   `testdata/v1/gilles_villeneuve_pit_stop.json`.
 
 ## The finish
 
-[`internal/race/finish.go`](internal/race/finish.go) publishes
+[`race/finish.go`](race/finish.go) publishes
 `race.finished` once a session at most, where v1's engine set `finished`
 (paddock#85).
 
@@ -663,13 +669,13 @@ frame and publishes the session's entries, exits and withdrawn entries, as v1's
   and the contract says its summary is then finished.
 - **Tests.** On every one of v1's 25 recordings, `race.finished` and each
   summary's `finished` and total time are v1's, as `make_golden.py` in
-  [`internal/race/testdata/finish/`](internal/race/testdata/finish) wrote them
+  [`race/testdata/finish/`](race/testdata/finish) wrote them
   from v1.0.0, the six v1 opens no session on with every start taken for a
   drive (SUGO's replay then finishes at the flag, as v1's engine would).
 
 ## Pauses
 
-[`internal/race/pause.go`](internal/race/pause.go) is v1's `PauseClock` and
+[`race/pause.go`](race/pause.go) is v1's `PauseClock` and
 the pause half of `Engine.process` (paddock#77). A pause is not driving time,
 and never ends a session on its own.
 
@@ -713,7 +719,7 @@ and never ends a session on its own.
 - **Tests.** On every one of v1's 25 recordings, the pauses read in an open
   session, their frames and times, and each summary's `paused_ms` and
   `ended_paused` are v1's, as `make_golden.py` in
-  [`internal/race/testdata/pause/`](internal/race/testdata/pause) wrote them
+  [`race/testdata/pause/`](race/testdata/pause) wrote them
   from v1.0.0. No callout is raised on a
   paused frame of any of them. A slice of the live race of 2026-10-29,
   which `make_fixture.py` there cut, holds a pause GT7 flags and then
@@ -721,7 +727,7 @@ and never ends a session on its own.
 
 ## The laps
 
-[`internal/race/laps.go`](internal/race/laps.go) is the lap model: what each
+[`race/laps.go`](race/laps.go) is the lap model: what each
 lap was, decided once for every rule and subscriber (paddock#83).
 
 - **Where a lap closes.** Where v1's store closed it: on the lap counter's
@@ -761,13 +767,13 @@ lap was, decided once for every rule and subscriber (paddock#83).
 - **Tests.** On every one of v1's 25 recordings, each `lap.completed`'s frame,
   lap, time, complete, pit role and `counts_for_best`, and each summary's
   best, fastest and GT7's best laps, are v1's but for the difference above,
-  as `make_golden.py` in [`internal/race/testdata/lap/`](internal/race/testdata/lap)
+  as `make_golden.py` in [`race/testdata/lap/`](race/testdata/lap)
   wrote them from v1.0.0 with v1's `lap_time` rule, and the last `lap.best`
   of each session is the summary's best.
 
 ## The final lap and the position
 
-[`internal/race/position.go`](internal/race/position.go) publishes the
+[`race/position.go`](race/position.go) publishes the
 decisions of v1's `FinalLapRule` and `PositionRule` (`rules/final_lap.py` and
 `rules/position.py` at v1.0.0) as facts (paddock#84). What is said about them
 is the callouts' (paddock#93, #94).
@@ -807,7 +813,7 @@ is the callouts' (paddock#93, #94).
 - **Tests.** On every one of v1's 25 recordings, `race.final_lap` and
   `race.position` are v1's rules' decisions, frame for frame, as
   `make_golden.py` in
-  [`internal/race/testdata/final-lap-position/`](internal/race/testdata/final-lap-position)
+  [`race/testdata/final-lap-position/`](race/testdata/final-lap-position)
   wrote them from v1.0.0 (the position with v1's settings for the event, and
   v1's calls with `rules.example.yaml`'s), the six v1 opens no session on with
   every start taken for a drive.
@@ -816,7 +822,7 @@ is the callouts' (paddock#93, #94).
 
 `session.ended` carries the session's summary, v1's `summary.json`
 (`SessionStore.end_session` at v1.0.0, paddock#86), in
-[`internal/race/summary.go`](internal/race/summary.go).
+[`race/summary.go`](race/summary.go).
 
 - **Kept all session.** The summary is a running one, the contracts'
   `SessionSummary` in the open session: the start fills the car, the laps it
@@ -840,12 +846,12 @@ is the callouts' (paddock#93, #94).
   first frame (v1's `start_wall`); `driving_ms` is the
   frames' time from the first frame to the last, less the pauses.
 - **The car.** `car_name`, on `session.started` too, is from the car table,
-  [`internal/race/cars.csv`](internal/race/cars.csv): v1's `cars.csv` at
+  [`race/cars.csv`](race/cars.csv): v1's `cars.csv` at
   v1.0.0, byte for byte, 590 cars from ddm999/gt7info (MIT-0,
   [`NOTICE`](NOTICE)). A car missing from it is `car <code>`.
 - **Tests.** On every one of v1's 25 recordings, each session's summary is
   v1's `summary.json`, field for field with every lap, as `make_golden.py` in
-  [`internal/race/testdata/summary/`](internal/race/testdata/summary) wrote
+  [`race/testdata/summary/`](race/testdata/summary) wrote
   it from v1.0.0, but for three named departures: no position outside a
   field, the best lap where contracts v0.2.3 differs, and a held start's
   `started_at`, its first held frame's where v1's clock read the verdict's.
@@ -854,7 +860,7 @@ is the callouts' (paddock#93, #94).
 
 A restart in the middle of a race does not split it (paddock#76, v1's
 `continue_mismatch`, `SessionStore._continue` and `release_held` at v1.0.0):
-[`internal/race/continue.go`](internal/race/continue.go) decides, and
+[`race/continue.go`](race/continue.go) decides, and
 [`internal/sessions`](internal/sessions) keeps the record.
 
 - **The record.** While a session is open, ecu keeps it in the `ecu` KV bucket
@@ -915,7 +921,7 @@ A restart in the middle of a race does not split it (paddock#76, v1's
 - **Tests.** Suzuka's restart pair (the old pod's view, then the new pod's 8.7 s
   later), continued, with another car, 11 min apart and with a window of 0,
   gives what v1.0.0 let go of in each, field for field, as `make_golden.py` in
-  [`internal/race/testdata/continue/`](internal/race/testdata/continue) wrote
+  [`race/testdata/continue/`](race/testdata/continue) wrote
   it; restarts cut into one recording check the pit lane, a pause, the kind
   and a carried track ruled out; SUGO's lap 1 restart
   (`make_fixture.py` there) gives v1's tracks with no record, and SUGO carried

@@ -7,8 +7,8 @@ import (
 
 	telemetryv1 "github.com/those-who-run/contracts/gen/go/twr/telemetry/v1"
 	"github.com/those-who-run/ecu/internal/pit"
-	"github.com/those-who-run/ecu/internal/race"
 	"github.com/those-who-run/ecu/internal/rules"
+	"github.com/those-who-run/ecu/race"
 )
 
 // fr is one race frame for the fuel rule: its time, lap, level and lap total.
