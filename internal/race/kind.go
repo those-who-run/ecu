@@ -29,7 +29,8 @@ import (
 // fastest the car goes in the first startWindow packets of racing: under gridKph
 // is a grid start, else rolling in a lap race and flying otherwise. It counts
 // GT7's packets, not the clock, because packets arrive in bursts (a rolling start
-// at the Nordschleife, 2026-10-15, read through one).
+// at the Nordschleife, 2026-10-15, read through one). A start from a grid behind
+// the line is a grid start too, though lap 1 begins at speed (grid, paddock#148).
 //
 // total_cars is -1 in the frames GT7 replays around the results screen and for the
 // whole of a time trial, so -1 says nothing about the field. GT7 can also post the
@@ -55,6 +56,7 @@ type kinds struct {
 	haveStart   bool
 	startKph    float64
 	startKnown  bool
+	stood       float64 // the seconds the car stood on the grid before the start, 0 for none (grid)
 
 	joined bool
 	last   kindVerdict // the verdict so far (v1's SessionDetector._kind)
@@ -69,6 +71,56 @@ const (
 	startWindow = 18  // packets, 0.3 s at 60 Hz
 	gridKph     = 30.0
 )
+
+// The grid behind the line (paddock#148). GT7 puts the car on the grid on the
+// track screen (AT_TRACK, lap 0), where it stands through the countdown, then
+// launches; where the grid is behind the line, lap 1 begins at speed, so v1's
+// start window reads it as rolling (Suzuka East, 2026-10-31: 6.1 s standing in
+// slot 10, lap 1 at 97 km/h 4.7 s after moving off, "rolling start at 101 km/h").
+// A start is a grid start when, on the track screen before it, the car's last
+// standstill lasted gridStandPackets and lap 1 began within gridLaunchPackets of
+// the car moving off. In every recording so far a grid stood 6.0 to 7.1 s and
+// reached the line 2.5 to 5.7 s after moving off; the pit box before a timed
+// session's out lap stood 0.8 to 3.0 s and reached it 15.7 to 19.1 s after; a
+// rolling start never stands. Both count GT7's packets, as the start window does.
+const (
+	standKph          = 1.0 // under it the car is standing
+	gridStandPackets  = 240 // 4 s at 60 Hz
+	gridLaunchPackets = 600 // 10 s
+)
+
+// grid watches the track screen for the car standing on the grid: the last
+// standstill since the track screen began, by GT7's packet ids.
+type grid struct {
+	from, to int32 // the standstill's first and last packets
+	standing bool  // the car is standing now
+	stood    bool  // a standstill has been seen
+}
+
+// observe reads s against the track screen so far, then takes it: on a frame a
+// start can begin on, the seconds the car stood on the grid before it, if it
+// launched from there (0 otherwise).
+func (g *grid) observe(s *state) float64 {
+	var stood float64
+	if s.inRace() && g.stood {
+		standing, launch := g.to-g.from, s.packetID-g.to
+		if standing >= gridStandPackets && launch >= 0 && launch <= gridLaunchPackets {
+			stood = float64(standing) / 60
+		}
+	}
+	switch {
+	case s.phase != phaseAtTrack:
+		*g = grid{}
+	case s.speedKph >= standKph:
+		g.standing = false
+	default:
+		if !g.standing {
+			g.from, g.standing, g.stood = s.packetID, true, true
+		}
+		g.to = s.packetID
+	}
+	return stood
+}
 
 // frameField says one frame shows a field, as the kind reads it: three or more
 // cars, a driver who is anything but first, or a lap total and a second car.
@@ -229,16 +281,19 @@ func (k *kinds) decide() kindVerdict {
 	case k.joined:
 		why += "; joined part way, start not seen"
 	case k.startKnown:
-		var name string
+		var name, stood string
 		switch {
 		case k.startKph < gridKph:
 			v.start, name = eventsv1.StartType_START_TYPE_GRID, "grid"
+		case k.stood > 0: // a grid behind the line (paddock#148), a departure from v1
+			v.start, name = eventsv1.StartType_START_TYPE_GRID, "grid"
+			stood = ", after standing " + strconv.FormatFloat(k.stood, 'f', 0, 64) + " s"
 		case v.kind == eventsv1.SessionType_SESSION_TYPE_LAP_RACE:
 			v.start, name = eventsv1.StartType_START_TYPE_ROLLING, "rolling"
 		default:
 			v.start, name = eventsv1.StartType_START_TYPE_FLYING, "flying"
 		}
-		why += "; " + name + " start at " + strconv.FormatFloat(k.startKph, 'f', 0, 64) + " km/h"
+		why += "; " + name + " start at " + strconv.FormatFloat(k.startKph, 'f', 0, 64) + " km/h" + stood
 	}
 	v.field = v.kind == eventsv1.SessionType_SESSION_TYPE_LAP_RACE || v.kind == eventsv1.SessionType_SESSION_TYPE_TIMED_FIELD
 	v.evidence = why
