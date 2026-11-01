@@ -342,7 +342,8 @@ overflowed, the heartbeats sent and failed, and the listener's restarts.
 | --- | --- | --- |
 | `TWR_ECU_PS5_IP` | none: required | The PS5's IP address, where the heartbeat goes. |
 | `TWR_ECU_HEARTBEAT_SECS` | `2` | Seconds between heartbeats, from 0.01 to 3,600. |
-| `TWR_ECU_RECORDINGS_DIR` | unset: no recording | The directory each drive is recorded in ([Recording](#recording)). |
+| `TWR_ECU_RECORDINGS_DIR` | unset: no recording | The directory each outing is recorded in ([Recording](#recording)). |
+| `TWR_ECU_RECORDINGS_KEEP_DAYS` | `30` | Days a recording is kept from its start before it is pruned, unless archived ([Recording](#recording)); 0 or more, 0 keeps every one. |
 | `TWR_ECU_PAUSE_LIMIT_SECS` | unset: no limit | Seconds a pause may last before it ends the session paused ([Pauses](#pauses)); 0 or more, 0 is no limit. |
 | `TWR_ECU_CONTINUE_WINDOW_SECS` | `600` | Seconds after the last frame within which a restarted ecu continues the session ([After a restart](#after-a-restart)); 0 or more, 0 never continues. `ecu replay` reads it too. |
 | `TWR_ECU_RULES_FILE` | unset: v1's defaults | The rules file, v1's rules YAML ([The callouts](#the-callouts)); `ecu replay` reads it too. |
@@ -397,21 +398,62 @@ v1 and v2 can be compared on it. A test writes v1's own recordings again and
 compares them byte for byte, and another reads a live drive's recording back
 through `salsa`.
 
-- **One file per run**, made on the first packet and named for the UTC time
-  then, as v1 names its outings: `20261031-200509.jsonl.gz` (`-2` and so on
-  when one of that second exists). A run that hears nothing makes no file.
+- **One file per outing**, as v1's `OutingRecorder` (paddock#354). An
+  outing starts with the first packet, and with the first packet after the
+  feed was quiet for `TWR_ECU_TELEMETRY_TIMEOUT_SECS`; it ends once the feed
+  has been quiet that long, or when ecu stops. Its file is named for the UTC
+  time it started, as v1 names its outings: `20261031-200509.jsonl.gz` (`-2`
+  and so on when one of that second exists). That name without its extension
+  is the outing's **id**. A run that hears nothing makes no file.
+- **Whole once the outing ends.** When an outing ends, its file's last gzip
+  member is written and the file synced and closed, so a copy of it is a whole
+  gzip while ecu runs on. Only the outing being written is open: a crash cuts
+  short that one at most, and it is written in gzip members of 600 lines, so
+  everything up to its last 10 s reads back.
 - **`t` is seconds since ecu started**, on the monotonic clock: only
   differences between times mean anything, as in v1's recordings.
 - **Off the frame path.** A goroutine writes the file; up to 4,096 packets
   wait for it (about 68 s), and a packet beyond that is dropped from the
-  recording and counted. The file is written in gzip members of 600 lines,
-  so if ecu is killed mid-drive everything up to the last 10 s reads back.
-- **A directory ecu cannot write to stops it at start**; one that fails later
-  stops the recording, logged, and never the drive.
+  recording and counted.
+- **Pruned by age.** When ecu starts and when each outing starts, the outings
+  that started more than `TWR_ECU_RECORDINGS_KEEP_DAYS` ago (30 unless set; 0
+  keeps every one) are removed, every file named for the outing's id
+  (`<id>.*`), unless the outing is archived. Files not named for an outing
+  are never touched.
+- **A directory ecu cannot write to stops it at start**; a file that fails
+  later stops that outing's recording, logged, and never the drive; the next
+  outing tries again.
 - No PS5 address or other setting is written into a recording.
 
-Not here yet, and still paddock#266's: a recording per outing, archiving,
-pruning and listing recordings.
+### Listing and archiving recordings
+
+`ecu recordings list` and `ecu recordings archive` are v1's `recordings` and
+`recordings archive` for ecu's own recordings (paddock#354), offline: no NATS,
+no PS5. Both read `TWR_ECU_RECORDINGS_DIR`, or `--dir`.
+
+```sh
+ecu recordings list
+ecu recordings archive 20261031-200509 --note "the gap at the pit exit" --issue 113 --issue 354
+```
+
+- **`list`** prints one line per outing, oldest first: its id, its start (UTC),
+  its length from the first packet to the last, its frames and size,
+  `archived` and the issues when it is, and
+  `(incomplete: still being written or cut off)` for a recording whose gzip
+  does not end whole: the outing being recorded, or one a crash cut short.
+  Under it, one line per session the race state sees in it (its kind, laps
+  completed and why it ended, as `ecu replay` sums them up: `INPUT_ENDED` for
+  one still open where the recording stops), and the archive note.
+- **`archive ID`** keeps the outing from the pruning. It writes the outing's
+  note, `<id>.json`, beside its recording on the volume: v1's sidecar (its
+  ADR 0002) with the keys ecu knows, `id`, `sha256`, `bytes`, `frames`,
+  `date`, `sessions` (ecu's lines), `note`, `issues` and `archived_at`, so the
+  outing and its note can go to v1's outing archive as they are. Archived
+  again, it keeps its note unless given one, adds the issues, and keeps when it
+  was first archived. Pushing archived outings anywhere off the volume is the
+  deployment's concern.
+- The exit codes: 1 for an outing that cannot be archived (no such recording),
+  2 for a bad flag, an id that is not one, or a directory that cannot be read.
 
 ## Replay
 

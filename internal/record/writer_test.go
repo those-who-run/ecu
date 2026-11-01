@@ -68,7 +68,7 @@ func readBack(tb testing.TB, path string) []salsa.Received {
 // packets written, across several gzip members, and its lines are v1's.
 func TestARecordingReadsBackThroughSalsa(t *testing.T) {
 	dir := t.TempDir()
-	w, err := Open(dir, quiet(), clock)
+	w, err := Open(dir, Options{}, quiet(), clock)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,7 +108,7 @@ func TestRecordingsNeverOverwriteEachOther(t *testing.T) {
 	dir := t.TempDir()
 	var paths []string
 	for range 2 {
-		w, err := Open(dir, quiet(), clock)
+		w, err := Open(dir, Options{}, quiet(), clock)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -118,7 +118,7 @@ func TestRecordingsNeverOverwriteEachOther(t *testing.T) {
 	if paths[0] != filepath.Join(dir, "20261031-200509.jsonl.gz") || paths[1] != filepath.Join(dir, "20261031-200509-2.jsonl.gz") {
 		t.Errorf("paths %v", paths)
 	}
-	w, err := Open(dir, quiet(), clock)
+	w, err := Open(dir, Options{}, quiet(), clock)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,7 +133,7 @@ func TestRecordingsNeverOverwriteEachOther(t *testing.T) {
 // A directory that is missing is made; one ecu cannot write to stops it at start.
 func TestOpenChecksTheDirectory(t *testing.T) {
 	made := filepath.Join(t.TempDir(), "a", "b")
-	w, err := Open(made, quiet(), clock)
+	w, err := Open(made, Options{}, quiet(), clock)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,7 +145,7 @@ func TestOpenChecksTheDirectory(t *testing.T) {
 	if err := os.WriteFile(file, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Open(file, quiet(), clock); err == nil {
+	if _, err := Open(file, Options{}, quiet(), clock); err == nil {
 		t.Error("a file as the directory was taken")
 	}
 }
@@ -154,7 +154,7 @@ func TestOpenChecksTheDirectory(t *testing.T) {
 // written.
 func TestAPacketThatCannotBeWrittenIsCounted(t *testing.T) {
 	var log bytes.Buffer
-	w, err := Open(t.TempDir(), slog.New(slog.NewJSONHandler(&log, nil)), clock)
+	w, err := Open(t.TempDir(), Options{}, slog.New(slog.NewJSONHandler(&log, nil)), clock)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -180,7 +180,7 @@ func TestAPacketThatCannotBeWrittenIsCounted(t *testing.T) {
 func TestAFailingRecordingNeverHoldsTheFramePath(t *testing.T) {
 	dir := t.TempDir()
 	var log bytes.Buffer
-	w, err := Open(dir, slog.New(slog.NewJSONHandler(&log, nil)), clock)
+	w, err := Open(dir, Options{}, slog.New(slog.NewJSONHandler(&log, nil)), clock)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,7 +205,7 @@ func TestAFailingRecordingNeverHoldsTheFramePath(t *testing.T) {
 
 // Close gives up on a writer that is stuck once its context is done.
 func TestCloseIsBounded(t *testing.T) {
-	w, err := Open(t.TempDir(), quiet(), clock)
+	w, err := Open(t.TempDir(), Options{}, quiet(), clock)
 	if err != nil {
 		t.Fatal(err)
 	}
