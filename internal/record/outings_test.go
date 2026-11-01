@@ -155,8 +155,9 @@ func TestAnIdleFeedStartsANewRecording(t *testing.T) {
 
 // An outing's file is closed, a whole gzip, once now is the idle setting past the
 // last packet's arrival, while ecu still runs: a copy of it then is the whole
-// outing. A timer that fires before then ends nothing and is set again for what
-// is left.
+// outing. Before then, once packets have stopped for 10 s (flushEvery), its open
+// gzip member is closed, so a copy reads back whole up to then while the outing
+// stays open (paddock#343's review); the timer is then set again for what is left.
 func TestAnEndedOutingIsAWholeGzipWhileEcuRuns(t *testing.T) {
 	dir := t.TempDir()
 	c := newFakeClock(at)
@@ -167,18 +168,21 @@ func TestAnEndedOutingIsAWholeGzipWhileEcuRuns(t *testing.T) {
 		w.Write(r, arrived(r))
 	}
 	eventually(t, "written", func() bool { return w.Stats().Frames == 1000 })
-	if d := <-c.armed; d != idle {
-		t.Errorf("the timer was set for %v, want %v", d, idle)
+	if d := <-c.armed; d != flushEvery {
+		t.Errorf("the timer was set for %v, want %v while a member is open", d, flushEvery)
 	}
 	last := arrived(in[len(in)-1])
 	path := filepath.Join(dir, "20261031-200509.jsonl.gz")
 
-	c.set(last.Add(idle / 2))
+	c.set(last.Add(flushEvery))
 	c.fire <- c.now()
-	if d := <-c.armed; d != idle/2 {
-		t.Errorf("set again for %v, want %v", d, idle/2)
+	if d := <-c.armed; d != idle-flushEvery {
+		t.Errorf("set again for %v, want %v", d, idle-flushEvery)
 	}
-	if _, err := gzipLines(path); err == nil {
+	if n, err := gzipLines(path); err != nil || n != 1000 {
+		t.Errorf("not flushed while the outing is open: %d lines, %v", n, err)
+	}
+	if w.Stats().Outings != 1 {
 		t.Error("the outing ended before the feed was idle")
 	}
 
@@ -232,8 +236,10 @@ func TestAPacketLeftOutStillSetsTheTimer(t *testing.T) {
 	w.Write(bad, arrived(bad))
 	c.fire <- c.now() // fires early, with the bad packet waiting
 	close(c.gate)
-	if d := <-c.armed; d != idle+time.Second {
-		t.Errorf("the timer was set again for %v, want %v", d, idle+time.Second)
+	// Set again: for 10 s, as the good packet's gzip member is still open
+	// (paddock#343's review), or the idle setting from the bad packet without.
+	if d := <-c.armed; d != flushEvery {
+		t.Errorf("the timer was set again for %v, want %v", d, flushEvery)
 	}
 	c.set(arrived(bad).Add(idle))
 	c.fire <- c.now()

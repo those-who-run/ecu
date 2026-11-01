@@ -315,7 +315,11 @@ publisher with it, exactly as a recording's packets would. The live source is a
 It ports v1's lessons (`telemetry.py` at v1.0.0), not its code:
 
 - **Our own heartbeat.** An `A` goes to the PS5's UDP port 33739 at start and
-  then every `TWR_ECU_HEARTBEAT_SECS`, from a fresh socket each time. A failed
+  then every `TWR_ECU_HEARTBEAT_SECS`, from a fresh socket each time.
+  `TWR_ECU_HEARTBEAT_KIND` sends `B` or `~` instead (paddock#343), for the
+  drives that capture GT7's other layouts: the PS5 then sends 316- or 344-byte
+  packets, which start with the A block, and the race state reads only that, so
+  the frames and events are the same as under `A`. Parity stays on `A`. A failed
   send is logged once per outage, and when it gets out again, and never stops
   the heartbeat: v1 lost the stream for good when gt-telem's 10 s heartbeat died
   on one error.
@@ -336,15 +340,20 @@ It ports v1's lessons (`telemetry.py` at v1.0.0), not its code:
   at start.
 
 At the end ecu logs the packets handed on, dropped late, undecodable and
-overflowed, the heartbeats sent and failed, and the listener's restarts.
+overflowed, the datagrams from an address other than the PS5's (`foreign`:
+decoded as the PS5's, never captured), the heartbeats sent and failed, and the
+listener's restarts.
 
 | Variable | Default | What |
 | --- | --- | --- |
 | `TWR_ECU_PS5_IP` | none: required | The PS5's IP address, where the heartbeat goes. |
 | `TWR_ECU_HEARTBEAT_SECS` | `2` | Seconds between heartbeats, from 0.01 to 3,600. |
+| `TWR_ECU_HEARTBEAT_KIND` | `A` | The heartbeat sent, which picks the packets GT7 sends: `A`, `B` or `~`; anything else stops ecu at start (exit 2). |
 | `TWR_ECU_RECORDINGS_DIR` | unset: no recording | The directory each outing is recorded in ([Recording](#recording)). |
+| `TWR_ECU_CAPTURE` | `on` | `off` records with no capture of the raw datagrams ([The capture](#the-capture)); anything but `on` or `off` stops ecu at start (exit 2). |
 | `TWR_ECU_RECORDINGS_IDLE_SECS` | `600` | Seconds with no packet that end an outing's recording ([Recording](#recording)), above 0 and at most 86,400. `ecu recordings archive` reads it too. |
 | `TWR_ECU_RECORDINGS_KEEP_DAYS` | `30` | Days a recording is kept from its last write before it is pruned, unless archived ([Recording](#recording)); 0 or more, 0 keeps every one. |
+| `TWR_ECU_CAPTURE_KEEP_DAYS` | `7` | Days a capture is kept from its outing's last write before it alone is pruned, unless the outing is archived ([The capture](#the-capture)); 0 or more, 0 keeps it as long as its recording. |
 | `TWR_ECU_PAUSE_LIMIT_SECS` | unset: no limit | Seconds a pause may last before it ends the session paused ([Pauses](#pauses)); 0 or more, 0 is no limit. |
 | `TWR_ECU_CONTINUE_WINDOW_SECS` | `600` | Seconds after the last frame within which a restarted ecu continues the session ([After a restart](#after-a-restart)); 0 or more, 0 never continues. `ecu replay` reads it too. |
 | `TWR_ECU_RULES_FILE` | unset: v1's defaults | The rules file, v1's rules YAML ([The callouts](#the-callouts)); `ecu replay` reads it too. |
@@ -419,12 +428,14 @@ through `salsa`.
 - **Whole once the outing ends.** When an outing ends, its file's last gzip
   member is written and the file synced and closed, so a copy of it is a whole
   gzip while ecu runs on. Only the outing being written is open: a crash cuts
-  short that one at most, and it is written in gzip members of 600 lines, so
-  everything up to its last 10 s reads back.
+  short that one at most, and it is written in gzip members of 600 lines,
+  closed too once packets have stopped for 10 s, so everything up to its last
+  10 s reads back.
 - **`t` is seconds since ecu started**, on the monotonic clock: only
   differences between times mean anything, as in v1's recordings.
-- **Off the frame path.** A goroutine writes the file; up to 4,096 packets
-  wait for it (about 68 s), and a packet beyond that is dropped from the
+- **Off the frame path.** A goroutine writes the file; up to 8,192 packets,
+  and datagrams while [capturing](#the-capture), wait for it (about 68 s while
+  capturing, twice that without), and a packet beyond that is dropped from the
   recording and counted.
 - **Pruned by age.** When ecu starts and when each outing starts, the outings
   last written more than `TWR_ECU_RECORDINGS_KEEP_DAYS` ago (30 unless set; 0
@@ -432,12 +443,67 @@ through `salsa`.
   id and age. An outing's last write is the latest of its start and its
   files' modification times, so a long recording, such as one of the files
   ecu wrote one per run before outings, is dated by its end. The `<id>.*`
-  files go with their outing: its recording and anything recorded beside it.
+  files go with their outing: its recording and anything recorded beside it
+  (its [capture](#the-capture) goes sooner, after `TWR_ECU_CAPTURE_KEEP_DAYS`).
   A file not named `<id>.*` for an outing id is never touched.
 - **A directory ecu cannot write to stops it at start**; a file that fails
   later stops that outing's recording, logged, and never the drive; the next
   outing tries again.
 - No PS5 address or other setting is written into a recording.
+
+### The capture
+
+Beside each recording, ecu saves the datagrams it received from the PS5,
+still encrypted, each with its receive time ([`internal/record`](internal/record),
+paddock#343), so a normal drive yields the real PS5 captures salsa's tests wait
+on (paddock#30, paddock#31), and the data v2's own recording format is to be
+decided from (paddock#32). It is on whenever recordings are, unless
+`TWR_ECU_CAPTURE=off`.
+
+- **`<id>.twrcap` beside `<id>.jsonl.gz`**, the same outing under the same id:
+  the outing's first datagram opens it, and it is flushed, synced and closed
+  when the outing ends, with the recording, so both are whole then. A datagram
+  starts and keeps an outing going as a packet does; one that does not decode
+  is captured all the same, and an outing of only those leaves an empty, whole
+  recording. Archiving keeps it with its outing, and the outing's pruning
+  takes it, as every `<id>.*`; before that, it is pruned on its own (below).
+- **Every datagram from the PS5's address**, exactly as received, before it is
+  decoded: late and undecodable ones too. Datagrams from any other address are
+  never captured, and counted (`foreign`).
+- **The format** is the one the stand-alone capture script for paddock#30 was
+  written to, and is not compressed (encrypted bytes do not compress):
+  - the magic `TWRCAP1\n` (8 bytes);
+  - then a record per datagram: its receive time (int64, nanoseconds since the
+    Unix epoch, big-endian), its length (uint32, big-endian) and its bytes.
+
+  `record.ReadCapture` reads it for the tests; salsa gets the reader replays
+  use (paddock#30, paddock#32).
+- **The receive time** is the wall-clock time ecu started plus the time since
+  on the monotonic clock, as the frame path dates its packets, so a capture's
+  times never go back, whatever the wall clock does.
+- **Off the receive path.** The listener copies each datagram and hands it to
+  the recording's goroutine, never waiting: about 0.2 to 0.35 µs a datagram on
+  the NUC (`BenchmarkCapture`), beside salsa's 0.4 µs to decrypt it; the
+  goroutine writes one in about 1.2 µs (`BenchmarkCaptureWrite`). Packets and
+  datagrams share the 8,192 places waiting (about 68 s); a datagram beyond them
+  is dropped from the capture and counted (`capture_dropped`), never from the
+  frame path. The file is written through a 64 KiB buffer, flushed at least
+  every 10 s, while datagrams come and once they stop, so a killed pod loses
+  at most the last 10 s.
+- **The size.** A record is the datagram and 12 bytes, at about 60 Hz: about
+  66.5 MB an hour of driving under `A` (296 bytes), 70.8 MB under `B` and
+  76.9 MB under `~`, beside the recording's 12 MB or so. Encrypted bytes do
+  not compress. `ecu recordings list` gives each outing's size with its
+  capture.
+- **Kept a week.** When ecu starts and when each outing starts, the captures
+  of the outings last written more than `TWR_ECU_CAPTURE_KEEP_DAYS` ago (7
+  unless set; 0 keeps each as long as its recording) are removed, the rest of
+  each outing left, unless the outing is archived, which keeps its capture.
+  Their age is the outing's, as the recordings' pruning dates it. Sizing the
+  volume: a week of captures at 3 hours' driving a day (about 1.5 GB) and 30
+  days of recordings (about 1.1 GB) is about 2.5 GB. A local-path volume does
+  not enforce its claim, so leave the disk that room.
+- No PS5 address or other setting is written into a capture.
 
 ### Listing and archiving recordings
 
@@ -452,7 +518,8 @@ ecu recordings archive /recordings/20261031-200509.jsonl.gz
 ```
 
 - **`list`** prints one line per outing, oldest first: its id, its start (UTC),
-  its length from the first packet to the last, its frames and size,
+  its length from the first packet to the last, its frames and its size on
+  the volume (every `<id>.*` file of it, its [capture](#the-capture) included),
   `archived` and the issues when it is, and
   `(incomplete: still being written or cut off)` for a recording that stops
   short (the outing being recorded, one a crash cut short, an empty file or

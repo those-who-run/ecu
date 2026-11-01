@@ -132,10 +132,35 @@ func (r *retimed) Next(ctx context.Context) (salsa.Received, error) {
 // The drive is recorded in v1's format, and the recording reads back through
 // salsa's recording Source as the packets the race state got, with no trace of
 // the PS5's address in it (paddock#266, AC4).
+//
+// Beside the recording, the capture holds exactly the PS5's datagrams, byte for
+// byte, in order, with receive times that never go back, each of which decrypts,
+// and none of a second address's sent among them, and no trace of the PS5's
+// address either (paddock#343, AC1 and AC4). Under each heartbeat kind the fake
+// PS5 gets that kind and sends the same packets as that kind's datagrams, 316
+// bytes for B and 344 for "~", and the events are the same (AC2).
 func TestALiveDriveReachesThePublisherAndIsRecorded(t *testing.T) {
 	in := readAll(t, openRecording(t, recordingPath(t, suzuka)))
 	want := &fakePublisher{}
 	_ = drive(t.Context(), &slice{all: in}, func(salsa.Received) time.Time { return time.Unix(0, 0) }, machine(), nil, want, nil, nil, nil)
+	for _, kind := range []byte{salsa.HeartbeatA, salsa.HeartbeatB, salsa.HeartbeatTilde} {
+		t.Run(string(kind), func(t *testing.T) { liveDrive(t, in, want, kind) })
+	}
+}
+
+// asKind is p as a packet of the heartbeat kind's layout: the A block as it is,
+// with a B block and, for "~", a "~" block after it.
+func asKind(p salsa.Packet, kind byte) salsa.Packet {
+	if kind == salsa.HeartbeatB || kind == salsa.HeartbeatTilde {
+		p.B = &salsa.B{Heave: p.Speed / 100, Sway: -1}
+	}
+	if kind == salsa.HeartbeatTilde {
+		p.Tilde = &salsa.Tilde{TildeByte1: 7, TildeVector: [4]float32{1, -1, 2, -2}}
+	}
+	return p
+}
+
+func liveDrive(t *testing.T, in []salsa.Received, want *fakePublisher, kind byte) {
 
 	ps5, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
 	if err != nil {
@@ -150,13 +175,19 @@ func TestALiveDriveReachesThePublisherAndIsRecorded(t *testing.T) {
 	_ = c.Close()
 	var log bytes.Buffer
 	logger := slog.New(slog.NewJSONHandler(&lockedWriter{w: &log}, nil))
-	src := live.Open(live.Config{PS5: "127.0.0.1", Heartbeat: time.Hour, HeartbeatPort: ps5.LocalAddr().(*net.UDPAddr).Port,
-		Listen: listen.String()}, logger)
 	dir := t.TempDir()
 	rec, err := record.Open(dir, record.Options{}, logger, time.Now)
 	if err != nil {
 		t.Fatal(err)
 	}
+	src := live.Open(live.Config{PS5: "127.0.0.1", Heartbeat: time.Hour, HeartbeatPort: ps5.LocalAddr().(*net.UDPAddr).Port,
+		Listen: listen.String(), HeartbeatKind: kind, Capture: rec.Capture}, logger)
+	// A second address on the network sends too: never captured.
+	stranger, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 2)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = stranger.Close() }()
 	got := &fakePublisher{}
 	ts := make(map[int32]float64, len(in))
 	for _, r := range in {
@@ -176,8 +207,8 @@ func TestALiveDriveReachesThePublisherAndIsRecorded(t *testing.T) {
 	// is lost, as GT7's would be), then send in batches the socket's buffer holds.
 	buf := make([]byte, 8)
 	_ = ps5.SetReadDeadline(time.Now().Add(5 * time.Second))
-	if n, _, err := ps5.ReadFromUDP(buf); err != nil || n != 1 || buf[0] != salsa.HeartbeatA {
-		t.Fatalf("no heartbeat: %v", err)
+	if n, _, err := ps5.ReadFromUDP(buf); err != nil || n != 1 || buf[0] != kind {
+		t.Fatalf("no %q heartbeat: %v, got %q", kind, err, buf[:n])
 	}
 	for deadline := time.Now().Add(5 * time.Second); !src.Stats().Listening; time.Sleep(2 * time.Millisecond) {
 		if time.Now().After(deadline) {
@@ -193,12 +224,20 @@ func TestALiveDriveReachesThePublisherAndIsRecorded(t *testing.T) {
 			time.Sleep(2 * time.Millisecond)
 		}
 	}
-	for i, r := range in {
-		if _, err := ps5.WriteToUDP(salsatest.Encode(r.Packet), listen); err != nil {
+	var sent [][]byte
+	send := func(d []byte) {
+		if _, err := ps5.WriteToUDP(d, listen); err != nil {
 			t.Fatal(err)
 		}
+		sent = append(sent, d)
+	}
+	for i, r := range in {
+		send(salsatest.Encode(asKind(r.Packet, kind)))
 		if i%10 == 9 { // and one sent again, late
-			if _, err := ps5.WriteToUDP(salsatest.Encode(in[i-3].Packet), listen); err != nil {
+			send(salsatest.Encode(asKind(in[i-3].Packet, kind)))
+		}
+		if i%100 == 0 {
+			if _, err := stranger.WriteToUDP(salsatest.Encode(asKind(r.Packet, kind)), listen); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -215,8 +254,10 @@ func TestALiveDriveReachesThePublisherAndIsRecorded(t *testing.T) {
 	if got.count() != len(in) {
 		t.Errorf("%d frames published, want %d", got.count(), len(in))
 	}
-	if st := src.Stats(); st.Late != uint64(len(in)/10) || st.Packets != uint64(len(in)) {
-		t.Errorf("source %+v; want %d packets and %d late", st, len(in), len(in)/10)
+	// The stranger's datagrams carry ids already seen, so they are late.
+	strangers := uint64((len(in) + 99) / 100)
+	if st := src.Stats(); st.Late != uint64(len(in)/10)+strangers || st.Packets != uint64(len(in)) || st.Foreign != strangers {
+		t.Errorf("source %+v; want %d packets, %d late and %d foreign", st, len(in), uint64(len(in)/10)+strangers, strangers)
 	}
 	w, g := events(want.outs), events(got.outs)
 	// The replay ends its open session as the input ended, live as ecu stopping.
@@ -247,6 +288,41 @@ func TestALiveDriveReachesThePublisherAndIsRecorded(t *testing.T) {
 	plain := strings.Join(linesOf(t, s.Path), "\n")
 	if strings.Contains(plain, "127.0.0.1") || bytes.Contains(raw, []byte("127.0.0.1")) {
 		t.Error("the recording holds the PS5's address")
+	}
+
+	capPath := strings.TrimSuffix(s.Path, record.Ext) + record.CaptureExt
+	captured, err := record.ReadCaptureFile(capPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Captured != uint64(len(sent)) || s.CaptureDropped != 0 || len(captured) != len(sent) {
+		t.Fatalf("captured %+v, read back %d; want the PS5's %d datagrams", s, len(captured), len(sent))
+	}
+	for i, c := range captured {
+		if !bytes.Equal(c.Bytes, sent[i]) {
+			t.Fatalf("datagram %d captured as %x, sent %x", i, c.Bytes, sent[i])
+		}
+		if i > 0 && c.At < captured[i-1].At {
+			t.Fatalf("the receive time goes back at %d", i)
+		}
+		if plain, err := salsa.Decrypt(c.Bytes); err != nil || plain.Kind.String() != string(kind) {
+			t.Fatalf("datagram %d: %v, kind %v", i, err, plain.Kind)
+		}
+	}
+	// The address as text anywhere, and as the four bytes of an IPv4 address in
+	// what is not the format's own: a record's header is a time and a length, and
+	// a time ending in 0x7f before a length of 0x128 would read as 127.0.0.1.
+	raw, err = os.ReadFile(capPath) //nolint:gosec // the test's own file
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(raw, []byte("127.0.0.1")) {
+		t.Error("the capture holds the PS5's address")
+	}
+	for i, c := range captured {
+		if bytes.Contains(c.Bytes, []byte{127, 0, 0, 1}) {
+			t.Errorf("captured datagram %d holds the PS5's address", i)
+		}
 	}
 }
 

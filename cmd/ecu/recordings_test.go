@@ -321,3 +321,20 @@ func TestTheKeepSetting(t *testing.T) {
 		}
 	}
 }
+
+// TWR_ECU_CAPTURE_KEEP_DAYS is 7 days unless set, 0 keeps every capture as long as
+// its recording, and a value that is not a number of days stops ecu at start
+// (paddock#343).
+func TestTheCaptureKeepSetting(t *testing.T) {
+	for v, want := range map[string]time.Duration{"": 7 * 24 * time.Hour, "0": 0, "2": 2 * 24 * time.Hour} {
+		got, err := captureKeepDays(func(string) string { return v })
+		if err != nil || got != want {
+			t.Errorf("%q: %v, %v; want %v", v, got, err, want)
+		}
+	}
+	for _, v := range []string{"-1", "NaN", "a week", "40000"} {
+		if _, err := captureKeepDays(func(string) string { return v }); err == nil || !strings.Contains(err.Error(), captureKeepDaysEnv) {
+			t.Errorf("%q: %v", v, err)
+		}
+	}
+}

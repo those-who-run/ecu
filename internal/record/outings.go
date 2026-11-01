@@ -64,7 +64,9 @@ type Recording struct {
 	ID    string
 	Path  string
 	Start time.Time
-	Size  int64
+	// Size is the recording's size, and Total every file's of the outing,
+	// <id>.*: its capture (paddock#343) and its note too.
+	Size, Total int64
 	// Note is the outing's archive note, nil when it is not archived.
 	Note *Note
 }
@@ -79,6 +81,14 @@ func Recordings(dir string) ([]Recording, error) {
 	}
 	var all []Recording
 	order := map[string]int{}
+	total := map[string]int64{}
+	for _, e := range entries {
+		if id, ok := idOf(e.Name()); ok && e.Type().IsRegular() {
+			if info, err := e.Info(); err == nil {
+				total[id] += info.Size()
+			}
+		}
+	}
 	for _, e := range entries {
 		id, found := strings.CutSuffix(e.Name(), Ext)
 		if !found || !e.Type().IsRegular() {
@@ -96,7 +106,8 @@ func Recordings(dir string) ([]Recording, error) {
 		if err != nil {
 			return nil, err
 		}
-		all = append(all, Recording{ID: id, Path: filepath.Join(dir, e.Name()), Start: start, Size: info.Size(), Note: note})
+		all = append(all, Recording{ID: id, Path: filepath.Join(dir, e.Name()), Start: start, Size: info.Size(),
+			Total: max(total[id], info.Size()), Note: note})
 		order[id] = n
 	}
 	slices.SortFunc(all, func(a, b Recording) int {
@@ -273,6 +284,23 @@ func OrphanNotes(dir string) ([]string, error) {
 // the files ecu wrote one per run, is dated by its end. It returns the ids
 // pruned. Files not named <id>.* for an outing id are never touched.
 func Prune(dir string, keep time.Duration, now time.Time, logger *slog.Logger) ([]string, error) {
+	return prune(dir, keep, now, logger, "pruned an old recording", func(string) bool { return true })
+}
+
+// PruneCaptures removes the captures, <id>.twrcap, of the outings in dir last
+// written more than keep before now that are not archived, as Prune dates them,
+// and leaves the rest of each outing (paddock#343): a capture is about six times
+// its recording's size, so it is kept for less time. It returns the ids whose
+// capture it removed.
+func PruneCaptures(dir string, keep time.Duration, now time.Time, logger *slog.Logger) ([]string, error) {
+	return prune(dir, keep, now, logger, "pruned an old capture", func(name string) bool {
+		return strings.HasSuffix(name, CaptureExt)
+	})
+}
+
+// prune removes, of each outing Prune would prune, the files take takes, logging
+// each with msg.
+func prune(dir string, keep time.Duration, now time.Time, logger *slog.Logger, msg string, take func(name string) bool) ([]string, error) {
 	before := now.Add(-keep)
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -304,6 +332,9 @@ func Prune(dir string, keep time.Duration, now time.Time, logger *slog.Logger) (
 		age := now.Sub(last[id])
 		removed := false
 		for _, name := range files[id] {
+			if !take(name) {
+				continue
+			}
 			// Archived meanwhile: kept.
 			if _, err := os.Stat(filepath.Join(dir, id+NoteExt)); err == nil {
 				break
@@ -313,7 +344,7 @@ func Prune(dir string, keep time.Duration, now time.Time, logger *slog.Logger) (
 				errs = append(errs, err)
 				continue
 			}
-			logger.Info("pruned an old recording", "id", id, "file", name, "last_written", last[id].UTC().Format(time.RFC3339),
+			logger.Info(msg, "id", id, "file", name, "last_written", last[id].UTC().Format(time.RFC3339),
 				"age", age.Round(time.Second).String())
 		}
 		if removed {
