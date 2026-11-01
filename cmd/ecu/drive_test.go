@@ -309,8 +309,20 @@ func liveDrive(t *testing.T, in []salsa.Received, want *fakePublisher, kind byte
 			t.Fatalf("datagram %d: %v, kind %v", i, err, plain.Kind)
 		}
 	}
-	if raw, err := os.ReadFile(capPath); err != nil || bytes.Contains(raw, []byte("127.0.0.1")) { //nolint:gosec // the test's own file
-		t.Errorf("the capture holds the PS5's address (%v)", err)
+	// The address as text anywhere, and as the four bytes of an IPv4 address in
+	// what is not the format's own: a record's header is a time and a length, and
+	// a time ending in 0x7f before a length of 0x128 would read as 127.0.0.1.
+	raw, err = os.ReadFile(capPath) //nolint:gosec // the test's own file
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(raw, []byte("127.0.0.1")) {
+		t.Error("the capture holds the PS5's address")
+	}
+	for i, c := range captured {
+		if bytes.Contains(c.Bytes, []byte{127, 0, 0, 1}) {
+			t.Errorf("captured datagram %d holds the PS5's address", i)
+		}
 	}
 }
 

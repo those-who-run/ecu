@@ -274,6 +274,8 @@ func TestLiveModeIsConfiguredAtStart(t *testing.T) {
 		{nil, liveEnv(map[string]string{"TWR_ECU_RECORDINGS_KEEP_DAYS": "a week"}), "TWR_ECU_RECORDINGS_KEEP_DAYS"},
 		{nil, liveEnv(map[string]string{"TWR_ECU_HEARTBEAT_KIND": "C"}), `TWR_ECU_HEARTBEAT_KIND: "C" is not a heartbeat kind`},
 		{nil, liveEnv(map[string]string{"TWR_ECU_CAPTURE": "no"}), `TWR_ECU_CAPTURE: "no" is not on or off`},
+		{nil, liveEnv(map[string]string{"TWR_ECU_CAPTURE_KEEP_DAYS": "-1"}), "TWR_ECU_CAPTURE_KEEP_DAYS"},
+		{nil, liveEnv(map[string]string{"TWR_ECU_RECORDINGS_IDLE_SECS": "0"}), "TWR_ECU_RECORDINGS_IDLE_SECS"},
 	} {
 		var stdout, stderr bytes.Buffer
 		code := run(t.Context(), c.args, c.env, &stdout, &stderr)

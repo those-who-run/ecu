@@ -8,6 +8,8 @@ import (
 	"io"
 	"os"
 	"time"
+
+	"github.com/those-who-run/salsa"
 )
 
 // CaptureExt is a capture's extension: <id>.twrcap beside the outing's recording
@@ -30,7 +32,9 @@ const maxDatagram = 1<<16 - 1
 const captureBuffer = 64 << 10
 
 // flushEvery is the longest a datagram waits in the write buffer, on the
-// datagrams' own clock: a killed pod loses at most the last 10 s (R3).
+// datagrams' own clock while they come and on the wall clock once they stop, and
+// the longest a recording's gzip member stays open once packets stop: a killed pod
+// loses at most the last 10 s (R3).
 const flushEvery = 10 * time.Second
 
 // Datagram is one record of a capture: a datagram as the PS5 sent it, still
@@ -49,10 +53,9 @@ type Datagram struct {
 // capture and counted. datagram is copied: the caller may reuse it at once.
 // Capture may be called from another goroutine than Write's, and not after Close.
 func (w *Writer) Capture(t float64, at time.Time, datagram []byte) {
-	it := item{raw: append([]byte(nil), datagram...), at: at.UnixNano()}
-	it.T = t
+	a := arrival{r: salsa.Received{T: t}, at: at, raw: append([]byte(nil), datagram...)}
 	select {
-	case w.in <- it:
+	case w.in <- a:
 	default:
 		w.captureDropped.Add(1)
 	}
@@ -84,6 +87,7 @@ func (o *outing) capture(at int64, datagram []byte) bool {
 		o.flushedAt = at
 		if err := o.capW.Flush(); err != nil {
 			o.failCapture(err)
+			return false
 		}
 	}
 	return true

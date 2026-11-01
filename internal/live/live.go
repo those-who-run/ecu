@@ -99,8 +99,9 @@ type Config struct {
 	// each.
 	HeartbeatKind byte
 	// Capture, when set, gets every datagram received from the PS5's address,
-	// exactly as received and before it is decoded, with its receive time on the
-	// wall clock and as Received.T (paddock#343): record.Writer.Capture. It is
+	// exactly as received and before it is decoded, with its receive time, the
+	// start's wall-clock time plus the time since on the monotonic clock, and as
+	// Received.T (paddock#343): record.Writer.Capture. It is
 	// called on the listener's goroutine, so it must not wait, and it must not
 	// keep datagram, which is reused. main sets it; it is never read from the
 	// environment.
@@ -411,11 +412,14 @@ func (s *Source) read(conn net.PacketConn) error {
 		if err != nil {
 			return err
 		}
-		now := time.Now()
-		t := now.Sub(s.start).Seconds()
+		// The receive time is the start's wall-clock time plus the time since, on
+		// the monotonic clock, as the frame path dates its packets: a capture's
+		// times never go back, whatever the wall clock does.
+		since := time.Since(s.start)
+		t := since.Seconds()
 		if s.fromPS5(from) {
 			if s.cfg.Capture != nil {
-				s.cfg.Capture(t, now, buf[:n])
+				s.cfg.Capture(t, s.start.Add(since), buf[:n])
 			}
 		} else {
 			s.counters.foreign.Add(1)

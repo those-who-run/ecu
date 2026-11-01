@@ -1,11 +1,12 @@
 // Command ecu listens to the PS5 live: it keeps GT7 sending with its heartbeat,
 // reads each packet, runs it through the race state and publishes the frames and
 // events on NATS, and, with TWR_ECU_RECORDINGS_DIR set, records each outing in v1's
-// format, pruning those older than TWR_ECU_RECORDINGS_KEEP_DAYS (paddock#106,
-// paddock#266, paddock#354), with the raw datagrams in a capture beside each
-// recording unless TWR_ECU_CAPTURE is off (paddock#343). TWR_ECU_HEARTBEAT_KIND
-// picks the heartbeat, A unless set. TWR_ECU_PS5_IP is required: without it ecu
-// stops at start. It reads its configuration from the
+// format, an outing ending after TWR_ECU_RECORDINGS_IDLE_SECS with no packet, and
+// prunes those last written more than TWR_ECU_RECORDINGS_KEEP_DAYS ago
+// (paddock#106, paddock#266, paddock#354), with the raw datagrams in a capture
+// beside each recording unless TWR_ECU_CAPTURE is off (paddock#343).
+// TWR_ECU_HEARTBEAT_KIND picks the heartbeat, A unless set. TWR_ECU_PS5_IP is
+// required: without it ecu stops at start. It reads its configuration from the
 // environment, logs JSON to standard output and serves GET /healthz until it gets
 // SIGINT or SIGTERM. `ecu -version` prints its version and exits.
 //
@@ -144,13 +145,20 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout,
 	if err == nil {
 		window, err = continueWindow(getenv)
 	}
-	var keep time.Duration
+	var keep, idle time.Duration
 	if err == nil {
 		keep, err = keepDays(getenv)
+	}
+	if err == nil {
+		idle, err = recordingsIdle(getenv)
 	}
 	var capture bool
 	if err == nil {
 		capture, err = captureOn(getenv)
+	}
+	var captureKeep time.Duration
+	if err == nil {
+		captureKeep, err = captureKeepDays(getenv)
 	}
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, err)
@@ -164,7 +172,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout,
 	}
 	var rec *record.Writer
 	if dir := getenv("TWR_ECU_RECORDINGS_DIR"); dir != "" {
-		if rec, err = record.Open(dir, record.Options{Idle: liveCfg.TelemetryTimeout, Keep: keep}, logger, time.Now); err != nil {
+		if rec, err = record.Open(dir, record.Options{Idle: idle, Keep: keep, CaptureKeep: captureKeep}, logger, time.Now); err != nil {
 			_, _ = fmt.Fprintln(stderr, "TWR_ECU_RECORDINGS_DIR:", err)
 			return 2
 		}
@@ -406,7 +414,7 @@ func drive(ctx context.Context, src salsa.Source, at func(salsa.Received) time.T
 			return err
 		}
 		if rec != nil {
-			rec.Write(r)
+			rec.Write(r, at(r))
 		}
 		kp.restoreLate(m)
 		pub.Publish(m.Step(race.Received{Received: r, Time: at(r)}))
@@ -424,13 +432,34 @@ const defaultKeepDays = 30
 // unset, 0, keep every recording, for 0; a value that is not a number of days, 0
 // or more, is an error.
 func keepDays(getenv func(string) string) (time.Duration, error) {
-	v := getenv(keepDaysEnv)
+	return daysOf(getenv, keepDaysEnv, defaultKeepDays)
+}
+
+// captureKeepDaysEnv is how long a capture is kept, in days (paddock#343).
+const captureKeepDaysEnv = "TWR_ECU_CAPTURE_KEEP_DAYS"
+
+// defaultCaptureKeepDays is how long a capture is kept when
+// TWR_ECU_CAPTURE_KEEP_DAYS is unset: a capture is about six times its
+// recording's size, so a week of them, beside 30 days of recordings, fits the
+// volume a few hours' driving a day needs.
+const defaultCaptureKeepDays = 7
+
+// captureKeepDays is TWR_ECU_CAPTURE_KEEP_DAYS as a duration, as keepDays reads
+// its own: 0 keeps every capture as long as its recording.
+func captureKeepDays(getenv func(string) string) (time.Duration, error) {
+	return daysOf(getenv, captureKeepDaysEnv, defaultCaptureKeepDays)
+}
+
+// daysOf is the setting env as a duration: def days when unset; a value that is
+// not a number of days, from 0 to 36,500, is an error.
+func daysOf(getenv func(string) string, env string, def float64) (time.Duration, error) {
+	v := getenv(env)
 	if v == "" {
-		return defaultKeepDays * 24 * time.Hour, nil
+		return time.Duration(def * float64(24*time.Hour)), nil
 	}
 	days, err := strconv.ParseFloat(v, 64)
 	if err != nil || math.IsNaN(days) || days < 0 || days > 36500 {
-		return 0, fmt.Errorf("%s: %q is not a number of days, from 0 to 36,500", keepDaysEnv, v)
+		return 0, fmt.Errorf("%s: %q is not a number of days, from 0 to 36,500", env, v)
 	}
 	return time.Duration(days * float64(24*time.Hour)), nil
 }
@@ -449,6 +478,30 @@ func captureOn(getenv func(string) string) (bool, error) {
 	default:
 		return false, fmt.Errorf("%s: %q is not on or off", captureEnv, v)
 	}
+}
+
+// idleSecsEnv is the silence that ends an outing's recording, in seconds.
+const idleSecsEnv = "TWR_ECU_RECORDINGS_IDLE_SECS"
+
+// defaultIdle is the silence that ends an outing's recording when
+// TWR_ECU_RECORDINGS_IDLE_SECS is unset: the continue window's default, so a
+// recording holds what the race state keeps as one session, a lost feed
+// included.
+const defaultIdle = 600 * time.Second
+
+// recordingsIdle is TWR_ECU_RECORDINGS_IDLE_SECS as a duration: defaultIdle when
+// unset; a value that is not a number of seconds, above 0 and at most 86,400, is
+// an error.
+func recordingsIdle(getenv func(string) string) (time.Duration, error) {
+	v := getenv(idleSecsEnv)
+	if v == "" {
+		return defaultIdle, nil
+	}
+	secs, err := strconv.ParseFloat(v, 64)
+	if err != nil || math.IsNaN(secs) || secs <= 0 || secs > 86400 {
+		return 0, fmt.Errorf("%s: %q is not a number of seconds, above 0 and at most 86,400", idleSecsEnv, v)
+	}
+	return time.Duration(secs * float64(time.Second)), nil
 }
 
 // pauseLimitEnv is the pause limit, in seconds.
