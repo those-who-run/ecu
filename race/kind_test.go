@@ -383,7 +383,9 @@ var kindDepartures = map[string][][2]string{
 // ranked (the maintainer's decision, 2026-10-31): qualifying or practice with the
 // field out, the place ranked by lap time. Each is the session's number, the frame
 // its place leapt on (0 for a restart of a ranked session, ranked from its first
-// frame), and the leap. TestTheRankedRuleOnEveryRecording has the evidence.
+// frame), and the leap: in the start window, or on the track screen before the
+// start (onScreen, paddock#360), where ecu decides once the window has closed.
+// TestTheTrackScreensLeapIsOnlyRankedSessions has the track screen's evidence.
 var rankedDepartures = map[string][]rankedSession{
 	"real-quali-restart-quit-2026-10-14": {
 		{session: 1, frame: 31, from: 20, to: 1},
@@ -396,6 +398,9 @@ var rankedDepartures = map[string][]rankedSession{
 	// the decision: a leap to P2, and one from slot 5.
 	"real-nuc-suzuka-practice-evening-2026-10-31": {{session: 1, frame: 143, from: 16, to: 2}},
 	"real-nuc-suzuka-qualifying-2026-10-31":       {{session: 1, frame: 177, from: 5, to: 1}},
+	// The qualifying of 2026-11-01, listed P20 then P1 on the track screen,
+	// standing, so P1 from its first racing frame (paddock#360).
+	"real-nuc-watkins-glen-quali-p1-2026-11-01": {{session: 1, frame: 114, from: 20, to: 1, onScreen: true}},
 }
 
 // rankedSession is a session of rankedDepartures.
@@ -403,6 +408,7 @@ type rankedSession struct {
 	session  int
 	frame    uint32
 	from, to int32
+	onScreen bool // the leap was on the track screen, before the start
 }
 
 // asRanked is a kind golden's lines with ecu's ranked kind (rankedDepartures):
@@ -447,7 +453,11 @@ func ranked(l kindLine, r rankedSession) kindLine {
 	head, tail, _ := strings.Cut(k.Evidence, ";")
 	head += ", ranked by lap time"
 	if r.frame > 0 {
-		head += fmt.Sprintf(" (P%d to P%d at the start)", r.from, r.to)
+		where := "at the start"
+		if r.onScreen {
+			where = "on the track screen"
+		}
+		head += fmt.Sprintf(" (P%d to P%d %s)", r.from, r.to, where)
 	}
 	k.Evidence = head + ";" + tail
 	l.Kind = &k
@@ -966,5 +976,158 @@ func TestARankedSessionLeapsFromItsSlot(t *testing.T) {
 	k.observe(&state{phase: phaseInRace, lap: 1, packetID: 1, totalCars: 20, position: 1})
 	if v := k.verdict(); v.kind != eventsv1.SessionType_SESSION_TYPE_RANKED || !strings.HasPrefix(v.evidence, "no lap total, 20 cars, ranked by lap time; ") {
 		t.Errorf("carried: %v %q, want ranked", v.kind, v.evidence)
+	}
+}
+
+// paddock#360: the qualifying at Watkins Glen on 2026-11-01 (testdata/sessions),
+// 20 cars, no fuel use. GT7 listed the car P20 of 20 on the track screen, then P1
+// three packets later as it stood, so lap 1 began P1 and nothing leapt in the start
+// window: ecu 0.1.15 read it live as a timed field, as v1.0.0 does (its golden).
+// ecu reads it as ranked from the track screen's leap, once the window has closed
+// (frame 114, with the start), and every verdict after is v1's but ranked.
+func TestAQualifyingListedP1FromTheStartIsRanked(t *testing.T) {
+	const name = "real-nuc-watkins-glen-quali-p1-2026-11-01"
+	v1 := showKinds(readKindGolden(t, name))
+	if len(v1) == 0 || !strings.HasPrefix(v1[len(v1)-1], "session.ended 1 timed_field laps 0 field true fuel false") ||
+		!strings.Contains(v1[len(v1)-1], "flying start at 99 km/h") {
+		t.Fatalf("v1's golden %q, want a timed field, fuel off, flying at 99 km/h", v1)
+	}
+	got, want := showKinds(kindLines(replay(t, name))), showKinds(asRanked(name, readKindGolden(t, name)))
+	if !slices.Equal(got, want) {
+		t.Errorf("got\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+	if last := want[len(want)-1]; !strings.HasPrefix(last, "session.ended 1 ranked") ||
+		!strings.Contains(last, "no lap total, 20 cars, ranked by lap time (P20 to P1 on the track screen); fuel use off; flying start at 99 km/h") {
+		t.Errorf("the verdict %q, want ranked from P20 on the track screen", last)
+	}
+}
+
+// paddock#360: on every recording, the track screen's leap (a rise of rankLeap
+// or more in one step before a start) is seen before the qualifying of 2026-11-01
+// and the evening qualifying of 2026-10-31 alone, both ranked; the latter leapt in
+// the window too, so it keeps the window's evidence (rankedDepartures). No race,
+// timed race, time trial, practice alone, replay or demo has one: their places on
+// the track screen hold, fall to the slot or move one place at a time.
+func TestTheTrackScreensLeapIsOnlyRankedSessions(t *testing.T) {
+	var names []string
+	for _, dir := range []string{fixtures(t), trackFixtures, liveTrackFixtures, startFixtures, pauseFixtures, continueFixtures, sessionFixtures} {
+		all, err := filepath.Glob(filepath.Join(dir, "*.jsonl.gz"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, p := range all {
+			names = append(names, strings.TrimSuffix(filepath.Base(p), ".jsonl.gz"))
+		}
+	}
+	slices.Sort(names)
+	names = slices.Compact(names)
+	if len(names) < 30 {
+		t.Fatalf("%d recordings, want every one", len(names))
+	}
+	got := map[string][]leap{}
+	for _, name := range names {
+		var r screen
+		for i, p := range packets(t, name) {
+			s := newState(uint32(i+1), p.T, &p.Packet) //nolint:gosec // a recording's frame count
+			if l := r.observe(&s); l.from > 0 {
+				got[name] = append(got[name], l)
+			}
+		}
+	}
+	want := map[string][]leap{
+		"real-nuc-suzuka-qualifying-2026-10-31":     {{16, 5}},
+		"real-nuc-watkins-glen-quali-p1-2026-11-01": {{20, 1}},
+	}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("the track screen's leaps %v, want %v", got, want)
+	}
+}
+
+// paddock#360: the track screen's leap, frame by frame: GT7's place on each
+// track screen frame, then the leap the first racing frame reads.
+func TestTheTrackScreensLeap(t *testing.T) {
+	type f struct {
+		phase telemetryv1.Phase
+		cars  int32
+		pos   int32
+	}
+	at, load := phaseAtTrack, phaseLoading
+	for _, c := range []struct {
+		name   string
+		frames []f
+		want   leap
+	}{
+		{"qualifying 2026-11-01: P20, a loading frame, P20, then P1", []f{{at, -1, -1}, {at, 20, 20}, {load, 20, 20}, {at, 20, 20}, {at, 20, 1}}, leap{20, 1}},
+		{"a race: GT7's P1 for an empty grid, then the slot", []f{{at, -1, -1}, {at, 20, 1}, {load, 20, 10}, {at, 20, 10}}, leap{}},
+		{"a timed race keeps its slot", []f{{at, 20, 10}, {at, 20, 10}}, leap{}},
+		{"an out lap or a formation, one place at a time", []f{{at, 16, 16}, {at, 16, 15}, {at, 16, 14}, {at, 16, 13}, {at, 16, 12}, {at, 16, 11}}, leap{}},
+		{"a fall is no leap", []f{{at, 20, 1}, {at, 20, 20}}, leap{}},
+		{"a loading screen forgets the place before it", []f{{at, 20, 20}, {load, 20, 20}, {load, 20, 1}, {at, 20, 1}}, leap{}},
+		{"-1 says nothing", []f{{at, 20, 20}, {at, -1, -1}, {at, 20, 19}}, leap{}},
+		{"the first leap counts", []f{{at, 20, 20}, {at, 20, 5}, {at, 20, 1}}, leap{20, 5}},
+	} {
+		var r screen
+		for i, x := range c.frames {
+			r.observe(&state{phase: x.phase, packetID: int32(i), totalCars: x.cars, position: x.pos})
+		}
+		if got := r.observe(&state{phase: phaseInRace, lap: 1, packetID: 100, totalCars: 20, position: 1}); got != c.want {
+			t.Errorf("%s: %v, want %v", c.name, got, c.want)
+		}
+		if got := r.observe(&state{phase: phaseInRace, lap: 1, packetID: 101, totalCars: 20, position: 1}); got != (leap{}) {
+			t.Errorf("%s: the next racing frame %v, want none", c.name, got)
+		}
+	}
+}
+
+// paddock#360: a timed field the track screen ranked is ranked once the start
+// window closes without a leap of its own, from the place it leapt from, if the
+// session began still rankLeap or more above that place. The window's leap goes
+// first, and a lap race stays one.
+func TestARankedSessionCanLeapOnTheTrackScreen(t *testing.T) {
+	run := func(laps int32, screen leap, places ...int32) kindVerdict {
+		k := kinds{screen: screen}
+		for p := range int32(startWindow + 1) {
+			pos := places[min(int(p), len(places)-1)]
+			k.observe(&state{phase: phaseInRace, lap: 1, totalLaps: laps, packetID: 5000 + p,
+				totalCars: 20, position: pos, speedKph: 100, fuelCapacity: 100, fuel: 50})
+		}
+		return k.verdict()
+	}
+	for _, c := range []struct {
+		name     string
+		laps     int32
+		screen   leap
+		places   []int32
+		want     eventsv1.SessionType
+		evidence string
+	}{
+		{"qualifying 2026-11-01: P20 to P1 on the screen, P1 throughout", 0, leap{20, 1}, []int32{1}, eventsv1.SessionType_SESSION_TYPE_RANKED, "(P20 to P1 on the track screen)"},
+		{"the evening qualifying: the window's leap goes first", 0, leap{16, 5}, []int32{5, 1}, eventsv1.SessionType_SESSION_TYPE_RANKED, "(P5 to P1 at the start)"},
+		{"no leap anywhere: a timed race", 0, leap{}, []int32{10}, eventsv1.SessionType_SESSION_TYPE_TIMED_FIELD, ""},
+		{"back at the slot by the start", 0, leap{20, 1}, []int32{19}, eventsv1.SessionType_SESSION_TYPE_TIMED_FIELD, ""},
+		{"no place on the first racing frame", 0, leap{20, 1}, []int32{-1}, eventsv1.SessionType_SESSION_TYPE_TIMED_FIELD, ""},
+		{"a lap race stays one", 3, leap{20, 1}, []int32{1}, eventsv1.SessionType_SESSION_TYPE_LAP_RACE, ""},
+	} {
+		v := run(c.laps, c.screen, c.places...)
+		if v.kind != c.want || !strings.Contains(v.evidence, c.evidence) {
+			t.Errorf("%s: %v %q, want %v with %q", c.name, v.kind, v.evidence, c.want, c.evidence)
+		}
+	}
+
+	// Ranked only once the window has closed: the first racing frame is still a
+	// timed field, as the golden's first session.kind is.
+	k := kinds{screen: leap{20, 1}}
+	k.observe(&state{phase: phaseInRace, lap: 1, packetID: 1, totalCars: 20, position: 1})
+	if got := k.kind(); got != eventsv1.SessionType_SESSION_TYPE_TIMED_FIELD {
+		t.Errorf("the first racing frame: %v, want a timed field", got)
+	}
+	// Joined part way: no start seen, so no track screen counts.
+	k = kinds{screen: leap{20, 1}}
+	k.join()
+	for p := range int32(startWindow + 1) {
+		k.observe(&state{phase: phaseInRace, lap: 3, packetID: p, totalCars: 20, position: 1})
+	}
+	if got := k.kind(); got != eventsv1.SessionType_SESSION_TYPE_TIMED_FIELD {
+		t.Errorf("joined: %v, want a timed field", got)
 	}
 }
