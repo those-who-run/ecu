@@ -6,3 +6,5 @@
 !cmd/
 !internal/
 !race/
+!pit/
+!track/

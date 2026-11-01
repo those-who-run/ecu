@@ -52,13 +52,13 @@ func testIDs() IDs {
 	return NewIDs(func() time.Time { return epoch }, rand.NewChaCha8([32]byte{'e', 'c', 'u'}))
 }
 
-// trackFixtures are the v1 recordings salsa doesn't carry, which internal/track
+// trackFixtures are the v1 recordings salsa doesn't carry, which track
 // keeps (its testdata/v1/README.md says where each comes from).
-var trackFixtures = filepath.Join("..", "internal", "track", "testdata", "v1")
+var trackFixtures = filepath.Join("..", "track", "testdata", "v1")
 
-// liveTrackFixtures are internal/track's recordings cut from live outings (its
+// liveTrackFixtures are track's recordings cut from live outings (its
 // testdata/live/make_fixture.py says where each comes from, paddock#81).
-var liveTrackFixtures = filepath.Join("..", "internal", "track", "testdata", "live")
+var liveTrackFixtures = filepath.Join("..", "track", "testdata", "live")
 
 // pauseFixtures are the recordings cut for the pauses (paddock#77):
 // testdata/pause/make_fixture.py says how.
@@ -77,7 +77,7 @@ var continueFixtures = filepath.Join("testdata", "continue")
 var sessionFixtures = filepath.Join("testdata", "sessions")
 
 // packets is every packet of a recording, with its wall-clock time: one of
-// salsa's, else one of internal/track's (v1's or live), the start check's, the
+// salsa's, else one of track's (v1's or live), the start check's, the
 // pauses', the restarts' or the sessions'.
 func packets(tb testing.TB, name string) []Received {
 	tb.Helper()

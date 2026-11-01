@@ -6,8 +6,8 @@ import (
 	"testing"
 
 	telemetryv1 "github.com/those-who-run/contracts/gen/go/twr/telemetry/v1"
-	"github.com/those-who-run/ecu/internal/pit"
 	"github.com/those-who-run/ecu/internal/rules"
+	"github.com/those-who-run/ecu/pit"
 	"github.com/those-who-run/ecu/race"
 )
 

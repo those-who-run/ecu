@@ -42,10 +42,10 @@ linters:
             - pkg: syscall
               desc: the race state is pure; no system calls (paddock#33)
         # The track table and detector are a pure library too (paddock#80, R5): the
-        # same list; internal/track/imports_test.go checks it. The table is embedded.
+        # same list; track/imports_test.go checks it. The table is embedded.
         track:
           files:
-            - "**/internal/track/*.go"
+            - "**/track/*.go"
             - "!$test"
           deny:
             - pkg: github.com/nats-io
@@ -65,7 +65,7 @@ linters:
         # The pit detector is a pure library too (paddock#78): the same list.
         pit:
           files:
-            - "**/internal/pit/*.go"
+            - "**/pit/*.go"
             - "!$test"
           deny:
             - pkg: github.com/nats-io

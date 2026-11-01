@@ -18,7 +18,7 @@ import (
 	"github.com/those-who-run/salsa"
 )
 
-// The restart pair (paddock#76), from internal/track's copy of v1's recordings.
+// The restart pair (paddock#76), from track's copy of v1's recordings.
 const (
 	beforeRestart = "real-nuc-suzuka-before-restart-2026-10-18"
 	joinedMidRace = "real-nuc-suzuka-joined-mid-race-2026-10-18"

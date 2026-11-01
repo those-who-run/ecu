@@ -5,12 +5,12 @@ import (
 	"time"
 
 	eventsv1 "github.com/those-who-run/contracts/gen/go/twr/events/v1"
-	"github.com/those-who-run/ecu/internal/track"
+	"github.com/those-who-run/ecu/track"
 )
 
 // The session's track (paddock#81): v1's Engine._apply_track, track_rank and the
 // final verdict at the race end, from engine.py at v1.0.0. The detector
-// (internal/track) gives its verdict frame by frame; the session keeps one, stable
+// (track) gives its verdict frame by frame; the session keeps one, stable
 // enough to speak and store, and publishes session.track each time that changes.
 
 // trackRank is how good a verdict is: its confidence, then whether it names a

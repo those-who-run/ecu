@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	eventsv1 "github.com/those-who-run/contracts/gen/go/twr/events/v1"
-	"github.com/those-who-run/ecu/internal/pit"
+	"github.com/those-who-run/ecu/pit"
 )
 
 // lapLine is a line of a lap golden (testdata/lap/make_golden.py): a session

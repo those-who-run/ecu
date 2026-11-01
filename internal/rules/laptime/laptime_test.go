@@ -3,7 +3,7 @@ package laptime
 import (
 	"testing"
 
-	"github.com/those-who-run/ecu/internal/pit"
+	"github.com/those-who-run/ecu/pit"
 	"github.com/those-who-run/ecu/race"
 )
 

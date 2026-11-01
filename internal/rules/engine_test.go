@@ -15,7 +15,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	eventsv1 "github.com/those-who-run/contracts/gen/go/twr/events/v1"
-	"github.com/those-who-run/ecu/internal/pit"
+	"github.com/those-who-run/ecu/pit"
 	"github.com/those-who-run/ecu/race"
 	"github.com/those-who-run/salsa"
 )
@@ -65,7 +65,7 @@ var epoch = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 // replay steps a v1 recording through a machine with a fixed run id and e.
 func replay(t *testing.T, name string, e *Engine) []race.Output {
 	t.Helper()
-	path := filepath.Join("..", "track", "testdata", "v1", name+".jsonl.gz")
+	path := filepath.Join("..", "..", "track", "testdata", "v1", name+".jsonl.gz")
 	if _, err := os.Stat(path); err != nil {
 		path = filepath.Join(salsaDir(t), name+".jsonl.gz")
 	}

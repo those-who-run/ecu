@@ -8,8 +8,8 @@ import (
 	eventsv1 "github.com/those-who-run/contracts/gen/go/twr/events/v1"
 	telemetryv1 "github.com/those-who-run/contracts/gen/go/twr/telemetry/v1"
 	"github.com/those-who-run/ecu/internal/rules"
-	"github.com/those-who-run/ecu/internal/track"
 	"github.com/those-who-run/ecu/race"
+	"github.com/those-who-run/ecu/track"
 )
 
 var (

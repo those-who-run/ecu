@@ -22,11 +22,14 @@ events it gives rise to, `session.started`, `pit.entered`, `pit.exited`,
 and ends a session exactly where v1 did, with v1's rules ported from its
 `state.py`, `engine.py` and `store.py` at v1.0.0 (paddock#33).
 
-`race` is ecu's one public package (paddock#264, ADR 0009 in paddock): `logbook
-import-v1` runs v1's stored frames through it as a library, the same code as
-live. That makes it an API: a change to what it exports is a change for
-`logbook` too, released here and bumped there. Everything else, the track and
-pit detectors it uses among them, stays under `internal/`.
+`race`, with the track and pit detectors it builds on, [`track`](track) and
+[`pit`](pit), are ecu's public packages (paddock#264, ADR 0009 in paddock):
+`logbook import-v1` runs v1's stored frames through `race` as a library, the
+same code as live, and `race` exports fields of `track`'s and `pit`'s types
+(`Context.Track`, `Context.Pits`, `ClosedLap.Role`). That makes all three an
+API: a change to what they export is a change for `logbook` too, released here
+and bumped there. Everything else (the adapters, the rules, `fuel`) stays
+under `internal/`.
 
 - **Session type.** The session's kind ([The session's kind](#the-sessions-kind)):
   a lap race, solo laps, a timed session with a field, solo timed, or ranked
@@ -115,7 +118,7 @@ is v1's `DriverCheck` (`sessionkind.py` at v1.0.0) and the hold around it in
 
 ## Track detection
 
-GT7's telemetry carries no track id. [`internal/track`](internal/track) is the
+GT7's telemetry carries no track id. [`track`](track) is the
 track table and v1's track detector, ported rule for rule from its
 `tracks.py` and `trackdetect.py` at v1.0.0 (paddock#80): a pure library the
 race state feeds every frame ([The session's track](#the-sessions-track)).
@@ -130,7 +133,7 @@ race state feeds every frame ([The session's track](#the-sessions-track)).
     from 615.2 and 615.7 (paddock#81). In a 3-lap race on 2026-10-29 the car
     reached x 667.4, beyond the box and the 50 m the detector allows, so both
     were ruled out before the first line crossing and the race was never
-    named. [`internal/track/testdata/live/`](internal/track/testdata/live)
+    named. [`track/testdata/live/`](track/testdata/live)
     has that race, cut as `make_fixture.py` there says.
 - **The detector.** Fed frames with `Observe` (the contracts frame ecu makes
   for each packet), it narrows the table with v1's facts: a finish line within
@@ -146,9 +149,9 @@ race state feeds every frame ([The session's track](#the-sessions-track)).
   the lap counter, doesn't.
 - **Tests.** Every one of v1's 25 recordings, and the Fuji race, gives v1's
   verdicts, change by change, with v1's evidence, as `make_golden.py` in
-  [`internal/track/testdata/golden/`](internal/track/testdata/golden) wrote
+  [`track/testdata/golden/`](track/testdata/golden) wrote
   them from v1.0.0 with ecu's table. The 18 recordings `salsa` doesn't carry are copied into
-  [`internal/track/testdata/v1/`](internal/track/testdata/v1) with their
+  [`track/testdata/v1/`](track/testdata/v1) with their
   provenance and checksums.
 
 ## The session's track
@@ -172,7 +175,7 @@ v1.0.0, in [`race/track.go`](race/track.go).
   race "probable Sardegna - Road Track - A" when the path cut that layout's
   line part way round lap 1, until a full lap confirmed Road Atlanta. Now the
   tick names Road Atlanta as the session opens.
-  [`internal/track/testdata/live/`](internal/track/testdata/live) has that
+  [`track/testdata/live/`](track/testdata/live) has that
   race, cut as `make_road_atlanta_fixture.py` there says. None of v1's 25
   recordings changes.
 - **Never downgraded on a blip.** The session's verdict changes only for one
@@ -544,7 +547,7 @@ ecu tracks learn --id 100003 --name "Fuji International Speedway" recording.json
   their fit and whether their line was crossed), then the result. It exits 0
   when the result is `confirmed` or `probable`, and 1 otherwise.
 - **learn.** It derives a `tracks.csv` row from the recording's laps, as
-  v1's `learn_track` does ([`internal/track/learn.go`](internal/track/learn.go)).
+  v1's `learn_track` does ([`track/learn.go`](track/learn.go)).
   The finish line is where GT7's lap counter first goes up, across the
   direction of travel and 15 m either side of the car. It also prints the
   direction, the box over the laps from lap 1 on, the last completed lap's
@@ -578,7 +581,7 @@ ecu tracks learn --id 100003 --name "Fuji International Speedway" recording.json
 
 ## Pit stops
 
-GT7 sends no pit flag. [`internal/pit`](internal/pit) finds pit stops from its
+GT7 sends no pit flag. [`pit`](pit) finds pit stops from its
 camera cuts: v1's `PitDetector` (`pitstop.py` at v1.0.0), ported as it is, a
 pure library like the race state (paddock#78). The race state feeds it every
 frame and publishes the session's entries, exits and withdrawn entries, as v1's

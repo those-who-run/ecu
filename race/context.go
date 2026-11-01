@@ -5,8 +5,8 @@ import (
 
 	eventsv1 "github.com/those-who-run/contracts/gen/go/twr/events/v1"
 	telemetryv1 "github.com/those-who-run/contracts/gen/go/twr/telemetry/v1"
-	"github.com/those-who-run/ecu/internal/pit"
-	"github.com/those-who-run/ecu/internal/track"
+	"github.com/those-who-run/ecu/pit"
+	"github.com/those-who-run/ecu/track"
 )
 
 // The rules' view of a frame (paddock#89). v1's rules were told about the race

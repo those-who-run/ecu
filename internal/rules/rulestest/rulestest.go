@@ -40,13 +40,13 @@ var (
 )
 
 // Recording is the path of one of v1's recordings: salsa's testdata/v1, else
-// internal/track's; or of the start check's own, race's testdata/start
+// track's; or of the start check's own, race's testdata/start
 // (paddock#74).
 func Recording(tb testing.TB, name string) string {
 	tb.Helper()
 	_, here, _, _ := runtime.Caller(0)
 	internal := filepath.Join(filepath.Dir(here), "..", "..")
-	for _, dir := range []string{filepath.Join("track", "testdata", "v1"), filepath.Join("..", "race", "testdata", "start")} {
+	for _, dir := range []string{filepath.Join("..", "track", "testdata", "v1"), filepath.Join("..", "race", "testdata", "start")} {
 		path := filepath.Join(internal, dir, name+".jsonl.gz")
 		if _, err := os.Stat(path); err == nil {
 			return path
