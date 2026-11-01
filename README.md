@@ -270,7 +270,12 @@ GT7 sends no mode. [`race/kind.go`](race/kind.go) is v1's
   only once the window closes without a leap, so the verdict comes with the
   start ("ranked by lap time (P20 to P1 on the track screen)"), and every
   session ranked by the window keeps its evidence (the evening qualifying of
-  2026-10-31 leapt on both).
+  2026-10-31 leapt on both). A pause on the track screen keeps the place; a
+  leap may span at most 6 packets, so lost packets can't join GT7's P1 for an
+  empty grid to the slot. The risk left: a timed race whose track screen shows
+  P(N) and then its slot with no loading screen between would read as ranked.
+  None recorded does; it is worth watching on the next timed race recorded
+  live.
 - **Fuel use.** On once the level drops 0.05 below the highest seen while
   racing; off after 20 s of driving at 20 km/h or more without a drop, or at
   once with no tank.

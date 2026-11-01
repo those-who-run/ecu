@@ -100,10 +100,17 @@ const (
 	startWindow = 18  // packets, 0.3 s at 60 Hz
 	gridKph     = 30.0
 	// rankLeap is the places the position must rise above the first racing
-	// frame's within the start window for a ranked session. The ranked
-	// sessions recorded rose 10 to 19 places in one packet; no other session,
-	// a lap race's rolling start included, rose at all in the window.
+	// frame's within the start window for a ranked session, and the size of a
+	// leap on the track screen before the start (screen). The ranked sessions
+	// recorded rose 10 to 19 places in one packet; no other session, a lap
+	// race's rolling start included, rose at all in the window, or by more than
+	// one place a step on the track screen.
 	rankLeap = 2
+	// screenGapPackets is the most packets a leap on the track screen may span:
+	// GT7's re-rank came between consecutive packets (2026-10-31, 2026-11-01),
+	// and a longer gap may hide lost packets, a loading screen's among them, so
+	// GT7's P1 for an empty grid then the slot is not read as one.
+	screenGapPackets = 6
 )
 
 // The grid behind the line (paddock#148). GT7 puts the car on the grid on the
@@ -166,10 +173,12 @@ type leap struct{ from, to int32 }
 // the track screen of a race or a timed race either held, fell (GT7's P1 for an
 // empty grid, then the slot) or moved one place at a time (a rolling start's
 // formation, a practice's out lap); the qualifying of 2026-11-01 leapt from P20 to
-// P1. A loading screen or any other phase forgets it, as grid does.
+// P1. A pause keeps it, as the car waits on the track screen; a loading screen or
+// any other phase forgets it, as grid does.
 type screen struct {
-	last  int32 // the place on the track screen's last frame with one, 0 for none
-	first leap  // the first leap seen
+	last       int32 // the place on the track screen's last frame with one, 0 for none
+	lastPacket int32 // that frame's packet
+	first      leap  // the first leap seen
 }
 
 // observe reads s against the track screen so far, then takes it: on a racing
@@ -181,14 +190,16 @@ func (r *screen) observe(s *state) leap {
 	}
 	p := s.racePosition()
 	switch {
+	case s.phase == phasePaused:
 	case s.phase != phaseAtTrack:
 		*r = screen{}
 	case p == 0 || s.totalCars <= 0:
 	default:
-		if r.first.from == 0 && r.last-p >= rankLeap {
+		gap := s.packetID - r.lastPacket
+		if r.first.from == 0 && r.last-p >= rankLeap && gap > 0 && gap <= screenGapPackets {
 			r.first = leap{from: r.last, to: p}
 		}
-		r.last = p
+		r.last, r.lastPacket = p, s.packetID
 	}
 	return seen
 }

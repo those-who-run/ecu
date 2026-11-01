@@ -1051,7 +1051,7 @@ func TestTheTrackScreensLeap(t *testing.T) {
 		cars  int32
 		pos   int32
 	}
-	at, load := phaseAtTrack, phaseLoading
+	at, load, pause := phaseAtTrack, phaseLoading, phasePaused
 	for _, c := range []struct {
 		name   string
 		frames []f
@@ -1065,16 +1065,40 @@ func TestTheTrackScreensLeap(t *testing.T) {
 		{"a loading screen forgets the place before it", []f{{at, 20, 20}, {load, 20, 20}, {load, 20, 1}, {at, 20, 1}}, leap{}},
 		{"-1 says nothing", []f{{at, 20, 20}, {at, -1, -1}, {at, 20, 19}}, leap{}},
 		{"the first leap counts", []f{{at, 20, 20}, {at, 20, 5}, {at, 20, 1}}, leap{20, 5}},
+		{"a pause between the re-rank and the start keeps it", []f{{at, 20, 20}, {at, 20, 1}, {pause, 20, 1}, {pause, 20, 1}, {at, 20, 1}}, leap{20, 1}},
+		{"a pause before the re-rank keeps the place", []f{{at, 20, 20}, {pause, 20, 20}, {at, 20, 1}}, leap{20, 1}},
 	} {
 		var r screen
 		for i, x := range c.frames {
-			r.observe(&state{phase: x.phase, packetID: int32(i), totalCars: x.cars, position: x.pos})
+			r.observe(&state{phase: x.phase, packetID: 1000 + int32(i), totalCars: x.cars, position: x.pos})
 		}
 		if got := r.observe(&state{phase: phaseInRace, lap: 1, packetID: 100, totalCars: 20, position: 1}); got != c.want {
 			t.Errorf("%s: %v, want %v", c.name, got, c.want)
 		}
 		if got := r.observe(&state{phase: phaseInRace, lap: 1, packetID: 101, totalCars: 20, position: 1}); got != (leap{}) {
 			t.Errorf("%s: the next racing frame %v, want none", c.name, got)
+		}
+	}
+
+	// Packet gaps: the re-rank came between consecutive packets. Across more than
+	// screenGapPackets (packets lost, a loading screen's among them), or with
+	// GT7's counter gone back, a rise is no leap.
+	for _, c := range []struct {
+		name string
+		gap  int32
+		want leap
+	}{
+		{"consecutive packets", 1, leap{20, 1}},
+		{"3 packets, as on 2026-11-01's track screen", 3, leap{20, 1}},
+		{"at the limit", screenGapPackets, leap{20, 1}},
+		{"packets lost", screenGapPackets + 1, leap{}},
+		{"the counter started over", -500, leap{}},
+	} {
+		var r screen
+		r.observe(&state{phase: phaseAtTrack, packetID: 1000, totalCars: 20, position: 20})
+		r.observe(&state{phase: phaseAtTrack, packetID: 1000 + c.gap, totalCars: 20, position: 1})
+		if got := r.observe(&state{phase: phaseInRace, lap: 1, packetID: 2000, totalCars: 20, position: 1}); got != c.want {
+			t.Errorf("%s: %v, want %v", c.name, got, c.want)
 		}
 	}
 }
