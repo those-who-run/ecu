@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.16](https://github.com/those-who-run/ecu/compare/v0.1.15...v0.1.16) (2026-11-01)
+
+
+### Features
+
+* make ecu's race state public: race, track and pit ([#74](https://github.com/those-who-run/ecu/issues/74)) ([3117eb9](https://github.com/those-who-run/ecu/commit/3117eb9c6ebe7fef02008ce4b2d6918d77584b46))
+
 ## [0.1.15](https://github.com/those-who-run/ecu/compare/v0.1.14...v0.1.15) (2026-10-31)
 
 
