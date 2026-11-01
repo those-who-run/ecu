@@ -17,7 +17,7 @@ import (
 	eventsv1 "github.com/those-who-run/contracts/gen/go/twr/events/v1"
 	telemetryv1 "github.com/those-who-run/contracts/gen/go/twr/telemetry/v1"
 	"github.com/those-who-run/ecu/internal/bus/bustest"
-	"github.com/those-who-run/ecu/internal/race"
+	"github.com/those-who-run/ecu/race"
 )
 
 // rig is a nats-server with the TELEMETRY and EVENTS streams, a client of the

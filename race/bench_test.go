@@ -13,7 +13,7 @@ import (
 // the frames that start a session, close a lap or end a session (paddock#33, R12).
 // Each is the p50, p99 and max in ns. Run it with
 //
-//	go test -run '^$' -bench Replay ./internal/race
+//	go test -run '^$' -bench Replay ./race
 func BenchmarkReplay(b *testing.B) {
 	names, err := filepath.Glob(filepath.Join(fixtures(b), "*.jsonl.gz"))
 	if err != nil || len(names) == 0 {

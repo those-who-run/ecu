@@ -3,7 +3,7 @@ package race
 import (
 	eventsv1 "github.com/those-who-run/contracts/gen/go/twr/events/v1"
 	telemetryv1 "github.com/those-who-run/contracts/gen/go/twr/telemetry/v1"
-	"github.com/those-who-run/ecu/internal/track"
+	"github.com/those-who-run/ecu/track"
 )
 
 // The live view (paddock#88): what ecu's status, in the `live` KV bucket and on

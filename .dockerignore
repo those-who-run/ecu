@@ -5,3 +5,6 @@
 !go.sum
 !cmd/
 !internal/
+!race/
+!pit/
+!track/

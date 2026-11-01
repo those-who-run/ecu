@@ -29,8 +29,8 @@ import (
 	eventsv1 "github.com/those-who-run/contracts/gen/go/twr/events/v1"
 	statev1 "github.com/those-who-run/contracts/gen/go/twr/state/v1"
 	telemetryv1 "github.com/those-who-run/contracts/gen/go/twr/telemetry/v1"
-	"github.com/those-who-run/ecu/internal/race"
 	fuelrule "github.com/those-who-run/ecu/internal/rules/fuel"
+	"github.com/those-who-run/ecu/race"
 )
 
 // Config is what the status says of the ecu run itself.

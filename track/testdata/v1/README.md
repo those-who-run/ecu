@@ -14,6 +14,6 @@ sha256, its frame count and a link to that entry. `TestV1FixtureSums`
 
 These are the 18 of v1's 25 recordings that `salsa` doesn't carry. The other
 seven are salsa's `testdata/v1/`, which the tests read from the salsa module the
-build already uses, as `internal/race`'s do, so ecu keeps no second copy of them.
+build already uses, as `race`'s do, so ecu keeps no second copy of them.
 Together they are every recording v1's `FIXTURES.yaml` lists, and
 [`../golden/`](../golden) has v1's verdicts on each.

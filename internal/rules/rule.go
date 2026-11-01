@@ -9,14 +9,14 @@
 //
 // A rule is a package of its own under internal/rules (laptime, fuel, finallap,
 // ...), which registers itself with Register; internal/rules/all imports every
-// one. README.md says how to add one. Like internal/race, the package and the
+// one. README.md says how to add one. Like race, the package and the
 // rules do no I/O: no NATS, no network, no files, no clock (a lint rule and
 // imports_test.go hold it). Reading the rules file is cmd/ecu's.
 package rules
 
 import (
 	eventsv1 "github.com/those-who-run/contracts/gen/go/twr/events/v1"
-	"github.com/those-who-run/ecu/internal/race"
+	"github.com/those-who-run/ecu/race"
 )
 
 // Rule is one of v1's rules (rules/base.py's Rule): state in, callouts out.

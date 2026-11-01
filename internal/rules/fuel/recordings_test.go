@@ -5,8 +5,8 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/those-who-run/ecu/internal/race"
 	"github.com/those-who-run/ecu/internal/rules/rulestest"
+	"github.com/those-who-run/ecu/race"
 )
 
 // drive replays a recording through the machine into a fuel rule of its own,

@@ -36,7 +36,7 @@ import (
 
 	"github.com/those-who-run/contracts/callout"
 	"github.com/those-who-run/contracts/ce"
-	"github.com/those-who-run/ecu/internal/race"
+	"github.com/those-who-run/ecu/race"
 )
 
 // Options are the publisher's limits. The zero value takes the defaults.

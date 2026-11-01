@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/those-who-run/ecu/internal/race"
+	"github.com/those-who-run/ecu/race"
 	"github.com/those-who-run/salsa"
 )
 
@@ -29,10 +29,10 @@ func moduleDir(tb testing.TB, module string) string {
 }
 
 // recording is a v1 recording: one of salsa's testdata/v1/, or one of the 18
-// internal/track keeps.
+// track keeps.
 func recording(tb testing.TB, name string) []salsa.Received {
 	tb.Helper()
-	path := filepath.Join("..", "track", "testdata", "v1", name+".jsonl.gz")
+	path := filepath.Join("..", "..", "track", "testdata", "v1", name+".jsonl.gz")
 	if name == sugoTwoStops {
 		path = filepath.Join(moduleDir(tb, "github.com/those-who-run/salsa"), "testdata", "v1", name+".jsonl.gz")
 	}

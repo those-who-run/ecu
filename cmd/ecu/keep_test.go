@@ -13,12 +13,12 @@ import (
 
 	eventsv1 "github.com/those-who-run/contracts/gen/go/twr/events/v1"
 	"github.com/those-who-run/ecu/internal/bus"
-	"github.com/those-who-run/ecu/internal/race"
 	"github.com/those-who-run/ecu/internal/sessions"
+	"github.com/those-who-run/ecu/race"
 	"github.com/those-who-run/salsa"
 )
 
-// The restart pair (paddock#76), from internal/track's copy of v1's recordings.
+// The restart pair (paddock#76), from track's copy of v1's recordings.
 const (
 	beforeRestart = "real-nuc-suzuka-before-restart-2026-10-18"
 	joinedMidRace = "real-nuc-suzuka-joined-mid-race-2026-10-18"

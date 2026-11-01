@@ -11,7 +11,7 @@ import (
 	"testing"
 
 	eventsv1 "github.com/those-who-run/contracts/gen/go/twr/events/v1"
-	"github.com/those-who-run/ecu/internal/track"
+	"github.com/those-who-run/ecu/track"
 )
 
 // v1Recordings are the recordings of v1's tests/fixtures/FIXTURES.yaml at v1.0.0,
@@ -45,7 +45,7 @@ var v1Recordings = []string{
 }
 
 // liveRecordings are ecu's own recordings with a track golden, cut from live
-// outings (internal/track's testdata/live/make_fixture.py), each with v1's
+// outings (track's testdata/live/make_fixture.py), each with v1's
 // session tracks on the table as ecu has it.
 var liveRecordings = []string{
 	"real-nuc-short-shift-fuji-race-2026-10-29",
@@ -225,7 +225,7 @@ func publishedTracks(out []Output) []*eventsv1.SessionTrackChanged {
 // The cap: the detector keeps v1's whole list of candidates, and at most 8, the
 // best, are published. Suzuka mid-lap, fed from its first frame to a detector not
 // told the session was joined, still fits 25 layouts on frame 58, as v1 found
-// (internal/track's golden).
+// (track's golden).
 func TestAtMost8CandidatesArePublished(t *testing.T) {
 	m, d := New(testIDs()), track.New(nil, track.Config{})
 	var match track.Match

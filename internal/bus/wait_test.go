@@ -11,7 +11,7 @@ import (
 
 	"github.com/oklog/ulid/v2"
 
-	"github.com/those-who-run/ecu/internal/race"
+	"github.com/those-who-run/ecu/race"
 )
 
 // frames is a recording's frames as the race state gives them, with no events.

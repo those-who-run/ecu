@@ -3,8 +3,8 @@ package laptime
 import (
 	"testing"
 
-	"github.com/those-who-run/ecu/internal/pit"
-	"github.com/those-who-run/ecu/internal/race"
+	"github.com/those-who-run/ecu/pit"
+	"github.com/those-who-run/ecu/race"
 )
 
 // shape is a call's kind, priority and slots, flattened for comparing; delta is

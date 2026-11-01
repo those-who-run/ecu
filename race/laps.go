@@ -5,7 +5,7 @@ import (
 	"time"
 
 	eventsv1 "github.com/those-who-run/contracts/gen/go/twr/events/v1"
-	"github.com/those-who-run/ecu/internal/pit"
+	"github.com/those-who-run/ecu/pit"
 )
 
 // The lap model (paddock#83): what each lap was, decided once, here, for every

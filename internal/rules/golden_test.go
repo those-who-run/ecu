@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/those-who-run/ecu/internal/race"
 	"github.com/those-who-run/ecu/internal/rules"
 	_ "github.com/those-who-run/ecu/internal/rules/all"
 	"github.com/those-who-run/ecu/internal/rules/rulestest"
+	"github.com/those-who-run/ecu/race"
 )
 
 // goldenLine is a line of testdata/callouts/make_golden.py's output: a callout v1
@@ -207,7 +207,7 @@ func TestEveryCalloutIsV1sOnEveryRecording(t *testing.T) {
 }
 
 // paddock#74: over the race replay the driver watched on 2026-10-29
-// (internal/race's testdata/start, frames 134511 to 144497 of the live
+// (race's testdata/start, frames 134511 to 144497 of the live
 // recording), where ecu spoke a start brief and a race summary, no rule raises
 // anything; session 5, the next start (the fixture's frame 824), is briefed on
 // frame 944, as v1 briefed it.

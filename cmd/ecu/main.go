@@ -58,13 +58,13 @@ import (
 
 	"github.com/those-who-run/ecu/internal/bus"
 	"github.com/those-who-run/ecu/internal/live"
-	"github.com/those-who-run/ecu/internal/race"
 	"github.com/those-who-run/ecu/internal/record"
 	"github.com/those-who-run/ecu/internal/rules"
 	_ "github.com/those-who-run/ecu/internal/rules/all" // every rule
 	"github.com/those-who-run/ecu/internal/service"
 	"github.com/those-who-run/ecu/internal/sessions"
 	"github.com/those-who-run/ecu/internal/status"
+	"github.com/those-who-run/ecu/race"
 	"github.com/those-who-run/salsa"
 )
 

@@ -8,7 +8,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	eventsv1 "github.com/those-who-run/contracts/gen/go/twr/events/v1"
-	"github.com/those-who-run/ecu/internal/pit"
+	"github.com/those-who-run/ecu/pit"
 )
 
 // The session summary (paddock#86): v1's summary.json, which SessionStore.end_session

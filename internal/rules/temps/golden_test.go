@@ -12,8 +12,8 @@ import (
 	"time"
 
 	eventsv1 "github.com/those-who-run/contracts/gen/go/twr/events/v1"
-	"github.com/those-who-run/ecu/internal/race"
 	"github.com/those-who-run/ecu/internal/rules/rulestest"
+	"github.com/those-who-run/ecu/race"
 )
 
 // goldenLine is a line of a golden (testdata/make_golden.py).

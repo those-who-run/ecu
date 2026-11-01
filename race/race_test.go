@@ -19,7 +19,7 @@ import (
 	telemetryv1 "github.com/those-who-run/contracts/gen/go/twr/telemetry/v1"
 )
 
-// The recordings with goldens: all of salsa's testdata/v1/, and internal/track's
+// The recordings with goldens: all of salsa's testdata/v1/, and track's
 // Suzuka joined mid-race (paddock#75's AC1). paddock#33's AC1 names the Suzuka
 // and SUGO restarts ones; the rest are held to v1 the same way.
 var goldenFixtures = []string{

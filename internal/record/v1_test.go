@@ -17,7 +17,7 @@ import (
 )
 
 // The v1 recordings are salsa's testdata/v1/, read from the salsa module the build
-// already uses, as internal/race's tests read them.
+// already uses, as race's tests read them.
 var (
 	fixturesOnce sync.Once
 	fixturesDir  string

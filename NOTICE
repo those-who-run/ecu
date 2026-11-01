@@ -3,14 +3,14 @@ Licensed under the GNU General Public License, version 3 only (LICENSE).
 
 This repository includes data from other projects:
 
-- The track table, internal/track/tracks.csv: from Those Who Run v1
+- The track table, track/tracks.csv: from Those Who Run v1
   (https://github.com/those-who-run/those-who-run, src/those_who_run/data/tracks.csv
   at v1.0.0), adapted from gt-telem (https://github.com/RaceCrewAI/gt-telem,
   GPL-3.0), which adapted it from Bornhall/gt7telemetry
   (https://github.com/Bornhall/gt7telemetry, GPL-3.0). The rows with ids from
   100001 were learned from our own laps; ecu's changes to v1's rows are listed
   in README.md, "Track detection".
-- The car table, internal/race/cars.csv: from Those Who Run v1
+- The car table, race/cars.csv: from Those Who Run v1
   (https://github.com/those-who-run/those-who-run, src/those_who_run/data/cars.csv
   at v1.0.0), from ddm999/gt7info (https://github.com/ddm999/gt7info, MIT-0),
   _data/db/cars.csv joined with maker.csv at commit ab025b3.

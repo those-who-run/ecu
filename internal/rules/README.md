@@ -52,12 +52,12 @@ hold, expiry and pit-lane policy. radio only phrases and speaks them.
      can come on a loading frame.
 4. Test it against v1 (see [Tests](#tests)). Copy `finallap`, the worked example.
 
-Don't touch `internal/race/machine.go` or the engine. If the context lacks
+Don't touch `race/machine.go` or the engine. If the context lacks
 something your rule reads, say so on paddock#89 and don't work around it.
 
 ## The context: v1's hooks and state
 
-`race.Context` (`internal/race/context.go`) is filled by the machine on each
+`race.Context` (`race/context.go`) is filled by the machine on each
 frame it takes, and handed to the engine (`Machine.Rules(engine.Step)`), at v1's place for the rules in `Engine._step`: after the pits, before
 the timed finish, the track, the kind and the lap store. What v1 told the
 rules later in the step (the lap closed, the finish, the end) is filled in as

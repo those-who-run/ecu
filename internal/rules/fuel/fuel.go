@@ -41,8 +41,8 @@ import (
 	eventsv1 "github.com/those-who-run/contracts/gen/go/twr/events/v1"
 	telemetryv1 "github.com/those-who-run/contracts/gen/go/twr/telemetry/v1"
 	fuelmodel "github.com/those-who-run/ecu/internal/fuel"
-	"github.com/those-who-run/ecu/internal/race"
 	"github.com/those-who-run/ecu/internal/rules"
+	"github.com/those-who-run/ecu/race"
 )
 
 // Name is the rule's name, its key in the rules file.

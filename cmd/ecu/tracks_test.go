@@ -11,12 +11,12 @@ import (
 	"testing"
 )
 
-// trackRecording is where one of internal/track's goldens' recordings is: its own
+// trackRecording is where one of track's goldens' recordings is: its own
 // v1 copies, its live cuts, else salsa's.
 func trackRecording(tb testing.TB, name string) string {
 	tb.Helper()
 	for _, dir := range []string{"v1", "live"} {
-		p := filepath.Join("..", "..", "internal", "track", "testdata", dir, name+".jsonl.gz")
+		p := filepath.Join("..", "..", "track", "testdata", dir, name+".jsonl.gz")
 		if _, err := os.Stat(p); err == nil {
 			return p
 		}
@@ -54,7 +54,7 @@ func golden(t *testing.T, name string) string {
 	return string(b)
 }
 
-// AC1 and R1, R2: on every recording internal/track's goldens cover (v1's
+// AC1 and R1, R2: on every recording track's goldens cover (v1's
 // FIXTURES.yaml and the Fuji race of 2026-10-29), `ecu tracks detect` prints v1's
 // verdict lines and result line, and exits as v1 does, as testdata/tracks/
 // make_golden.py wrote them from v1.0.0 with ecu's table; AC5: with no NATS.

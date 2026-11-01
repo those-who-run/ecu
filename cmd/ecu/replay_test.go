@@ -18,8 +18,8 @@ import (
 	statev1 "github.com/those-who-run/contracts/gen/go/twr/state/v1"
 	"github.com/those-who-run/ecu/internal/bus"
 	"github.com/those-who-run/ecu/internal/bus/bustest"
-	"github.com/those-who-run/ecu/internal/race"
 	"github.com/those-who-run/ecu/internal/record"
+	"github.com/those-who-run/ecu/race"
 	"google.golang.org/protobuf/encoding/protojson"
 )
 

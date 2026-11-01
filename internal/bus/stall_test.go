@@ -13,7 +13,7 @@ import (
 	"github.com/those-who-run/contracts/ce"
 	eventsv1 "github.com/those-who-run/contracts/gen/go/twr/events/v1"
 	"github.com/those-who-run/ecu/internal/bus/bustest"
-	"github.com/those-who-run/ecu/internal/race"
+	"github.com/those-who-run/ecu/race"
 )
 
 // stalled is bustest.Stalled: a NATS server gone wrong.

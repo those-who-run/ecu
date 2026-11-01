@@ -14,7 +14,7 @@ import (
 
 	"github.com/those-who-run/contracts/ce"
 	eventsv1 "github.com/those-who-run/contracts/gen/go/twr/events/v1"
-	"github.com/those-who-run/ecu/internal/race"
+	"github.com/those-who-run/ecu/race"
 )
 
 // entry is a subject of contracts' subjects.yaml: its pattern, ce-type and msg_id

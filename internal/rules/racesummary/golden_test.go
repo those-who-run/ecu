@@ -11,9 +11,9 @@ import (
 	"testing"
 
 	eventsv1 "github.com/those-who-run/contracts/gen/go/twr/events/v1"
-	"github.com/those-who-run/ecu/internal/race"
 	"github.com/those-who-run/ecu/internal/rules"
 	"github.com/those-who-run/ecu/internal/rules/rulestest"
+	"github.com/those-who-run/ecu/race"
 )
 
 // summaries replays a recording through the machine and the engine, with v1's

@@ -12,7 +12,7 @@ import (
 )
 
 // denied are the imports no file of the engine or a rule may have (R9, AC6):
-// NATS, the network, the file system and system calls, as for internal/race.
+// NATS, the network, the file system and system calls, as for race.
 // depguard in .golangci.yml denies the same list at lint time. rulestest, which
 // only tests import, reads the recordings and is left out.
 var denied = []string{"github.com/nats-io", "net", "os", "io/fs", "io/ioutil", "path/filepath", "syscall"}

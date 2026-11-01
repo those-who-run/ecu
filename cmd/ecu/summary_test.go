@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/those-who-run/ecu/internal/race"
 	"github.com/those-who-run/ecu/internal/service"
+	"github.com/those-who-run/ecu/race"
 )
 
 // summaryLines is the "replayed session" lines in a replay's log, each as

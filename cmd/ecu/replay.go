@@ -27,10 +27,10 @@ import (
 	statev1 "github.com/those-who-run/contracts/gen/go/twr/state/v1"
 	"github.com/those-who-run/ecu/internal/bus"
 	"github.com/those-who-run/ecu/internal/live"
-	"github.com/those-who-run/ecu/internal/race"
 	"github.com/those-who-run/ecu/internal/service"
 	"github.com/those-who-run/ecu/internal/sessions"
 	"github.com/those-who-run/ecu/internal/status"
+	"github.com/those-who-run/ecu/race"
 	"github.com/those-who-run/salsa"
 )
 

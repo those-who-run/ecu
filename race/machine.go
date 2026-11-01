@@ -8,15 +8,19 @@
 // the same outputs. Publishing the outputs is the caller's (paddock#34). A lint rule
 // in .golangci.yml keeps NATS, the network and the file system out of this package.
 //
+// It is public, with the track and pit packages it builds on, for logbook's
+// import of v1's history (those-who-run/paddock#264): another module builds
+// against what it exports.
+//
 // The rules are v1's, from those-who-run/those-who-run at v1.0.0: the transition
 // helpers of state.py (state.go here), the session and lap steps of
 // Engine._step in engine.py, and the lap bookkeeping of SessionStore.observe,
 // _flush_lap and end_session in store.py, and the session's kind from
 // SessionDetector in sessionkind.py and Engine._apply_kind (kind.go here,
 // paddock#82), and the session's track from
-// Engine._apply_track (track.go here, paddock#81), fed by internal/track's
+// Engine._apply_track (track.go here, paddock#81), fed by track's
 // detector, and the pit stops from Engine._apply_pits (pit.go here, paddock#78), fed
-// by internal/pit's, and the finish, by the flag or timed, from Engine._timed_finish
+// by pit's, and the finish, by the flag or timed, from Engine._timed_finish
 // (finish.go here, paddock#85), the final lap and the settled position from
 // v1's FinalLapRule and PositionRule (position.go here, paddock#84), and the lap
 // model: each lap's pit role and whether it counts for the best, from
@@ -45,8 +49,8 @@ import (
 	"github.com/those-who-run/contracts/ce"
 	eventsv1 "github.com/those-who-run/contracts/gen/go/twr/events/v1"
 	telemetryv1 "github.com/those-who-run/contracts/gen/go/twr/telemetry/v1"
-	"github.com/those-who-run/ecu/internal/pit"
-	"github.com/those-who-run/ecu/internal/track"
+	"github.com/those-who-run/ecu/pit"
+	"github.com/those-who-run/ecu/track"
 	"github.com/those-who-run/salsa"
 )
 

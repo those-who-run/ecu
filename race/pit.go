@@ -10,11 +10,11 @@ import (
 
 	eventsv1 "github.com/those-who-run/contracts/gen/go/twr/events/v1"
 	telemetryv1 "github.com/those-who-run/contracts/gen/go/twr/telemetry/v1"
-	"github.com/those-who-run/ecu/internal/pit"
+	"github.com/those-who-run/ecu/pit"
 )
 
 // The session's pit stops (paddock#78): v1's Engine._apply_pits, from engine.py at
-// v1.0.0, fed by internal/pit's detector. The detector sees every frame and is
+// v1.0.0, fed by pit's detector. The detector sees every frame and is
 // reset on each start, as v1's is; its entries, exits and withdrawn entries are the
 // session's, and each is a pit.entered, a pit.exited or a pit.teleport.
 

@@ -11,8 +11,8 @@ import (
 	"github.com/those-who-run/contracts/ce"
 	eventsv1 "github.com/those-who-run/contracts/gen/go/twr/events/v1"
 	statev1 "github.com/those-who-run/contracts/gen/go/twr/state/v1"
-	"github.com/those-who-run/ecu/internal/pit"
-	"github.com/those-who-run/ecu/internal/track"
+	"github.com/those-who-run/ecu/pit"
+	"github.com/those-who-run/ecu/track"
 )
 
 // Continuing a session after an ecu restart (paddock#76): v1's SessionStore

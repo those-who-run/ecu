@@ -9,7 +9,7 @@ import (
 )
 
 // v1's tests/test_pitstop.py at v1.0.0, the ones on frames built by hand. The
-// ones on recordings are internal/race's pit_test.go, which has ecu's frames.
+// ones on recordings are race's pit_test.go, which has ecu's frames.
 
 const (
 	inRace  = telemetryv1.Phase_PHASE_IN_RACE
