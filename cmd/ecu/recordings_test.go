@@ -30,9 +30,16 @@ func runRecordings(t *testing.T, env map[string]string, args ...string) (stdout,
 }
 
 // AC1 and AC3 (paddock#354): a fake PS5 sends packets, goes quiet for longer
-// than the recordings' idle setting (set low here), and sends more: the drive
-// gives two recordings, the first a whole gzip once the silence passed, and `ecu
-// recordings list` shows both, and the one archived as archived, with its note.
+// than the recordings' idle setting, and sends more: the drive gives two
+// recordings, the first a whole gzip while ecu runs on, and `ecu recordings
+// list` shows both, and the one archived as archived, with its note.
+//
+// The silence is on the packets' own clock, as the recorder reads it (their
+// arrival, start plus T): each packet carries a T the test gives it, 1/60 s
+// apart, and the second batch starts two hours after the first, against an
+// idle setting of an hour. So the split never hangs on the wall clock: a
+// loaded runner that stalls mid-batch splits nothing, and the timer, an hour
+// out, never fires in the test.
 func TestASilenceSplitsTheDriveAndTheListShowsBoth(t *testing.T) {
 	in := readAll(t, openRecording(t, recordingPath(t, suzuka)))[:600]
 	ps5, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
@@ -47,7 +54,7 @@ func TestASilenceSplitsTheDriveAndTheListShowsBoth(t *testing.T) {
 	listen := c.LocalAddr().(*net.UDPAddr)
 	_ = c.Close()
 	logger := discard()
-	idle := 200 * time.Millisecond
+	idle := time.Hour
 	src := live.Open(live.Config{PS5: "127.0.0.1", Heartbeat: time.Hour, HeartbeatPort: ps5.LocalAddr().(*net.UDPAddr).Port,
 		Listen: listen.String()}, logger)
 	dir := t.TempDir()
@@ -55,14 +62,22 @@ func TestASilenceSplitsTheDriveAndTheListShowsBoth(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	ts := make(map[int32]float64, len(in))
+	for i, r := range in {
+		ts[r.PacketID] = float64(i) / 60
+		if i >= 300 {
+			ts[r.PacketID] += 2 * 3600 // the silence
+		}
+	}
 	got := &fakePublisher{}
 	ctx, cancel := context.WithCancel(t.Context())
 	driven := make(chan struct{})
 	go func() {
 		defer close(driven)
 		start := src.Start()
-		_ = drive(ctx, src, func(r salsa.Received) time.Time { return start.Add(time.Duration(r.T * float64(time.Second))) },
-			machine(), nil, got, rec, nil, nil)
+		_ = drive(ctx, &retimed{Source: src, t: ts}, func(r salsa.Received) time.Time {
+			return start.Add(time.Duration(r.T * float64(time.Second)))
+		}, machine(), nil, got, rec, nil, nil)
 	}()
 	buf := make([]byte, 8)
 	_ = ps5.SetReadDeadline(time.Now().Add(5 * time.Second))
@@ -86,14 +101,20 @@ func TestASilenceSplitsTheDriveAndTheListShowsBoth(t *testing.T) {
 		waitFrames(t, got, frames)
 	}
 	send(in[:300], 300)
-	// The silence: the first outing ends, its file whole while ecu runs.
-	first := rec.Stats().Path
-	for deadline := time.Now().Add(10 * time.Second); !readsWhole(first, 300); time.Sleep(5 * time.Millisecond) {
+	send(in[300:], 600)
+	// The first outing ended on the second batch's first packet: its file is
+	// whole while ecu runs on.
+	var first string
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(5 * time.Millisecond) {
+		if all, err := record.Recordings(dir); err == nil && len(all) == 2 {
+			if first = all[0].Path; readsWhole(first, 300) {
+				break
+			}
+		}
 		if time.Now().After(deadline) {
-			t.Fatal("the first outing is not a whole recording of 300 packets 10 s after its last")
+			t.Fatal("the first outing is not a whole recording of 300 packets 10 s after the second began")
 		}
 	}
-	send(in[300:], 600)
 	cancel()
 	<-driven
 	_ = src.Close()
