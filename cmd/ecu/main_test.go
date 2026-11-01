@@ -202,7 +202,7 @@ func TestLogsWhereItPublishes(t *testing.T) {
 		`"msg":"listening to the PS5","ps5":"127.0.0.1","heartbeat_port":33739,"listen":"127.0.0.1:0","heartbeat_secs":2}`,
 		`"msg":"recording","dir":"` + dir + `"`,
 		`"msg":"stopped listening to the PS5","packets":0,`,
-		`"msg":"recorded","path":"","frames":0,"dropped":0}`,
+		`"msg":"recorded","path":"","outings":0,"frames":0,"dropped":0}`,
 	} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Errorf("log has no %s: %s", want, stdout.String())
@@ -241,6 +241,8 @@ func TestLiveModeIsConfiguredAtStart(t *testing.T) {
 		{nil, liveEnv(map[string]string{"TWR_ECU_RECORDINGS_DIR": file}), "TWR_ECU_RECORDINGS_DIR:"},
 		{nil, liveEnv(map[string]string{"TWR_ECU_PAUSE_LIMIT_SECS": "-1"}), "TWR_ECU_PAUSE_LIMIT_SECS"},
 		{nil, liveEnv(map[string]string{"TWR_ECU_PAUSE_LIMIT_SECS": "an hour"}), "TWR_ECU_PAUSE_LIMIT_SECS"},
+		{nil, liveEnv(map[string]string{"TWR_ECU_RECORDINGS_KEEP_DAYS": "a week"}), "TWR_ECU_RECORDINGS_KEEP_DAYS"},
+		{nil, liveEnv(map[string]string{"TWR_ECU_RECORDINGS_IDLE_SECS": "0"}), "TWR_ECU_RECORDINGS_IDLE_SECS"},
 	} {
 		var stdout, stderr bytes.Buffer
 		code := run(t.Context(), c.args, c.env, &stdout, &stderr)

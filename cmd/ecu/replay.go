@@ -319,25 +319,34 @@ var errFlag = errors.New("bad flag")
 // recording's path, so `ecu replay x.jsonl.gz --speed max` works as well as
 // `ecu replay --speed max x.jsonl.gz`.
 func parseInterspersed(flags *flag.FlagSet, args []string) (string, error) {
-	var paths []string
-	for {
-		if err := flags.Parse(args); err != nil {
-			if errors.Is(err, flag.ErrHelp) {
-				return "", err
-			}
-			return "", errFlag
-		}
-		args = flags.Args()
-		if len(args) == 0 {
-			break
-		}
-		paths = append(paths, args[0])
-		args = args[1:]
+	paths, err := parseArgs(flags, args)
+	if err != nil {
+		return "", err
 	}
 	if len(paths) != 1 {
 		return "", fmt.Errorf("one recording, a path or -, is needed; got %d", len(paths))
 	}
 	return paths[0], nil
+}
+
+// parseArgs parses flags before, between and after the arguments, and returns
+// the arguments.
+func parseArgs(flags *flag.FlagSet, args []string) ([]string, error) {
+	var all []string
+	for {
+		if err := flags.Parse(args); err != nil {
+			if errors.Is(err, flag.ErrHelp) {
+				return nil, err
+			}
+			return nil, errFlag
+		}
+		args = flags.Args()
+		if len(args) == 0 {
+			return all, nil
+		}
+		all = append(all, args[0])
+		args = args[1:]
+	}
 }
 
 // parseSpeed is --speed as a factor: 0 for max, which never waits.
@@ -557,6 +566,10 @@ type sessionSum struct {
 	kind  eventsv1.SessionType
 	laps  int32
 	ended string
+	// The track, car and start, as the session's summary has them: `ecu
+	// recordings` writes them into an archive note.
+	track, car string
+	start      eventsv1.StartType
 }
 
 // sessionSums are the replay's sessions, in the order they first appear: one
@@ -598,6 +611,7 @@ func (s *sessionSums) see(outs []race.Output) {
 
 func (s *sessionSums) summed(sum *sessionSum, summary *eventsv1.SessionSummary) {
 	sum.laps = summary.GetLapsCompleted()
+	sum.track, sum.car, sum.start = summary.GetTrack().GetName(), summary.GetCarName(), summary.GetKind().GetStart()
 	if t := summary.GetKind().GetSessionType(); t != eventsv1.SessionType_SESSION_TYPE_UNSPECIFIED {
 		sum.kind = t
 	} else if t := summary.GetSessionType(); t != eventsv1.SessionType_SESSION_TYPE_UNSPECIFIED {
