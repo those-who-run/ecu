@@ -2,7 +2,9 @@
 // reads each packet, runs it through the race state and publishes the frames and
 // events on NATS, and, with TWR_ECU_RECORDINGS_DIR set, records each outing in v1's
 // format, pruning those older than TWR_ECU_RECORDINGS_KEEP_DAYS (paddock#106,
-// paddock#266, paddock#354). TWR_ECU_PS5_IP is required: without it ecu
+// paddock#266, paddock#354), with the raw datagrams in a capture beside each
+// recording unless TWR_ECU_CAPTURE is off (paddock#343). TWR_ECU_HEARTBEAT_KIND
+// picks the heartbeat, A unless set. TWR_ECU_PS5_IP is required: without it ecu
 // stops at start. It reads its configuration from the
 // environment, logs JSON to standard output and serves GET /healthz until it gets
 // SIGINT or SIGTERM. `ecu -version` prints its version and exits.
@@ -146,6 +148,10 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout,
 	if err == nil {
 		keep, err = keepDays(getenv)
 	}
+	var capture bool
+	if err == nil {
+		capture, err = captureOn(getenv)
+	}
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, err)
 		return 2
@@ -162,6 +168,12 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout,
 			_, _ = fmt.Fprintln(stderr, "TWR_ECU_RECORDINGS_DIR:", err)
 			return 2
 		}
+		if capture {
+			// The listener stops before the recorder closes (the deferred
+			// shutdown below), so nothing captures after Close.
+			liveCfg.Capture = rec.Capture
+		}
+		logger.InfoContext(ctx, "capture", "on", capture)
 	}
 	// The recorder closes before the publisher, so a NATS server that cannot be
 	// reached never uses up the recording's grace and cuts its gzip short.
@@ -421,6 +433,22 @@ func keepDays(getenv func(string) string) (time.Duration, error) {
 		return 0, fmt.Errorf("%s: %q is not a number of days, from 0 to 36,500", keepDaysEnv, v)
 	}
 	return time.Duration(days * float64(24*time.Hour)), nil
+}
+
+// captureEnv turns the capture off (paddock#343).
+const captureEnv = "TWR_ECU_CAPTURE"
+
+// captureOn is TWR_ECU_CAPTURE: on when unset or "on", off for "off"; any other
+// value is an error. It only matters with TWR_ECU_RECORDINGS_DIR set.
+func captureOn(getenv func(string) string) (bool, error) {
+	switch v := getenv(captureEnv); v {
+	case "", "on":
+		return true, nil
+	case "off":
+		return false, nil
+	default:
+		return false, fmt.Errorf("%s: %q is not on or off", captureEnv, v)
+	}
 }
 
 // pauseLimitEnv is the pause limit, in seconds.

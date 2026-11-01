@@ -315,7 +315,11 @@ publisher with it, exactly as a recording's packets would. The live source is a
 It ports v1's lessons (`telemetry.py` at v1.0.0), not its code:
 
 - **Our own heartbeat.** An `A` goes to the PS5's UDP port 33739 at start and
-  then every `TWR_ECU_HEARTBEAT_SECS`, from a fresh socket each time. A failed
+  then every `TWR_ECU_HEARTBEAT_SECS`, from a fresh socket each time.
+  `TWR_ECU_HEARTBEAT_KIND` sends `B` or `~` instead (paddock#343), for the
+  drives that capture GT7's other layouts: the PS5 then sends 316- or 344-byte
+  packets, which start with the A block, and the race state reads only that, so
+  the frames and events are the same as under `A`. Parity stays on `A`. A failed
   send is logged once per outage, and when it gets out again, and never stops
   the heartbeat: v1 lost the stream for good when gt-telem's 10 s heartbeat died
   on one error.
@@ -336,13 +340,17 @@ It ports v1's lessons (`telemetry.py` at v1.0.0), not its code:
   at start.
 
 At the end ecu logs the packets handed on, dropped late, undecodable and
-overflowed, the heartbeats sent and failed, and the listener's restarts.
+overflowed, the datagrams from an address other than the PS5's (`foreign`:
+decoded as the PS5's, never captured), the heartbeats sent and failed, and the
+listener's restarts.
 
 | Variable | Default | What |
 | --- | --- | --- |
 | `TWR_ECU_PS5_IP` | none: required | The PS5's IP address, where the heartbeat goes. |
 | `TWR_ECU_HEARTBEAT_SECS` | `2` | Seconds between heartbeats, from 0.01 to 3,600. |
+| `TWR_ECU_HEARTBEAT_KIND` | `A` | The heartbeat sent, which picks the packets GT7 sends: `A`, `B` or `~`; anything else stops ecu at start (exit 2). |
 | `TWR_ECU_RECORDINGS_DIR` | unset: no recording | The directory each outing is recorded in ([Recording](#recording)). |
+| `TWR_ECU_CAPTURE` | `on` | `off` records with no capture of the raw datagrams ([The capture](#the-capture)); anything but `on` or `off` stops ecu at start (exit 2). |
 | `TWR_ECU_RECORDINGS_KEEP_DAYS` | `30` | Days a recording is kept from its start before it is pruned, unless archived ([Recording](#recording)); 0 or more, 0 keeps every one. |
 | `TWR_ECU_PAUSE_LIMIT_SECS` | unset: no limit | Seconds a pause may last before it ends the session paused ([Pauses](#pauses)); 0 or more, 0 is no limit. |
 | `TWR_ECU_CONTINUE_WINDOW_SECS` | `600` | Seconds after the last frame within which a restarted ecu continues the session ([After a restart](#after-a-restart)); 0 or more, 0 never continues. `ecu replay` reads it too. |
@@ -413,7 +421,7 @@ through `salsa`.
 - **`t` is seconds since ecu started**, on the monotonic clock: only
   differences between times mean anything, as in v1's recordings.
 - **Off the frame path.** A goroutine writes the file; up to 4,096 packets
-  wait for it (about 68 s), and a packet beyond that is dropped from the
+  wait for it (about 68 s, 34 s while [capturing](#the-capture)), and a packet beyond that is dropped from the
   recording and counted.
 - **Pruned by age.** When ecu starts and when each outing starts, the outings
   that started more than `TWR_ECU_RECORDINGS_KEEP_DAYS` ago (30 unless set; 0
@@ -424,6 +432,44 @@ through `salsa`.
   later stops that outing's recording, logged, and never the drive; the next
   outing tries again.
 - No PS5 address or other setting is written into a recording.
+
+### The capture
+
+Beside each recording, ecu saves the datagrams it received from the PS5,
+still encrypted, each with its receive time ([`internal/record`](internal/record),
+paddock#343), so a normal drive yields the real PS5 captures salsa's tests wait
+on (paddock#30, paddock#31), and the data v2's own recording format is to be
+decided from (paddock#32). It is on whenever recordings are, unless
+`TWR_ECU_CAPTURE=off`.
+
+- **`<id>.twrcap` beside `<id>.jsonl.gz`**, the same outing under the same id:
+  the outing's first datagram opens it, and it is flushed, synced and closed
+  when the outing ends, with the recording, so both are whole then. A datagram
+  starts and keeps an outing going as a packet does; one that does not decode
+  is captured all the same, and an outing of only those leaves an empty, whole
+  recording. Pruning and archiving take it with its outing, as every `<id>.*`.
+- **Every datagram from the PS5's address**, exactly as received, before it is
+  decoded: late and undecodable ones too. Datagrams from any other address are
+  never captured, and counted (`foreign`).
+- **The format** is the one the stand-alone capture script for paddock#30 was
+  written to, and is not compressed (encrypted bytes do not compress):
+  - the magic `TWRCAP1\n` (8 bytes);
+  - then a record per datagram: its receive time (int64, nanoseconds since the
+    Unix epoch, big-endian), its length (uint32, big-endian) and its bytes.
+
+  `record.ReadCapture` reads it for the tests; salsa gets the reader replays
+  use (paddock#30, paddock#32).
+- **Off the receive path.** The listener copies each datagram and hands it to
+  the recording's goroutine, never waiting: about 0.2 to 0.35 µs a datagram on
+  the NUC (`BenchmarkCapture`), beside salsa's 0.4 µs to decrypt it. Packets and
+  datagrams share the 4,096 places waiting (about 34 s while capturing); a
+  datagram beyond them is dropped from the capture and counted
+  (`capture_dropped`), never from the frame path. The file is written through a
+  64 KiB buffer, flushed at least every 10 s of datagrams, so a killed pod
+  loses at most the last 10 s.
+- **The size**, unverified: about 64 MB an hour under `A` (296 bytes at about
+  60 Hz, and 12 bytes of record each), 74 MB under `~`.
+- No PS5 address or other setting is written into a capture.
 
 ### Listing and archiving recordings
 

@@ -1,6 +1,7 @@
 package record
 
 import (
+	"bufio"
 	"compress/gzip"
 	"context"
 	"errors"
@@ -16,9 +17,10 @@ import (
 	"github.com/those-who-run/salsa"
 )
 
-// Buffer is how many packets wait for the writing goroutine: about 68 s at 60 Hz.
-// A packet beyond it is dropped from the recording and counted; the frame path
-// never waits on the disk.
+// Buffer is how many packets, and datagrams for the capture, wait for the writing
+// goroutine: about 68 s at 60 Hz, 34 s while capturing. A packet beyond it is
+// dropped from the recording and counted, and a datagram from the capture; neither
+// the frame path nor the listener ever waits on the disk.
 const Buffer = 4096
 
 // memberEvery is how many lines go in one gzip member. v1 flushed its writer every
@@ -51,6 +53,10 @@ type Stats struct {
 	// Dropped is the packets not written: the buffer full, a value v1 cannot write,
 	// or the file failing.
 	Dropped uint64
+	// Captured is the datagrams written to the captures (paddock#343), every
+	// outing's, and CaptureDropped those not written: the buffer full, or the
+	// capture failing.
+	Captured, CaptureDropped uint64
 }
 
 // Writer records the packets ecu drives on in v1's format (AppendV1), one recording
@@ -62,7 +68,12 @@ type Stats struct {
 // its extension is the outing's id (ID), and every file of the outing is named
 // <id>.<something>, so pruning and archiving, which go by id, take them all.
 //
-// An outing's file is closed, whole, when the outing ends: a crash cuts short at
+// The datagrams Capture hands over go to the outing's capture, <id>.twrcap
+// (paddock#343), made with the outing's first datagram; a datagram, like a packet,
+// starts an outing and keeps it going, so the capture and the recording start and
+// end together. Without Capture there is no capture file.
+//
+// An outing's files are closed, whole, when the outing ends: a crash cuts short at
 // most the outing being written. Write hands a packet to the writing goroutine
 // without waiting. Write is called from one goroutine, and not after Close.
 type Writer struct {
@@ -71,11 +82,20 @@ type Writer struct {
 	logger *slog.Logger
 	now    func() time.Time
 
-	in   chan salsa.Received
+	in   chan item
 	done chan struct{}
 
-	path                     atomic.Pointer[string]
-	outings, frames, dropped atomic.Uint64
+	path                                               atomic.Pointer[string]
+	outings, frames, dropped, captured, captureDropped atomic.Uint64
+}
+
+// item is what waits for the writing goroutine: a packet, or with raw set a
+// datagram for the capture, received at T on the packets' clock and at at, in
+// nanoseconds since the Unix epoch.
+type item struct {
+	salsa.Received
+	raw []byte
+	at  int64
 }
 
 // Open checks that dir is a directory ecu can write to, making it if it is missing,
@@ -93,7 +113,7 @@ func Open(dir string, opts Options, logger *slog.Logger, now func() time.Time) (
 	_ = os.Remove(probe.Name())
 	w := &Writer{
 		dir: dir, opts: opts, logger: logger, now: now,
-		in:   make(chan salsa.Received, Buffer),
+		in:   make(chan item, Buffer),
 		done: make(chan struct{}),
 	}
 	go w.run()
@@ -105,7 +125,7 @@ func Open(dir string, opts Options, logger *slog.Logger, now func() time.Time) (
 // full.
 func (w *Writer) Write(r salsa.Received) {
 	select {
-	case w.in <- r:
+	case w.in <- item{Received: r}:
 	default:
 		w.dropped.Add(1)
 	}
@@ -122,24 +142,30 @@ func (w *Writer) Close(ctx context.Context) Stats {
 		w.logger.WarnContext(ctx, "the recording was still being written when the time ran out")
 	}
 	s := w.Stats()
-	w.logger.InfoContext(ctx, "recorded", "path", s.Path, "outings", s.Outings, "frames", s.Frames, "dropped", s.Dropped)
+	w.logger.InfoContext(ctx, "recorded", "path", s.Path, "outings", s.Outings, "frames", s.Frames, "dropped", s.Dropped,
+		"captured", s.Captured, "capture_dropped", s.CaptureDropped)
 	return s
 }
 
 // Stats is what has been recorded so far.
 func (w *Writer) Stats() Stats {
-	s := Stats{Outings: w.outings.Load(), Frames: w.frames.Load(), Dropped: w.dropped.Load()}
+	s := Stats{
+		Outings: w.outings.Load(), Frames: w.frames.Load(), Dropped: w.dropped.Load(),
+		Captured: w.captured.Load(), CaptureDropped: w.captureDropped.Load(),
+	}
 	if p := w.path.Load(); p != nil {
 		s.Path = *p
 	}
 	return s
 }
 
-// run is the writing goroutine. An outing ends on a packet that comes Idle or more
-// after the one before it, on the packets' own clock, and, so that its file is
-// whole while the feed is quiet, when Idle passes on the wall clock with no packet
-// handed over: a packet waiting in the buffer came no later than it is read, so
-// the second never ends an outing the first would not.
+// run is the writing goroutine. An outing ends on a packet or datagram that comes
+// Idle or more after the latest before it, on the packets' own clock, and, so that
+// its files are whole while the feed is quiet, when Idle passes on the wall clock
+// with nothing handed over: a packet waiting in the buffer came no later than it
+// is read, so the second never ends an outing the first would not. The latest,
+// not the last: a datagram is handed over as it is received, its packet once the
+// frame path has decoded it, so a packet can follow datagrams received after it.
 func (w *Writer) run() {
 	defer close(w.done)
 	w.prune()
@@ -163,7 +189,7 @@ func (w *Writer) run() {
 		quiet = nil
 	}
 	for {
-		var r salsa.Received
+		var r item
 		select {
 		case <-quiet:
 			// A packet waiting is read first, so a write that held the goroutine
@@ -183,10 +209,24 @@ func (w *Writer) run() {
 		if o != nil && w.opts.Idle > 0 && r.T-lastT >= w.opts.Idle.Seconds() {
 			end()
 		}
-		lastT = r.T
+		if o == nil || r.T > lastT {
+			lastT = r.T
+		}
 		if idle != nil {
 			idle.Reset(w.opts.Idle)
 			quiet = idle.C
+		}
+		if r.raw != nil {
+			if o == nil {
+				w.prune()
+				o = w.start()
+			}
+			if o.capture(r.at, r.raw) {
+				w.captured.Add(1)
+			} else {
+				w.captureDropped.Add(1)
+			}
+			continue
 		}
 		line, ok := AppendV1(nil, r.T, &r.Packet)
 		if !ok {
@@ -211,16 +251,23 @@ func (w *Writer) run() {
 }
 
 // outing is the outing being recorded: its id and its files. The raw datagrams
-// (paddock#343) are a second file beside the recording, opened in start and
-// closed in end under the same id.
+// (paddock#343) are a second file beside the recording, under the same id, opened
+// with the outing's first datagram and closed in end.
 type outing struct {
 	id     string
 	path   string
 	f      *os.File
 	gz     *gzip.Writer
 	inPart int
+	lines  int
 	failed bool
 	logger *slog.Logger
+
+	capPath   string
+	capF      *os.File
+	capW      *bufio.Writer
+	flushedAt int64
+	capFailed bool
 }
 
 // start makes the outing's recording, never over another. An outing whose file
@@ -234,6 +281,7 @@ func (w *Writer) start() *outing {
 			o.id += "-" + strconv.Itoa(n)
 		}
 		o.path = filepath.Join(w.dir, o.id+Ext)
+		o.capPath = filepath.Join(w.dir, o.id+CaptureExt)
 		f, err := os.OpenFile(o.path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o640) //nolint:gosec // the directory is the operator's setting
 		if errors.Is(err, fs.ErrExist) {
 			continue
@@ -263,6 +311,7 @@ func (o *outing) write(line []byte) bool {
 		o.fail(err)
 		return false
 	}
+	o.lines++
 	if o.inPart++; o.inPart == memberEvery {
 		o.inPart = 0
 		if err := o.gz.Close(); err != nil {
@@ -279,13 +328,15 @@ func (o *outing) fail(err error) {
 	o.failed = true
 }
 
-// end closes the outing's recording: its last gzip member, then the file, synced
-// first, so the file is whole on the disk once the outing has ended.
+// end closes the outing's capture and its recording: the recording's last gzip
+// member, an empty one when the outing had only datagrams, then the file, synced
+// first, so both are whole on the disk once the outing has ended.
 func (w *Writer) end(o *outing) {
+	o.endCapture()
 	if o.f == nil {
 		return
 	}
-	if !o.failed && o.inPart > 0 {
+	if !o.failed && (o.inPart > 0 || o.lines == 0) {
 		if err := o.gz.Close(); err != nil {
 			o.fail(err)
 		}

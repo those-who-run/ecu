@@ -92,6 +92,19 @@ type Config struct {
 	// (race.Machine.WatchTelemetry): TWR_ECU_TELEMETRY_TIMEOUT_SECS, in seconds,
 	// DefaultTelemetryTimeout when unset.
 	TelemetryTimeout time.Duration
+	// HeartbeatKind is the heartbeat sent, which picks the packets GT7 sends:
+	// salsa.HeartbeatA, HeartbeatB or HeartbeatTilde, from TWR_ECU_HEARTBEAT_KIND
+	// (paddock#343, R4); A when unset or 0. The frame path reads the A block,
+	// which B and "~" packets start with, so the race state sees the same under
+	// each.
+	HeartbeatKind byte
+	// Capture, when set, gets every datagram received from the PS5's address,
+	// exactly as received and before it is decoded, with its receive time on the
+	// wall clock and as Received.T (paddock#343): record.Writer.Capture. It is
+	// called on the listener's goroutine, so it must not wait, and it must not
+	// keep datagram, which is reused. main sets it; it is never read from the
+	// environment.
+	Capture func(t float64, at time.Time, datagram []byte)
 }
 
 // ErrNoPS5 is ConfigFromEnv's error when TWR_ECU_PS5_IP is unset or empty: there
@@ -101,8 +114,9 @@ var ErrNoPS5 = errors.New("TWR_ECU_PS5_IP: the PS5's IP address is required for 
 
 // ConfigFromEnv reads the configuration through getenv. TWR_ECU_PS5_IP must be an
 // IP address (ErrNoPS5 when it is unset), TWR_ECU_HEARTBEAT_SECS, when set, a
-// number of seconds from 0.01 to 3,600, and TWR_ECU_TELEMETRY_TIMEOUT_SECS, when
-// set, a number of seconds above 0 and at most 3,600.
+// number of seconds from 0.01 to 3,600, TWR_ECU_TELEMETRY_TIMEOUT_SECS, when
+// set, a number of seconds above 0 and at most 3,600, and TWR_ECU_HEARTBEAT_KIND,
+// when set, A, B or ~.
 func ConfigFromEnv(getenv func(string) string) (Config, error) {
 	cfg := Config{
 		PS5:              strings.TrimSpace(getenv("TWR_ECU_PS5_IP")),
@@ -110,6 +124,7 @@ func ConfigFromEnv(getenv func(string) string) (Config, error) {
 		HeartbeatPort:    salsa.HeartbeatPort,
 		Listen:           ":" + strconv.Itoa(salsa.TelemetryPort),
 		TelemetryTimeout: DefaultTelemetryTimeout,
+		HeartbeatKind:    salsa.HeartbeatA,
 	}
 	if cfg.PS5 == "" {
 		return Config{}, ErrNoPS5
@@ -136,6 +151,14 @@ func ConfigFromEnv(getenv func(string) string) (Config, error) {
 		}
 		cfg.TelemetryTimeout = d
 	}
+	if v := getenv("TWR_ECU_HEARTBEAT_KIND"); v != "" {
+		switch v {
+		case string(salsa.HeartbeatA), string(salsa.HeartbeatB), string(salsa.HeartbeatTilde):
+			cfg.HeartbeatKind = v[0]
+		default:
+			return Config{}, fmt.Errorf("TWR_ECU_HEARTBEAT_KIND: %q is not a heartbeat kind: A, B or ~", v)
+		}
+	}
 	return cfg, nil
 }
 
@@ -145,6 +168,9 @@ type Stats struct {
 	// or repeated, Undecodable those salsa could not decrypt or parse, and
 	// Overflow those dropped because Next was not keeping up.
 	Packets, Late, Undecodable, Overflow uint64
+	// Foreign is the datagrams from an address other than the PS5's: never
+	// captured (paddock#343, R1), though decoded like the PS5's.
+	Foreign uint64
 	// Heartbeats is the heartbeats sent, HeartbeatErrors the sends that failed.
 	Heartbeats, HeartbeatErrors uint64
 	// Restarts is how many times the listener was started again.
@@ -159,6 +185,7 @@ type Source struct {
 	cfg    Config
 	logger *slog.Logger
 	start  time.Time
+	ps5    net.IP // cfg.PS5, parsed
 
 	// send sends one heartbeat; the tests replace it to make sends fail.
 	send func(ctx context.Context) error
@@ -179,8 +206,8 @@ type Source struct {
 	hasLast bool
 
 	counters struct {
-		packets, late, undecodable, overflow, heartbeats, heartbeatErrors, restarts atomic.Uint64
-		listening                                                                   atomic.Bool
+		packets, late, undecodable, overflow, foreign, heartbeats, heartbeatErrors, restarts atomic.Uint64
+		listening                                                                            atomic.Bool
 	}
 	closed atomic.Bool
 }
@@ -196,8 +223,11 @@ func Open(cfg Config, logger *slog.Logger) *Source {
 // newSource is a source not yet started, for the tests to adjust.
 func newSource(cfg Config, logger *slog.Logger) *Source {
 	ctx, stop := context.WithCancel(context.Background())
+	if cfg.HeartbeatKind == 0 {
+		cfg.HeartbeatKind = salsa.HeartbeatA
+	}
 	s := &Source{
-		cfg: cfg, logger: logger, start: time.Now(),
+		cfg: cfg, logger: logger, start: time.Now(), ps5: net.ParseIP(cfg.PS5),
 		backoff: backoffFirst, maxBackoff: backoffMax,
 		packets: make(chan salsa.Received, Buffer),
 		ctx:     ctx, stop: stop,
@@ -211,7 +241,8 @@ func (s *Source) run() {
 	go func() { defer s.wg.Done(); s.heartbeat() }()
 	go func() { defer s.wg.Done(); s.listen() }()
 	s.logger.Info("listening to the PS5", "ps5", s.cfg.PS5, "heartbeat_port", s.cfg.HeartbeatPort,
-		"listen", s.cfg.Listen, "heartbeat_secs", s.cfg.Heartbeat.Seconds())
+		"listen", s.cfg.Listen, "heartbeat_secs", s.cfg.Heartbeat.Seconds(),
+		"heartbeat_kind", string(s.cfg.HeartbeatKind), "capture", s.cfg.Capture != nil)
 }
 
 // Start is the wall-clock time of T = 0.
@@ -252,7 +283,7 @@ func (s *Source) Close() error {
 	s.wg.Wait()
 	st := s.Stats()
 	s.logger.Info("stopped listening to the PS5", "packets", st.Packets, "late", st.Late,
-		"undecodable", st.Undecodable, "overflow", st.Overflow, "heartbeats", st.Heartbeats,
+		"undecodable", st.Undecodable, "overflow", st.Overflow, "foreign", st.Foreign, "heartbeats", st.Heartbeats,
 		"heartbeat_errors", st.HeartbeatErrors, "restarts", st.Restarts)
 	return nil
 }
@@ -262,7 +293,7 @@ func (s *Source) Stats() Stats {
 	c := &s.counters
 	return Stats{
 		Packets: c.packets.Load(), Late: c.late.Load(), Undecodable: c.undecodable.Load(),
-		Overflow: c.overflow.Load(), Heartbeats: c.heartbeats.Load(),
+		Overflow: c.overflow.Load(), Foreign: c.foreign.Load(), Heartbeats: c.heartbeats.Load(),
 		HeartbeatErrors: c.heartbeatErrors.Load(), Restarts: c.restarts.Load(),
 		Listening: c.listening.Load(),
 	}
@@ -301,8 +332,9 @@ func (s *Source) heartbeat() {
 	}
 }
 
-// sendHeartbeat sends one "A" from a socket of its own, as v1 did: nothing a failed
-// send leaves on a socket carries over to the next.
+// sendHeartbeat sends one heartbeat of the configured kind from a socket of its
+// own, as v1 did: nothing a failed send leaves on a socket carries over to the
+// next.
 func (s *Source) sendHeartbeat(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, sendTimeout)
 	defer cancel()
@@ -315,7 +347,7 @@ func (s *Source) sendHeartbeat(ctx context.Context) error {
 	if deadline, ok := ctx.Deadline(); ok {
 		_ = conn.SetWriteDeadline(deadline)
 	}
-	_, err = conn.Write([]byte{salsa.HeartbeatA})
+	_, err = conn.Write([]byte{s.cfg.HeartbeatKind})
 	return err
 }
 
@@ -366,18 +398,36 @@ func (s *Source) listen() {
 	}
 }
 
-// read reads datagrams until the socket fails, and returns why.
+// read reads datagrams until the socket fails, and returns why. Each datagram from
+// the PS5's address goes to the capture, when there is one, as received and
+// before it is decoded (paddock#343); one from any other address is counted and
+// never captured.
 func (s *Source) read(conn net.PacketConn) error {
 	// GT7's longest packet is 368 bytes; a longer datagram is cut and fails to
 	// decode, as it should.
 	buf := make([]byte, 2048)
 	for {
-		n, _, err := conn.ReadFrom(buf)
+		n, from, err := conn.ReadFrom(buf)
 		if err != nil {
 			return err
 		}
-		s.handle(buf[:n], time.Since(s.start).Seconds())
+		now := time.Now()
+		t := now.Sub(s.start).Seconds()
+		if s.fromPS5(from) {
+			if s.cfg.Capture != nil {
+				s.cfg.Capture(t, now, buf[:n])
+			}
+		} else {
+			s.counters.foreign.Add(1)
+		}
+		s.handle(buf[:n], t)
 	}
+}
+
+// fromPS5 reports whether a datagram from addr came from the PS5's address.
+func (s *Source) fromPS5(addr net.Addr) bool {
+	u, ok := addr.(*net.UDPAddr)
+	return ok && u.IP.Equal(s.ps5)
 }
 
 // handle decodes a datagram and hands it on, unless it is late.
