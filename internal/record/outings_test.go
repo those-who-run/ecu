@@ -176,27 +176,28 @@ func TestAnEndedOutingIsAWholeGzipWhileEcuRuns(t *testing.T) {
 
 	c.set(last.Add(flushEvery))
 	c.fire <- c.now()
-	if d := <-c.armed; d != idle-flushEvery {
-		t.Errorf("set again for %v, want %v", d, idle-flushEvery)
+	// Set again, which only an outing still open is: never more than flushEvery
+	// away while it is.
+	if d := <-c.armed; d != flushEvery {
+		t.Errorf("set again for %v, want %v", d, flushEvery)
 	}
 	if n, err := gzipLines(path); err != nil || n != 1000 {
 		t.Errorf("not flushed while the outing is open: %d lines, %v", n, err)
-	}
-	if w.Stats().Outings != 1 {
-		t.Error("the outing ended before the feed was idle")
 	}
 
 	c.set(last.Add(idle))
 	c.fire <- c.now()
 	eventually(t, "a whole gzip", func() bool { n, err := gzipLines(path); return err == nil && n == 1000 })
-
-	next := drivePackets(1000, 5)
-	for _, r := range next {
-		w.Write(r, arrived(r))
-	}
+	// The timer ended the outing: a packet that arrived within the idle setting
+	// of the last, handed over now, starts another rather than joining it.
+	late := salsa.Received{T: in[len(in)-1].T + idle.Seconds()/2}
+	w.Write(late, arrived(late))
 	s := w.Close(t.Context())
-	if s.Outings != 2 || s.Path != filepath.Join(dir, c.now().UTC().Format(stampLayout)+Ext) || whole(t, s.Path) != 5 {
-		t.Errorf("stats %+v", s)
+	if s.Outings != 2 || s.Path != filepath.Join(dir, c.now().UTC().Format(stampLayout)+Ext) || whole(t, s.Path) != 1 {
+		t.Errorf("stats %+v; want the timer to have ended the first outing", s)
+	}
+	if n := whole(t, path); n != 1000 {
+		t.Errorf("the first outing holds %d lines", n)
 	}
 }
 
@@ -236,10 +237,17 @@ func TestAPacketLeftOutStillSetsTheTimer(t *testing.T) {
 	w.Write(bad, arrived(bad))
 	c.fire <- c.now() // fires early, with the bad packet waiting
 	close(c.gate)
-	// Set again: for 10 s, as the good packet's gzip member is still open
-	// (paddock#343's review), or the idle setting from the bad packet without.
+	// Set again, never more than flushEvery away while the outing is open
+	// (paddock#343's review).
 	if d := <-c.armed; d != flushEvery {
 		t.Errorf("the timer was set again for %v, want %v", d, flushEvery)
+	}
+	// Idle past the good packet, but not the bad one: the bad packet's arrival
+	// keeps the outing, and the timer is set for the second left of its idle.
+	c.set(arrived(good).Add(idle))
+	c.fire <- c.now()
+	if d := <-c.armed; d != time.Second {
+		t.Errorf("the timer was set again for %v, want the 1 s left after the left-out packet", d)
 	}
 	c.set(arrived(bad).Add(idle))
 	c.fire <- c.now()

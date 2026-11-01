@@ -207,7 +207,7 @@ func (w *Writer) run() {
 				}
 				// Quiet, but not for long enough to end the outing: what it holds
 				// goes to the disk now, not when the outing ends.
-				o.flush()
+				o.flush(w.now())
 				wake = w.arm(o, last)
 				continue
 			}
@@ -267,22 +267,16 @@ func (w *Writer) run() {
 }
 
 // arm is the timer for the outing o: it fires once Idle has passed since last, the
-// latest arrival, or sooner, after flushEvery, while o holds what is not yet on
-// the disk. nil when neither is due.
+// latest arrival, and never more than flushEvery away while o is open, so what an
+// arrival after a quiet flush leaves in the buffers goes to the disk within 10 s
+// (R3). nil with no outing open.
 func (w *Writer) arm(o *outing, last time.Time) <-chan time.Time {
 	if o == nil {
 		return nil
 	}
-	idle := w.opts.Idle > 0
-	var d time.Duration
-	if idle {
-		d = last.Add(w.opts.Idle).Sub(w.now())
-	}
-	if o.unflushed() && (!idle || d > flushEvery) {
-		d, idle = flushEvery, true
-	}
-	if !idle {
-		return nil
+	d := flushEvery
+	if w.opts.Idle > 0 {
+		d = min(d, last.Add(w.opts.Idle).Sub(w.now()))
 	}
 	return w.opts.after(d)
 }
@@ -398,16 +392,12 @@ func (o *outing) write(line []byte) bool {
 	return true
 }
 
-// unflushed reports whether the outing holds what is not yet on the disk: an open
-// gzip member, or captured datagrams in the write buffer.
-func (o *outing) unflushed() bool {
-	return (!o.failed && o.f != nil && o.inPart > 0) || (!o.capFailed && o.capW != nil && o.capW.Buffered() > 0)
-}
-
-// flush puts what the outing holds on the disk while it stays open: the capture's
-// buffer, and the recording's gzip member, closed so that it reads back whole.
-func (o *outing) flush() {
+// flush puts what the outing holds on the disk at now while it stays open: the
+// capture's buffer, and the recording's gzip member, closed so that it reads back
+// whole.
+func (o *outing) flush(now time.Time) {
 	if !o.capFailed && o.capW != nil {
+		o.flushedAt = now.UnixNano()
 		if err := o.capW.Flush(); err != nil {
 			o.failCapture(err)
 		}

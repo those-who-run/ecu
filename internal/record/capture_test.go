@@ -219,30 +219,43 @@ func TestTheCaptureIsFlushedEveryTenSeconds(t *testing.T) {
 }
 
 // Once the feed stops, what the capture and the recording hold goes to the disk
-// after 10 s, though the outing stays open until the idle setting has passed: a
-// killed ecu loses at most the last 10 s however long the idle setting is
-// (paddock#343's review).
+// after 10 s, though the outing stays open until the idle setting has passed; and
+// the timer is never set further than 10 s while it is, so a burst after a quiet
+// flush goes to the disk within 10 s too: a killed ecu loses at most the last 10 s
+// however long the idle setting is (paddock#343's review).
 func TestAQuietOutingIsFlushedAfterTenSeconds(t *testing.T) {
 	dir := t.TempDir()
 	c := newFakeClock(at)
 	w := open(t, dir, Options{Idle: 10 * time.Minute}, c)
 	defer w.Close(t.Context())
 	d := make([]byte, salsa.LenTilde)
-	w.Capture(0, at, d)
-	w.Write(salsa.Received{T: 0}, at)
-	if armed := <-c.armed; armed != flushEvery {
-		t.Errorf("the timer was set for %v, want %v", armed, flushEvery)
+	capPath, recPath := filepath.Join(dir, "20261031-200509"+CaptureExt), filepath.Join(dir, "20261031-200509"+Ext)
+	onDisk := func(datagrams, lines int) {
+		t.Helper()
+		if got, err := ReadCaptureFile(capPath); err != nil || len(got) != datagrams {
+			t.Errorf("the capture read back %d, %v; want %d", len(got), err, datagrams)
+		}
+		if n, err := gzipLines(recPath); err != nil || n != lines {
+			t.Errorf("the recording read back %d lines, %v; want %d", n, err, lines)
+		}
 	}
-	c.set(at.Add(flushEvery))
-	c.fire <- c.now()
-	if armed := <-c.armed; armed != 10*time.Minute-flushEvery {
-		t.Errorf("set again for %v, want what is left of the idle setting", armed)
-	}
-	if got, err := ReadCaptureFile(filepath.Join(dir, "20261031-200509"+CaptureExt)); err != nil || len(got) != 1 {
-		t.Errorf("the capture read back %d, %v", len(got), err)
-	}
-	if n, err := gzipLines(filepath.Join(dir, "20261031-200509"+Ext)); err != nil || n != 1 {
-		t.Errorf("the recording read back %d lines, %v", n, err)
+	for _, sec := range []time.Duration{0, 60 * time.Second, 120 * time.Second} {
+		// A burst: a datagram and its packet, then quiet.
+		w.Capture(sec.Seconds(), at.Add(sec), d)
+		w.Write(salsa.Received{T: sec.Seconds()}, at.Add(sec))
+		if sec == 0 {
+			if armed := <-c.armed; armed != flushEvery {
+				t.Fatalf("the timer was set for %v, want %v", armed, flushEvery)
+			}
+		}
+		n := int(sec/time.Minute) + 1
+		eventually(t, "handed over", func() bool { return w.Stats().Frames == uint64(n) }) //nolint:gosec // 1 to 3
+		c.set(at.Add(sec + flushEvery))
+		c.fire <- c.now()
+		if armed := <-c.armed; armed != flushEvery {
+			t.Errorf("at %v: set again for %v, want %v", sec, armed, flushEvery)
+		}
+		onDisk(n, n)
 	}
 	if s := w.Stats(); s.Outings != 1 {
 		t.Errorf("stats %+v", s)
