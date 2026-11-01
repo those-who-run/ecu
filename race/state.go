@@ -45,6 +45,7 @@ type state struct {
 	received time.Time          // when ecu received it
 	pause    pauseMark          // what the pause clock read on it (pause.go)
 	stood    float64            // on a start, the seconds the car stood on the grid before it (kind.go)
+	screen   leap               // on a start, the place's leap on the track screen before it (kind.go)
 }
 
 func (s *state) inRace() bool { return s.phase == phaseInRace }

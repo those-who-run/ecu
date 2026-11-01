@@ -299,6 +299,7 @@ type Machine struct {
 	published   int32  // the place the session's last race.position gave, 0 for none
 	kinds       kinds  // the session's kind (v1's Engine.kinds)
 	grid        grid   // the car standing on the grid before a start (kind.go, paddock#148)
+	screen      screen // the place leaping on the track screen before a start (kind.go, paddock#360)
 	tracks      *track.Detector
 	pits        *pit.Detector
 	session     *session
@@ -424,9 +425,11 @@ func (m *Machine) Step(r Received) []Output {
 	// A held start's frames are stepped later (start.go): what the clock read on
 	// each goes with it.
 	s.pause = m.pauses.observe(&s, &r.Packet, r.Time)
-	// The grid is watched on every frame, the start check's included, as the
-	// pause clock is: a start held or after a replay is stepped later.
+	// The grid and the place on the track screen are watched on every frame, the
+	// start check's included, as the pause clock is: a start held or after a
+	// replay is stepped later.
 	s.stood = m.grid.observe(&s)
+	s.screen = m.screen.observe(&s)
 	s.frame, s.received = frame(m.seq, r.T, s.phase, &r.Packet), r.Time
 	m.ctx = Context{}
 	// The session an earlier run left open ends first once the continue window
@@ -483,7 +486,7 @@ func (m *Machine) step(s *state) {
 		m.finish = finish{}
 		m.finalLap, m.places, m.published = false, places{}, 0
 		ranked := restarted && m.kinds.ranked
-		m.kinds = kinds{stood: s.stood}
+		m.kinds = kinds{stood: s.stood, screen: s.screen}
 		if ranked {
 			m.kinds.carryRank() // a ranked session restarted is ranked (kind.go)
 		}

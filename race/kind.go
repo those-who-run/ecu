@@ -31,10 +31,17 @@ import (
 // at Spa and 16 to P3 at Suzuka 2026-10-18, 11 to P1 in practice 2026-10-31),
 // while a timed race keeps its slot (P10, Suzuka 2026-10-16). So a timed field
 // whose place rises rankLeap or more above the first racing frame's within the
-// start window is ranked. A restart of a ranked session (racing straight back to
-// lap 1, its first frame already ranked) stays ranked, and so does a session ecu
-// continues after its own restart; one joined part way, whose start ecu never saw,
-// stays a timed field.
+// start window is ranked. GT7 can re-rank the car on the track screen instead,
+// before the start: qualifying at Watkins Glen 2026-11-01 listed it P20 of 20 and
+// then P1 three packets later, standing, so lap 1 began P1 and nothing leapt in the
+// window (paddock#360). So a timed field is ranked too when, on the track screen
+// before it, the place leapt rankLeap or more up in one step (screen) and the
+// first racing frame's is still that far above the place it leapt from. The
+// window is read first and the track screen only once it closes without a leap,
+// so a session ranked by both keeps the window's evidence. A restart of a ranked
+// session (racing straight back to lap 1, its first frame already ranked) stays
+// ranked, and so does a session ecu continues after its own restart; one joined
+// part way, whose start ecu never saw, stays a timed field.
 //
 // Fuel use is on once the level drops fuelDrop below the highest seen while
 // racing (a refuel raises the mark), off after fuelSettle of driving at moving
@@ -72,10 +79,13 @@ type kinds struct {
 	stood       float64 // the seconds the car stood on the grid before the start, 0 for none (grid)
 
 	// The rank (ranked): the place on the first racing frame, and the place it
-	// leapt to in the start window, if it did.
+	// leapt to in the start window, if it did. On the track screen's leap
+	// (onScreen), they are the places it leapt from and to there.
 	slot, leapt int32
 	ranked      bool // a ranked session: leapt, or carried over a restart
 	rankKnown   bool // the start window has passed, or the place leapt
+	screen      leap // the place's leap on the track screen before the start, if any (screen)
+	onScreen    bool // ranked by screen's leap
 
 	joined bool
 	last   kindVerdict // the verdict so far (v1's SessionDetector._kind)
@@ -90,10 +100,17 @@ const (
 	startWindow = 18  // packets, 0.3 s at 60 Hz
 	gridKph     = 30.0
 	// rankLeap is the places the position must rise above the first racing
-	// frame's within the start window for a ranked session. The ranked
-	// sessions recorded rose 10 to 19 places in one packet; no other session,
-	// a lap race's rolling start included, rose at all in the window.
+	// frame's within the start window for a ranked session, and the size of a
+	// leap on the track screen before the start (screen). The ranked sessions
+	// recorded rose 10 to 19 places in one packet; no other session, a lap
+	// race's rolling start included, rose at all in the window, or by more than
+	// one place a step on the track screen.
 	rankLeap = 2
+	// screenGapPackets is the most packets a leap on the track screen may span:
+	// GT7's re-rank came between consecutive packets (2026-10-31, 2026-11-01),
+	// and a longer gap may hide lost packets, a loading screen's among them, so
+	// GT7's P1 for an empty grid then the slot is not read as one.
+	screenGapPackets = 6
 )
 
 // The grid behind the line (paddock#148). GT7 puts the car on the grid on the
@@ -144,6 +161,47 @@ func (g *grid) observe(s *state) float64 {
 		g.to = s.packetID
 	}
 	return stood
+}
+
+// leap is a rise of the place up the order: from the place GT7 gave before it to
+// the one after, 0 for none.
+type leap struct{ from, to int32 }
+
+// screen watches the track screen for GT7 re-ranking the car before the start
+// (ranked, paddock#360): a rise of rankLeap or more places from one frame to the
+// next. No pass on the track does that: in every recording so far, the place on
+// the track screen of a race or a timed race either held, fell (GT7's P1 for an
+// empty grid, then the slot) or moved one place at a time (a rolling start's
+// formation, a practice's out lap); the qualifying of 2026-11-01 leapt from P20 to
+// P1. A pause keeps it, as the car waits on the track screen; a loading screen or
+// any other phase forgets it, as grid does.
+type screen struct {
+	last       int32 // the place on the track screen's last frame with one, 0 for none
+	lastPacket int32 // that frame's packet
+	first      leap  // the first leap seen
+}
+
+// observe reads s against the track screen so far, then takes it: on a racing
+// frame, the leap seen on the track screen before it, if any.
+func (r *screen) observe(s *state) leap {
+	var seen leap
+	if s.inRace() {
+		seen = r.first
+	}
+	p := s.racePosition()
+	switch {
+	case s.phase == phasePaused:
+	case s.phase != phaseAtTrack:
+		*r = screen{}
+	case p == 0 || s.totalCars <= 0:
+	default:
+		gap := s.packetID - r.lastPacket
+		if r.first.from == 0 && r.last-p >= rankLeap && gap > 0 && gap <= screenGapPackets {
+			r.first = leap{from: r.last, to: p}
+		}
+		r.last, r.lastPacket = p, s.packetID
+	}
+	return seen
 }
 
 // frameField says one frame shows a field, as the kind reads it: three or more
@@ -276,6 +334,11 @@ func (k *kinds) observeRank(s *state) {
 	p := s.racePosition()
 	if packets := s.packetID - k.startPacket; packets >= startWindow || packets < 0 {
 		k.rankKnown = true
+		// No leap in the window: the track screen's, if the session began still
+		// that far above the place it leapt from (paddock#360).
+		if from := k.screen.from; from > 0 && k.slot > 0 && from-k.slot >= rankLeap {
+			k.slot, k.leapt, k.ranked, k.onScreen = from, k.screen.to, true, true
+		}
 		return
 	}
 	switch {
@@ -325,7 +388,11 @@ func (k *kinds) decide() kindVerdict {
 			v.kind = eventsv1.SessionType_SESSION_TYPE_RANKED
 			why += ", ranked by lap time"
 			if k.leapt > 0 {
-				why += " (P" + strconv.Itoa(int(k.slot)) + " to P" + strconv.Itoa(int(k.leapt)) + " at the start)"
+				where := "at the start"
+				if k.onScreen {
+					where = "on the track screen"
+				}
+				why += " (P" + strconv.Itoa(int(k.slot)) + " to P" + strconv.Itoa(int(k.leapt)) + " " + where + ")"
 			}
 		}
 	}
