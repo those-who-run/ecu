@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"maps"
+	"math"
 	"os"
 	"path/filepath"
 	"slices"
@@ -211,6 +212,50 @@ func TestAPacketWaitingKeepsTheOuting(t *testing.T) {
 	close(c.gate)
 	if s := w.Close(t.Context()); s.Outings != 1 || s.Frames != 2 {
 		t.Errorf("stats %+v; want both packets in one outing", s)
+	}
+}
+
+// A packet left out of the recording, a value v1 cannot write, still sets the
+// timer, so the outing it ends ends once the feed is idle: here it comes as the
+// timer fires, which takes the timer that was out.
+func TestAPacketLeftOutStillSetsTheTimer(t *testing.T) {
+	dir := t.TempDir()
+	c := newFakeClock(at)
+	c.gate = make(chan struct{})
+	idle := time.Minute
+	w := open(t, dir, Options{Idle: idle}, c)
+	good := salsa.Received{T: 0}
+	w.Write(good, arrived(good))
+	<-c.armed // the goroutine is held as it sets the timer
+	bad := salsa.Received{T: 1}
+	bad.FuelLevel = float32(math.NaN())
+	w.Write(bad, arrived(bad))
+	c.fire <- c.now() // fires early, with the bad packet waiting
+	close(c.gate)
+	if d := <-c.armed; d != idle+time.Second {
+		t.Errorf("the timer was set again for %v, want %v", d, idle+time.Second)
+	}
+	c.set(arrived(bad).Add(idle))
+	c.fire <- c.now()
+	path := filepath.Join(dir, "20261031-200509.jsonl.gz")
+	eventually(t, "a whole gzip", func() bool { n, err := gzipLines(path); return err == nil && n == 1 })
+	if s := w.Close(t.Context()); s.Outings != 1 || s.Frames != 1 || s.Dropped != 1 {
+		t.Errorf("stats %+v", s)
+	}
+}
+
+// A directory whose path holds what a glob would take for a pattern still finds
+// the ids taken in it.
+func TestAnIdTakenIsFoundWhateverTheDirectorysName(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "rec[ordings]*?")
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	touchAt(t, dir, at, "20261031-200509.capture.gz")
+	w := open(t, dir, Options{}, newFakeClock(at))
+	w.Write(salsa.Received{T: 1}, at)
+	if s := w.Close(t.Context()); s.Path != filepath.Join(dir, "20261031-200510.jsonl.gz") {
+		t.Errorf("recorded to %s", s.Path)
 	}
 }
 
