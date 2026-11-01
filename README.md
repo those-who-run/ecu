@@ -542,7 +542,9 @@ ecu recordings archive /recordings/20261031-200509.jsonl.gz
   unless given one, adds the issues, and keeps when it was first archived. An
   outing written to within `TWR_ECU_RECORDINGS_IDLE_SECS` may still be
   recording, and is refused; `--force` archives it with a warning to archive
-  it again once it has ended. Pushing archived outings anywhere off the
+  it again once it has ended. A recording just copied out, with `kubectl cp`
+  for one, has a fresh modification time, so archiving the copy is refused
+  for the idle window too unless given `--force`. Pushing archived outings anywhere off the
   volume is the deployment's concern.
 - The exit codes: 1 for an outing that cannot be archived (no such recording,
   or one still recording), 2 for a bad flag, an id that is not one, or a

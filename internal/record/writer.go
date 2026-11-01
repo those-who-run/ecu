@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -244,6 +245,9 @@ func (w *Writer) run() {
 					skipped = true
 				}
 				w.dropped.Add(1)
+				if wake == nil { // its arrival still keeps the outing
+					wake = w.arm(o, last)
+				}
 				continue
 			}
 			if o == nil {
@@ -328,7 +332,7 @@ func (w *Writer) start() *outing {
 	for {
 		o.id = t.Format(stampLayout)
 		o.path = filepath.Join(w.dir, o.id+Ext)
-		if taken, _ := filepath.Glob(filepath.Join(w.dir, o.id+".*")); len(taken) > 0 {
+		if w.taken(o.id) {
 			t = t.Add(time.Second)
 			continue
 		}
@@ -353,6 +357,22 @@ func (w *Writer) start() *outing {
 	w.path.Store(&o.path)
 	w.logger.Info("recording outing to", "path", o.path)
 	return o
+}
+
+// taken says whether a file in the directory is named for the outing id, <id>.*.
+// The names are matched as they are, never as a pattern, whatever the
+// directory's path holds.
+func (w *Writer) taken(id string) bool {
+	entries, err := os.ReadDir(w.dir)
+	if err != nil {
+		return false // the file's creation says what is wrong
+	}
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), id+".") {
+			return true
+		}
+	}
+	return false
 }
 
 // write writes one line, closing a gzip member every memberEvery lines, and says
