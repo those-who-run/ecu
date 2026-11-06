@@ -68,13 +68,13 @@ func readBack(tb testing.TB, path string) []salsa.Received {
 // packets written, across several gzip members, and its lines are v1's.
 func TestARecordingReadsBackThroughSalsa(t *testing.T) {
 	dir := t.TempDir()
-	w, err := Open(dir, quiet(), clock)
+	w, err := Open(dir, Options{}, quiet(), clock)
 	if err != nil {
 		t.Fatal(err)
 	}
 	in := packets(t, exact[0]) // 1,221 frames: three members
 	for i, r := range in {
-		w.Write(r)
+		w.Write(r, at)
 		if i%500 == 499 {
 			time.Sleep(10 * time.Millisecond) // well inside the buffer either way
 		}
@@ -102,38 +102,42 @@ func TestARecordingReadsBackThroughSalsa(t *testing.T) {
 	}
 }
 
-// A second recording in the same second takes -2, never the first one's file; a
-// Writer that gets no packet makes no file.
+// A second recording in the same second takes the next second free, never the
+// first one's file, nor an id another file has (a capture or a note left behind),
+// so its id is v1's YYYYMMDD-HHMMSS; a Writer that gets no packet makes no file.
 func TestRecordingsNeverOverwriteEachOther(t *testing.T) {
 	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "20261031-200510.json"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
 	var paths []string
 	for range 2 {
-		w, err := Open(dir, quiet(), clock)
+		w, err := Open(dir, Options{}, quiet(), clock)
 		if err != nil {
 			t.Fatal(err)
 		}
-		w.Write(salsa.Received{T: 1})
+		w.Write(salsa.Received{T: 1}, at)
 		paths = append(paths, w.Close(t.Context()).Path)
 	}
-	if paths[0] != filepath.Join(dir, "20261031-200509.jsonl.gz") || paths[1] != filepath.Join(dir, "20261031-200509-2.jsonl.gz") {
+	if paths[0] != filepath.Join(dir, "20261031-200509.jsonl.gz") || paths[1] != filepath.Join(dir, "20261031-200511.jsonl.gz") {
 		t.Errorf("paths %v", paths)
 	}
-	w, err := Open(dir, quiet(), clock)
+	w, err := Open(dir, Options{}, quiet(), clock)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if s := w.Close(t.Context()); s.Path != "" {
 		t.Errorf("no packets, yet %s", s.Path)
 	}
-	if entries, _ := os.ReadDir(dir); len(entries) != 2 {
-		t.Errorf("%d files, want 2", len(entries))
+	if entries, _ := os.ReadDir(dir); len(entries) != 3 {
+		t.Errorf("%d files, want 3", len(entries))
 	}
 }
 
 // A directory that is missing is made; one ecu cannot write to stops it at start.
 func TestOpenChecksTheDirectory(t *testing.T) {
 	made := filepath.Join(t.TempDir(), "a", "b")
-	w, err := Open(made, quiet(), clock)
+	w, err := Open(made, Options{}, quiet(), clock)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,7 +149,7 @@ func TestOpenChecksTheDirectory(t *testing.T) {
 	if err := os.WriteFile(file, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Open(file, quiet(), clock); err == nil {
+	if _, err := Open(file, Options{}, quiet(), clock); err == nil {
 		t.Error("a file as the directory was taken")
 	}
 }
@@ -154,15 +158,15 @@ func TestOpenChecksTheDirectory(t *testing.T) {
 // written.
 func TestAPacketThatCannotBeWrittenIsCounted(t *testing.T) {
 	var log bytes.Buffer
-	w, err := Open(t.TempDir(), slog.New(slog.NewJSONHandler(&log, nil)), clock)
+	w, err := Open(t.TempDir(), Options{}, slog.New(slog.NewJSONHandler(&log, nil)), clock)
 	if err != nil {
 		t.Fatal(err)
 	}
 	bad := salsa.Received{}
 	bad.FuelLevel = float32(math.NaN())
-	w.Write(bad)
-	w.Write(bad)
-	w.Write(salsa.Received{T: 2})
+	w.Write(bad, at)
+	w.Write(bad, at)
+	w.Write(salsa.Received{T: 2}, at)
 	s := w.Close(t.Context())
 	if s.Frames != 1 || s.Dropped != 2 {
 		t.Errorf("stats %+v; want 1 frame and 2 dropped", s)
@@ -180,7 +184,7 @@ func TestAPacketThatCannotBeWrittenIsCounted(t *testing.T) {
 func TestAFailingRecordingNeverHoldsTheFramePath(t *testing.T) {
 	dir := t.TempDir()
 	var log bytes.Buffer
-	w, err := Open(dir, slog.New(slog.NewJSONHandler(&log, nil)), clock)
+	w, err := Open(dir, Options{}, slog.New(slog.NewJSONHandler(&log, nil)), clock)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -189,7 +193,7 @@ func TestAFailingRecordingNeverHoldsTheFramePath(t *testing.T) {
 	}
 	start := time.Now()
 	for range Buffer * 2 {
-		w.Write(salsa.Received{T: 1})
+		w.Write(salsa.Received{T: 1}, at)
 	}
 	if d := time.Since(start); d > time.Second {
 		t.Errorf("Write took %v", d)
@@ -205,7 +209,7 @@ func TestAFailingRecordingNeverHoldsTheFramePath(t *testing.T) {
 
 // Close gives up on a writer that is stuck once its context is done.
 func TestCloseIsBounded(t *testing.T) {
-	w, err := Open(t.TempDir(), quiet(), clock)
+	w, err := Open(t.TempDir(), Options{}, quiet(), clock)
 	if err != nil {
 		t.Fatal(err)
 	}

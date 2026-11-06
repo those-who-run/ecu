@@ -153,7 +153,7 @@ func TestALiveDriveReachesThePublisherAndIsRecorded(t *testing.T) {
 	src := live.Open(live.Config{PS5: "127.0.0.1", Heartbeat: time.Hour, HeartbeatPort: ps5.LocalAddr().(*net.UDPAddr).Port,
 		Listen: listen.String()}, logger)
 	dir := t.TempDir()
-	rec, err := record.Open(dir, logger, time.Now)
+	rec, err := record.Open(dir, record.Options{}, logger, time.Now)
 	if err != nil {
 		t.Fatal(err)
 	}
