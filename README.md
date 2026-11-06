@@ -251,11 +251,31 @@ GT7 sends no mode. [`race/kind.go`](race/kind.go) is v1's
   | `real-nuc-suzuka-practice-2026-10-31` (practice) | 11 | 1 | ranked |
   | `real-nuc-suzuka-practice-evening-2026-10-31` (practice) | 16 | 2 | ranked |
   | `real-nuc-suzuka-qualifying-2026-10-31` (qualifying) | 5 | 1 | ranked |
+  | `real-nuc-watkins-glen-quali-p1-2026-11-01` (qualifying) | 1 (P20 to P1 on the track screen) | 1 | ranked |
   | `real-nuc-suzuka-timed-race-2026-10-16` (a timed race) | 10 | 10 | timed field |
   | every lap race, time trial and solo session recorded | | no rise | unchanged |
 
   The fixtures are in
   [`race/testdata/sessions/`](race/testdata/sessions).
+- **Ranked on the track screen** (paddock#360). GT7 can re-rank the car
+  before the start instead: the qualifying of 2026-11-01 listed it P20 of 20 on
+  the track screen, then P1 three packets later as it stood, so lap 1 began P1,
+  nothing leapt in the window and ecu 0.1.15 read a timed field. So a timed
+  field is ranked too when, on the track screen before the start, the place
+  rose 2 or more in one step and the first racing frame's place is still 2 or
+  more above the place it rose from. No pass does that: on every recording, a
+  race's or a timed race's place on the track screen held, fell (GT7's P1 for an
+  empty grid, then the slot) or moved one place at a time (a rolling start's
+  formation, a practice's out lap). The window is read first; the track screen
+  only once the window closes without a leap, so the verdict comes with the
+  start ("ranked by lap time (P20 to P1 on the track screen)"), and every
+  session ranked by the window keeps its evidence (the evening qualifying of
+  2026-10-31 leapt on both). A pause on the track screen keeps the place; a
+  leap may span at most 6 packets, so lost packets can't join GT7's P1 for an
+  empty grid to the slot. The risk left: a timed race whose track screen shows
+  P(N) and then its slot with no loading screen between would read as ranked.
+  None recorded does; it is worth watching on the next timed race recorded
+  live.
 - **Fuel use.** On once the level drops 0.05 below the highest seen while
   racing; off after 20 s of driving at 20 km/h or more without a drop, or at
   once with no tank.

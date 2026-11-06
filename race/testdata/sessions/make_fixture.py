@@ -64,6 +64,23 @@ The qualifying's runs from that loading screen to the track screen after it:
 lap 1 on frame 154270 (2076 of the slice) in slot 5, P1 on the next packet, two
 laps and back to the pits. Each window, 33 s to 37 s in, is the start and the 18
 packets after it.
+
+The qualifying listed P1 from the start (paddock#360) is cut from ecu 0.1.15's
+live recording of 2026-10-31 22:32:18 UTC to 2026-11-01, 20261031-223218.jsonl.gz
+(sha256 bca738ebc7973877ba5711a5d51d7d00e56679d249345621f759ea3a09c9d6bc; its
+gzip tail is cut short, leaving 1,309,308 frames), qualifying at Watkins Glen
+Long Course in the Porsche 962 C '88, 20 cars, fuel use off:
+
+    zcat RECORDING 2>/dev/null | sed -n 1262139,1296900p > slice.jsonl
+    python3 make_fixture.py slice.jsonl real-nuc-watkins-glen-quali-p1-2026-11-01.jsonl.gz 22:26
+
+The slice runs from the loading screen after the practice before it to 2 s into
+the track screen after it. On the track screen GT7 lists the car P20 of 20
+(frame 1262418 of the recording, 280 of the slice), then P1 three packets later
+(1262421, 283) as it stands; it launches, and starts lap 1 P1 on frame 1263494
+(1356 of the slice) at 92 km/h, 22.6 s in. Four laps, the place falling to P6 as
+the AI set their times, a pause, and a quit to the track screen. The window, 22 s
+to 26 s in, is the start and the 18 packets after it.
 """
 
 import gzip
