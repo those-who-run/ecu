@@ -119,7 +119,7 @@ func outingRef(ref, dir string) (string, string) {
 }
 
 // listRecordings prints each outing, oldest first: its id, start, length, frames
-// and size, whether it is archived and whether it ended whole, then one line per
+// and size, every <id>.* file's with its capture, whether it is archived and whether it ended whole, then one line per
 // session in it and the archive note. A note whose recording is gone is warned of.
 func listRecordings(ctx context.Context, dir string, stdout, stderr io.Writer) int {
 	all, err := record.Recordings(dir)
@@ -142,7 +142,7 @@ func listRecordings(ctx context.Context, dir string, stdout, stderr io.Writer) i
 			continue
 		}
 		parts := []string{r.ID, r.Start.Format(time.RFC3339), lengthOf(s.length),
-			fmt.Sprintf("%d frames", s.frames), fmt.Sprintf("%.1f MB", float64(r.Size)/1e6)}
+			fmt.Sprintf("%d frames", s.frames), fmt.Sprintf("%.1f MB", float64(r.Total)/1e6)}
 		if r.Note != nil {
 			parts = append(parts, "archived"+citing(r.Note.Issues))
 		}

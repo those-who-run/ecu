@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"math"
 	"net"
 	"strings"
 	"sync"
@@ -43,6 +44,7 @@ type ps5 struct {
 	t     *testing.T
 	conn  *net.UDPConn
 	beats chan time.Time
+	kinds chan byte // each heartbeat's kind
 }
 
 func newPS5(t *testing.T) *ps5 {
@@ -51,7 +53,7 @@ func newPS5(t *testing.T) *ps5 {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p := &ps5{t: t, conn: conn, beats: make(chan time.Time, 1000)}
+	p := &ps5{t: t, conn: conn, beats: make(chan time.Time, 1000), kinds: make(chan byte, 1000)}
 	go func() {
 		buf := make([]byte, 64)
 		for {
@@ -59,8 +61,9 @@ func newPS5(t *testing.T) *ps5 {
 			if err != nil {
 				return
 			}
-			if n == 1 && buf[0] == salsa.HeartbeatA {
+			if n == 1 {
 				p.beats <- time.Now()
+				p.kinds <- buf[0]
 			}
 		}
 	}()
@@ -138,6 +141,91 @@ func next(t *testing.T, s *Source) int32 {
 		t.Fatal(err)
 	}
 	return r.PacketID
+}
+
+// The fake PS5 gets the configured heartbeat kind (paddock#343, R4): "A" unless
+// set.
+func TestTheHeartbeatIsTheConfiguredKind(t *testing.T) {
+	for _, kind := range []byte{0, salsa.HeartbeatA, salsa.HeartbeatB, salsa.HeartbeatTilde} {
+		p := newPS5(t)
+		s := Open(Config{PS5: "127.0.0.1", Heartbeat: time.Hour, HeartbeatPort: p.port(), Listen: freeAddr(t), HeartbeatKind: kind},
+			(&logs{}).logger())
+		want := kind
+		if want == 0 {
+			want = salsa.HeartbeatA
+		}
+		select {
+		case got := <-p.kinds:
+			if got != want {
+				t.Errorf("kind %q: the PS5 got %q", kind, got)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatalf("kind %q: no heartbeat", kind)
+		}
+		_ = s.Close()
+	}
+}
+
+// Every datagram from the PS5's address goes to the capture as received, the
+// undecodable and the late too, before the frame path takes it; a datagram from
+// any other address is counted and never captured (paddock#343, R1).
+func TestOnlyThePS5sDatagramsAreCaptured(t *testing.T) {
+	p := newPS5(t)
+	stranger, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 2)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = stranger.Close() }()
+	type captured struct {
+		t  float64
+		at time.Time
+		d  []byte
+	}
+	var (
+		mu  sync.Mutex
+		got []captured
+	)
+	listen := freeAddr(t)
+	before := time.Now()
+	s := open(t, p, listen, &logs{}, func(s *Source) {
+		s.cfg.Capture = func(t float64, at time.Time, d []byte) {
+			mu.Lock()
+			defer mu.Unlock()
+			got = append(got, captured{t, at, bytes.Clone(d)})
+		}
+	})
+	eventually(t, "listening", func() bool { return s.Stats().Listening })
+	to, err := net.ResolveUDPAddr("udp", listen)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sent := [][]byte{packet(1), packet(2), []byte("not GT7"), packet(1), packet(3)}
+	for i, d := range sent {
+		p.send(listen, d)
+		if _, err := stranger.WriteToUDP(packet(int32(100+i)), to); err != nil { //nolint:gosec // small
+			t.Fatal(err)
+		}
+	}
+	eventually(t, "read", func() bool {
+		st := s.Stats()
+		return st.Foreign == uint64(len(sent)) && st.Packets+st.Late+st.Undecodable == 2*uint64(len(sent))
+	})
+	mu.Lock()
+	defer mu.Unlock()
+	if len(got) != len(sent) {
+		t.Fatalf("captured %d datagrams, want the PS5's %d", len(got), len(sent))
+	}
+	for i, c := range got {
+		if !bytes.Equal(c.d, sent[i]) {
+			t.Errorf("datagram %d captured as %x, sent %x", i, c.d, sent[i])
+		}
+		if c.at.Before(before) || c.at.After(time.Now()) || math.Abs(c.at.Sub(s.Start()).Seconds()-c.t) > 1e-6 {
+			t.Errorf("datagram %d at %v, t %v; start %v", i, c.at, c.t, s.Start())
+		}
+		if i > 0 && (c.t < got[i-1].t || c.at.Before(got[i-1].at)) {
+			t.Errorf("datagram %d received before the one before it", i)
+		}
+	}
 }
 
 // The fake PS5 gets an "A" at once and then every interval.
@@ -425,6 +513,15 @@ func TestConfigFromEnv(t *testing.T) {
 		cfg.TelemetryTimeout != 3*time.Second {
 		t.Errorf("defaults %+v", cfg)
 	}
+	if cfg.HeartbeatKind != salsa.HeartbeatA || cfg.Capture != nil {
+		t.Errorf("defaults %+v", cfg)
+	}
+	for _, kind := range []string{"A", "B", "~"} {
+		cfg, err = ConfigFromEnv(env(map[string]string{"TWR_ECU_PS5_IP": "192.0.2.7", "TWR_ECU_HEARTBEAT_KIND": kind}))
+		if err != nil || cfg.HeartbeatKind != kind[0] {
+			t.Errorf("kind %q: %+v, %v", kind, cfg, err)
+		}
+	}
 	cfg, err = ConfigFromEnv(env(map[string]string{"TWR_ECU_PS5_IP": "192.0.2.7", "TWR_ECU_HEARTBEAT_SECS": "0.5"}))
 	if err != nil || cfg.Heartbeat != 500*time.Millisecond {
 		t.Errorf("0.5 s: %+v, %v", cfg, err)
@@ -454,6 +551,10 @@ func TestConfigFromEnv(t *testing.T) {
 		{map[string]string{"TWR_ECU_PS5_IP": "192.0.2.7", "TWR_ECU_TELEMETRY_TIMEOUT_SECS": "1e10"}, "above 0 and at most 3600"},
 		{map[string]string{"TWR_ECU_PS5_IP": "192.0.2.7", "TWR_ECU_TELEMETRY_TIMEOUT_SECS": "NaN"}, "TWR_ECU_TELEMETRY_TIMEOUT_SECS"},
 		{map[string]string{"TWR_ECU_PS5_IP": "192.0.2.7", "TWR_ECU_TELEMETRY_TIMEOUT_SECS": "soon"}, "TWR_ECU_TELEMETRY_TIMEOUT_SECS"},
+		{map[string]string{"TWR_ECU_PS5_IP": "192.0.2.7", "TWR_ECU_HEARTBEAT_KIND": "C"}, `TWR_ECU_HEARTBEAT_KIND: "C" is not a heartbeat kind: A, B or ~`},
+		{map[string]string{"TWR_ECU_PS5_IP": "192.0.2.7", "TWR_ECU_HEARTBEAT_KIND": "a"}, "TWR_ECU_HEARTBEAT_KIND"},
+		{map[string]string{"TWR_ECU_PS5_IP": "192.0.2.7", "TWR_ECU_HEARTBEAT_KIND": "AB"}, "TWR_ECU_HEARTBEAT_KIND"},
+		{map[string]string{"TWR_ECU_PS5_IP": "192.0.2.7", "TWR_ECU_HEARTBEAT_KIND": " ~"}, "TWR_ECU_HEARTBEAT_KIND"},
 	} {
 		if _, err := ConfigFromEnv(env(c.vars)); err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%v: %v, want %q", c.vars, err, c.want)

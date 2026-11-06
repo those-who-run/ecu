@@ -199,10 +199,11 @@ func TestLogsWhereItPublishes(t *testing.T) {
 		`"msg":"publishing","nats":"nats://127.0.0.1:1","src":"live"`,
 		`"msg":"published","frames":0,`,
 		`"dropped_events":0,"dropped_callouts":0,"final":true}`,
-		`"msg":"listening to the PS5","ps5":"127.0.0.1","heartbeat_port":33739,"listen":"127.0.0.1:0","heartbeat_secs":2}`,
+		`"msg":"listening to the PS5","ps5":"127.0.0.1","heartbeat_port":33739,"listen":"127.0.0.1:0","heartbeat_secs":2,"heartbeat_kind":"A","capture":true}`,
+		`"msg":"capture","on":true}`,
 		`"msg":"recording","dir":"` + dir + `"`,
 		`"msg":"stopped listening to the PS5","packets":0,`,
-		`"msg":"recorded","path":"","outings":0,"frames":0,"dropped":0}`,
+		`"msg":"recorded","path":"","outings":0,"frames":0,"dropped":0,"captured":0,"capture_dropped":0}`,
 	} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Errorf("log has no %s: %s", want, stdout.String())
@@ -218,9 +219,38 @@ func TestLogsWhereItPublishes(t *testing.T) {
 	}
 }
 
+// TWR_ECU_CAPTURE=off records with no capture, and TWR_ECU_HEARTBEAT_KIND picks
+// the heartbeat (paddock#343, R4 and R5).
+func TestTheCaptureCanBeTurnedOff(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	stdout := newReadyLog()
+	exit := make(chan int, 1)
+	go func() {
+		exit <- run(ctx, []string{"-nats", "nats://127.0.0.1:1"}, liveEnv(map[string]string{"ADDR": "127.0.0.1:0",
+			"TWR_ECU_RECORDINGS_DIR": t.TempDir(), "TWR_ECU_CAPTURE": "off", "TWR_ECU_HEARTBEAT_KIND": "~"}), stdout, &bytes.Buffer{})
+	}()
+	select {
+	case <-stdout.ready:
+	case code := <-exit:
+		t.Fatalf("exit %d before serving, log %q", code, stdout.String())
+	case <-time.After(10 * time.Second):
+		t.Fatal("not serving after 10 s")
+	}
+	cancel()
+	if code := <-exit; code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+	for _, want := range []string{`"heartbeat_kind":"~","capture":false}`, `"msg":"capture","on":false}`} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Errorf("log has no %s: %s", want, stdout.String())
+		}
+	}
+}
+
 // No PS5 address (the maintainer's decision, 2026-10-28: a typo in a deployment
 // fails loudly rather than leaving a healthy pod that hears nothing), one that is
-// not an IP address, a bad heartbeat, a src other than live, or a recordings
+// not an IP address, a bad heartbeat or heartbeat kind, a capture neither on nor
+// off, a src other than live, or a recordings
 // directory ecu cannot write to stops ecu at start, before it logs anything.
 func TestLiveModeIsConfiguredAtStart(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "file")
@@ -242,6 +272,9 @@ func TestLiveModeIsConfiguredAtStart(t *testing.T) {
 		{nil, liveEnv(map[string]string{"TWR_ECU_PAUSE_LIMIT_SECS": "-1"}), "TWR_ECU_PAUSE_LIMIT_SECS"},
 		{nil, liveEnv(map[string]string{"TWR_ECU_PAUSE_LIMIT_SECS": "an hour"}), "TWR_ECU_PAUSE_LIMIT_SECS"},
 		{nil, liveEnv(map[string]string{"TWR_ECU_RECORDINGS_KEEP_DAYS": "a week"}), "TWR_ECU_RECORDINGS_KEEP_DAYS"},
+		{nil, liveEnv(map[string]string{"TWR_ECU_HEARTBEAT_KIND": "C"}), `TWR_ECU_HEARTBEAT_KIND: "C" is not a heartbeat kind`},
+		{nil, liveEnv(map[string]string{"TWR_ECU_CAPTURE": "no"}), `TWR_ECU_CAPTURE: "no" is not on or off`},
+		{nil, liveEnv(map[string]string{"TWR_ECU_CAPTURE_KEEP_DAYS": "-1"}), "TWR_ECU_CAPTURE_KEEP_DAYS"},
 		{nil, liveEnv(map[string]string{"TWR_ECU_RECORDINGS_IDLE_SECS": "0"}), "TWR_ECU_RECORDINGS_IDLE_SECS"},
 	} {
 		var stdout, stderr bytes.Buffer
