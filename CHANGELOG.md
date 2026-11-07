@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.1.17](https://github.com/those-who-run/ecu/compare/v0.1.16...v0.1.17) (2026-11-07)
+
+
+### Features
+
+* **record:** a recording per outing, pruned, archived and listed ([#77](https://github.com/those-who-run/ecu/issues/77)) ([ec8ac70](https://github.com/those-who-run/ecu/commit/ec8ac7023edf31556b3181da55a11de891bf90c6))
+* **record:** capture the raw datagrams beside each recording, and pick the heartbeat kind ([#78](https://github.com/those-who-run/ecu/issues/78)) ([c43e8b2](https://github.com/those-who-run/ecu/commit/c43e8b2968593df571864176fb59086b0f14ddc0))
+
+
+### Bug Fixes
+
+* **race:** a qualifying GT7 re-ranks on the track screen is ranked ([#76](https://github.com/those-who-run/ecu/issues/76)) ([81c32ee](https://github.com/those-who-run/ecu/commit/81c32ee439ba0578bbc94f5bcb0db1321941a406))
+
 ## [0.1.16](https://github.com/those-who-run/ecu/compare/v0.1.15...v0.1.16) (2026-11-01)
 
 
