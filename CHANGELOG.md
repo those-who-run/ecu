@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.18](https://github.com/those-who-run/ecu/compare/v0.1.17...v0.1.18) (2026-11-12)
+
+
+### Dependencies
+
+* Go 1.27.4 ([#84](https://github.com/those-who-run/ecu/issues/84)) ([3c8cff7](https://github.com/those-who-run/ecu/commit/3c8cff75a8247b81e3cde15c3e97604781d46a7b))
+
 ## [0.1.17](https://github.com/those-who-run/ecu/compare/v0.1.16...v0.1.17) (2026-11-07)
 
 
